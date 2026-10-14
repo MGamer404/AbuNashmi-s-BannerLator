@@ -158,7 +158,7 @@ class DownloadManagerActivity : ComponentActivity() {
                             addToShortcuts = null
                             StarLaunchBridge.writeShortcutAsync(
                                 this@DownloadManagerActivity, container,
-                                req.gameName, req.exePath, req.coverUrl,
+                                req.gameName, req.exePath, req.coverUrl, req.appId,
                             ) { success, message ->
                                 addResult = AddShortcutResult(req.gameName, success, message)
                             }
@@ -293,7 +293,7 @@ class DownloadManagerActivity : ComponentActivity() {
     private fun startAddToShortcuts(appId: Int, gameName: String, exePath: String, coverUrl: String?) {
         val launchExe = GoldbergPatcher.resolveLaunchExe(this, appId, exePath)
         StarLaunchBridge.loadContainers(this) { containers ->
-            addToShortcuts = AddToShortcutsRequest(gameName, launchExe, coverUrl, containers)
+            addToShortcuts = AddToShortcutsRequest(gameName, launchExe, coverUrl, containers, appId)
         }
     }
 
