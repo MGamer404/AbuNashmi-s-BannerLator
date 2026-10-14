@@ -11191,7 +11191,6 @@ public class XServerDisplayActivity extends AppCompatActivity {
         String preloaderGameName = (shortcut != null) ? shortcut.name : container.getName();
         preloaderDialog.enterGuest("Waiting for " + preloaderGameName + " to render…");
         runOnUiThread(this::startLaunchTimers);
-        if (goldbergLaunchActive) runOnUiThread(this::startGoldbergWatchdog);
 
         // Wayland: the launch overlay must ALWAYS clear so the guest is visible — the compositor
         // present path (first-frame hook) may not fire for a shm-only desktop, and the guest must
@@ -16976,7 +16975,6 @@ return true;
     }
 
     private void evaluateGameExitTick() {
-        evaluateGoldbergWatchdogTick();
         if (!autoCloseOnExitEnabled || autoCloseExeName == null) return;
         boolean present = false;
         for (String n : gameTickNames) {
@@ -16996,9 +16994,6 @@ return true;
                 gameGoneTicks = 0;
                 return;
             }
-            // A Goldberg game that vanished before ever showing a window is reported by the Goldberg
-            // watchdog's failure card, not silently closed (the user needs to see why).
-            if (gbWatchActive && !gameWindowSeen) return;
             gameGoneTicks++;
             // Require a few consecutive empty ticks so a brief gap (e.g. a loader that relaunches the
             // same exe) doesn't trigger an early close.
