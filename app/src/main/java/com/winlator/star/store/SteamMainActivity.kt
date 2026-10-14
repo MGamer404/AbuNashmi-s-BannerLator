@@ -32,6 +32,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
@@ -689,6 +690,7 @@ private fun RailOverflow(
     val ctx = LocalContext.current
     var expanded by remember { mutableStateOf(false) }
     var showSocialSettings by remember { mutableStateOf(false) }
+    var showLibraryLocations by remember { mutableStateOf(false) }
 
     Box {
         IconButton(onClick = { expanded = true }, modifier = Modifier.steamFocusRing()) {
@@ -734,6 +736,13 @@ private fun RailOverflow(
                 },
                 onClick = { expanded = false; onChangeAccount() },
             )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.steam_lib_title)) },
+                leadingIcon = {
+                    Icon(Icons.Filled.FolderOpen, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                },
+                onClick = { expanded = false; showLibraryLocations = true },
+            )
             HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outline)
             DropdownMenuItem(
                 text = { Text("Sign out", color = MaterialTheme.colorScheme.error) },
@@ -751,6 +760,9 @@ private fun RailOverflow(
 
     if (showSocialSettings) {
         SteamSocialSettingsSheet(onDismiss = { showSocialSettings = false })
+    }
+    if (showLibraryLocations) {
+        SteamLibraryManagerDialog(onDismiss = { showLibraryLocations = false })
     }
 }
 
