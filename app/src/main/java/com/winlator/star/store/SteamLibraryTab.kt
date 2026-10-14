@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
@@ -154,9 +155,10 @@ private val LIBRARY_BY_NAME = Comparator<SteamGame> { a, b ->
 /**
  * The Library tab's sort. [NAME] is the DEFAULT and is exactly the order the tab has always used.
  *
- * [RATING] is Steam USER reviews (percent positive, as the store shows), best first. A game with no
- * rating — not fetched yet, or fewer reviews than Steam rates — goes to the bottom, A–Z among
- * themselves. Ties on percent go to the game with more reviews, then by name.
+ * [RATING] is Steam USER reviews, grouped under Steam's own rating labels from best to worst (see
+ * [ratingLevel]). Only games with at least [SteamReviewScores.MIN_RANKED_REVIEWS] reviews are ranked;
+ * the rest, and every unrated game, form a last group ordered A–Z. Inside a rating group: percent
+ * positive, then more reviews, then name.
  */
 enum class LibrarySort(@StringRes val labelRes: Int) {
     NAME(R.string.steam_libsort_name),
@@ -166,12 +168,13 @@ enum class LibrarySort(@StringRes val labelRes: Int) {
     fun comparator(): Comparator<SteamGame> = when (this) {
         NAME -> LIBRARY_BY_NAME
         RATING -> Comparator<SteamGame> { a, b ->
-            val aRated = a.reviewPercent >= 0
-            val bRated = b.reviewPercent >= 0
+            val la = ratingLevel(a)
+            val lb = ratingLevel(b)
             when {
-                aRated != bRated -> if (aRated) -1 else 1
-                aRated && a.reviewPercent != b.reviewPercent -> b.reviewPercent.compareTo(a.reviewPercent)
-                aRated && a.reviewTotal != b.reviewTotal -> b.reviewTotal.compareTo(a.reviewTotal)
+                la != lb -> la.compareTo(lb)
+                la == RATING_UNRANKED -> LIBRARY_BY_NAME.compare(a, b)
+                a.reviewPercent != b.reviewPercent -> b.reviewPercent.compareTo(a.reviewPercent)
+                a.reviewTotal != b.reviewTotal -> b.reviewTotal.compareTo(a.reviewTotal)
                 else -> LIBRARY_BY_NAME.compare(a, b)
             }
         }
@@ -183,6 +186,58 @@ enum class LibrarySort(@StringRes val labelRes: Int) {
             entries.firstOrNull { it.name == name } ?: NAME
     }
 }
+
+/** Steam's own review labels, best to worst — the rating sort's group order. Index = group level. */
+private val RATING_LEVELS = listOf(
+    "Overwhelmingly Positive",
+    "Very Positive",
+    "Positive",
+    "Mostly Positive",
+    "Mixed",
+    "Mostly Negative",
+    "Negative",
+    "Very Negative",
+    "Overwhelmingly Negative",
+)
+
+/** The last group: fewer than [SteamReviewScores.MIN_RANKED_REVIEWS] reviews, or no rating at all. */
+private const val RATING_UNRANKED = 9 // == RATING_LEVELS.size
+
+/**
+ * Which rating-sort group [game] belongs to: an index into [RATING_LEVELS], or [RATING_UNRANKED].
+ *
+ * Only a game with at least [SteamReviewScores.MIN_RANKED_REVIEWS] reviews qualifies, however high
+ * its percent. A qualifying game is grouped by Steam's stored label; when that is blank or not one
+ * of the nine known labels, the group is derived from the percent (95+ Overwhelmingly Positive,
+ * 80-94 Very Positive, 70-79 Mostly Positive, 40-69 Mixed, 20-39 Mostly Negative, below 20 Very Negative).
+ */
+internal fun ratingLevel(game: SteamGame): Int {
+    if (game.reviewPercent < 0 || game.reviewTotal < SteamReviewScores.MIN_RANKED_REVIEWS) {
+        return RATING_UNRANKED
+    }
+    val desc = game.reviewDesc.trim()
+    val byLabel = RATING_LEVELS.indexOfFirst { it.equals(desc, ignoreCase = true) }
+    if (byLabel >= 0) return byLabel
+    val p = game.reviewPercent
+    return when {
+        p >= 95 -> 0
+        p >= 80 -> 1
+        p >= 70 -> 3
+        p >= 40 -> 4
+        p >= 20 -> 5
+        else -> 7
+    }
+}
+
+/** A header plus the games under it, in the rating sort. [level] as in [ratingLevel]. */
+internal class LibrarySection(val level: Int, val games: List<SteamGame>)
+
+/**
+ * Split [sorted] (already in [LibrarySort.RATING] order, after any search filter) into its groups.
+ * Groups with no games are simply absent, so no empty header is ever drawn.
+ */
+internal fun buildRatingSections(sorted: List<SteamGame>): List<LibrarySection> =
+    sorted.groupBy { ratingLevel(it) }.map { (level, games) -> LibrarySection(level, games) }
 
 private val DIACRITIC_MARKS = Regex("\\p{Mn}+")
 private val WHITESPACE_RUN = Regex("\\s+")
@@ -440,6 +495,11 @@ fun SteamLibraryTab(
     val shown = remember(byType, foldedNames, query, sort) {
         filterLibraryByQuery(byType, foldedNames, query).sortedWith(sort.comparator())
     }
+    // Headers exist only in the rating sort, and are built from the already filtered + sorted list so
+    // their counts always match what is on screen. null = A-Z, which shows no headers.
+    val sections = remember(shown, sort) {
+        if (sort == LibrarySort.RATING) buildRatingSections(shown) else null
+    }
     val activity = ctx as? Activity
 
     // Steam user-review backfill. Feeds the rating sort and the rating line on every card, so it runs
@@ -640,13 +700,23 @@ fun SteamLibraryTab(
                     modifier = Modifier.fillMaxSize().focusGroup(),
                     contentPadding = PaddingValues(vertical = 4.dp),
                 ) {
-                    items(shown, key = { it.appId }) { game ->
+                    val row: @Composable (SteamGame) -> Unit = { game ->
                         LibraryDetailRow(
                             game = game,
                             onClick = { onOpenApp(game.appId) },
                             onLaunch = { launchInstalled(game) },
                             onUninstall = { uninstall(game) },
                         )
+                    }
+                    if (sections == null) {
+                        items(shown, key = { it.appId }) { game -> row(game) }
+                    } else {
+                        sections.forEach { section ->
+                            item(key = "section_${section.level}", contentType = "section") {
+                                LibrarySectionHeader(section, Modifier.padding(horizontal = 16.dp))
+                            }
+                            items(section.games, key = { it.appId }) { game -> row(game) }
+                        }
                     }
                 }
 
@@ -659,7 +729,7 @@ fun SteamLibraryTab(
                     horizontalArrangement = Arrangement.spacedBy(11.dp),
                     verticalArrangement = Arrangement.spacedBy(11.dp),
                 ) {
-                    items(shown, key = { it.appId }) { game ->
+                    val card: @Composable (SteamGame) -> Unit = { game ->
                         LibraryCapsuleCard(
                             game = game,
                             onOpen = { onOpenApp(game.appId) },
@@ -667,6 +737,19 @@ fun SteamLibraryTab(
                                 if (game.isInstalled) launchInstalled(game) else onOpenApp(game.appId)
                             },
                         )
+                    }
+                    if (sections == null) {
+                        items(shown, key = { it.appId }) { game -> card(game) }
+                    } else {
+                        sections.forEach { section ->
+                            // A header spans every column, so it always sits on its own full-width row.
+                            item(
+                                key = "section_${section.level}",
+                                span = { GridItemSpan(maxLineSpan) },
+                                contentType = "section",
+                            ) { LibrarySectionHeader(section) }
+                            items(section.games, key = { it.appId }) { game -> card(game) }
+                        }
                     }
                 }
             }
@@ -769,7 +852,22 @@ private fun LibrarySortButton(
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             LibrarySort.entries.forEach { option ->
                 DropdownMenuItem(
-                    text = { Text(stringResource(option.labelRes)) },
+                    text = {
+                        Column {
+                            Text(stringResource(option.labelRes))
+                            // The rule behind the groups, where the user picks the sort.
+                            if (option == LibrarySort.RATING) {
+                                Text(
+                                    text = stringResource(
+                                        R.string.steam_libsort_rating_hint,
+                                        SteamReviewScores.MIN_RANKED_REVIEWS,
+                                    ),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    },
                     trailingIcon = {
                         if (option == sort) {
                             Icon(
@@ -787,6 +885,34 @@ private fun LibrarySortButton(
             }
         }
     }
+}
+
+/**
+ * The full-width title above one rating group: "Very Positive · 12" (Steam's own label and the
+ * number of games shown under it), or the "not enough reviews" group. Plain text, so it takes no
+ * focus — D-pad traversal runs from the last card of one group straight to the first of the next.
+ */
+@Composable
+private fun LibrarySectionHeader(section: LibrarySection, modifier: Modifier = Modifier) {
+    val title = if (section.level in RATING_LEVELS.indices) {
+        RATING_LEVELS[section.level]
+    } else {
+        stringResource(R.string.steam_libsort_unranked, SteamReviewScores.MIN_RANKED_REVIEWS)
+    }
+    Text(
+        text = stringResource(R.string.steam_libsort_section, title, section.games.size),
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+        color = when (section.level) {
+            in 0..3 -> Color(0xFF4CAF50)
+            4 -> Color(0xFFFFC107)
+            in 5..8 -> Color(0xFFF44336)
+            else -> MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier.fillMaxWidth().padding(top = 6.dp, bottom = 2.dp),
+    )
 }
 
 /**

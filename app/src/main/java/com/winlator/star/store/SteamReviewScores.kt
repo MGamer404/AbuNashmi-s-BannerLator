@@ -47,6 +47,13 @@ internal object SteamReviewScores {
     /** Below this many reviews Steam shows no rating, so neither do we. */
     const val MIN_REVIEWS = 10
 
+    /**
+     * The Library's rating sort only RANKS a game with at least this many reviews; everything below
+     * (and every unrated game) sits in the last "not enough reviews" group however high its percent.
+     * The real percent / label / total are still stored and shown on the card.
+     */
+    const val MIN_RANKED_REVIEWS = 500
+
     /** Pause after every completed request: polite to the store, and keeps the UI quiet. */
     private const val REQUEST_GAP_MS = 200L
 
