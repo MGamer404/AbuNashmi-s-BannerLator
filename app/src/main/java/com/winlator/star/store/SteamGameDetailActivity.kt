@@ -460,8 +460,8 @@ class SteamGameDetailActivity : ComponentActivity(), SteamRepository.SteamEventL
                             lastSpeedTier = tier
                             installBtnEnabled = false
                             installBtnText = "Starting…"
-                            // installRoot = the chosen location's steam_games base (SD card or a user
-                            // library, e.g. <folder>/bannerlator/steam_games); null = internal default.
+                            // installRoot = the chosen location's base: the SD card's steam_games folder, or
+                            // a user library's <folder>/steamapps/common; null = internal default.
                             downloadHandle = SteamDepotDownloader.installApp(
                                 appId, applicationContext, lastSpeedTier, debugLog, installRoot)
                         },
@@ -1195,7 +1195,12 @@ class SteamGameDetailActivity : ComponentActivity(), SteamRepository.SteamEventL
             val proceedUninstall = {
                 StoreUninstaller.run(
                     installDir = installDir,
-                    mark = { SteamRepository.getInstance().database.markUninstalled(appId) },
+                    mark = {
+                        // The game folder is about to be deleted: drop its appmanifest too (only the one
+                        // that names this folder, only for a steamapps library), then the DB state.
+                        SteamAppManifest.removeFor(installDir, appId)
+                        SteamRepository.getInstance().database.markUninstalled(appId)
+                    },
                 ) { ok ->
                     uninstallingName = null
                     uninstallResult = if (ok) "${g.name} uninstalled" else "Couldn't fully remove ${g.name}"
@@ -1311,13 +1316,34 @@ class SteamGameDetailActivity : ComponentActivity(), SteamRepository.SteamEventL
                 // work, so it must run here (off the UI thread), not in the caller.
                 val sd = try { SteamSdInstall.detect(this) } catch (_: Throwable) { null }
                 sd?.let { targets.add(File(it.steamGamesBase, safeName)) }
-                // Library folders the user added: <folder>/bannerlator/steam_games/<safeName>.
+                // Library folders the user added: <folder>/steamapps/common/<name> (named after Valve's
+                // PICS installdir, or the safe name) and the older <folder>/bannerlator/steam_games/<name>.
                 try {
-                    SteamLibraryLocations.libraryBases(this).forEach { targets.add(File(it, safeName)) }
+                    val picsName = SteamAppManifest.sanitizeFolderName(
+                        try { SteamPrefs.getPicsInstallDir(appId) } catch (_: Throwable) { "" })
+                    SteamLibraryLocations.libraryBases(this).forEach { base ->
+                        targets.add(File(base, safeName))
+                        if (picsName.isNotEmpty()) targets.add(File(base, picsName))
+                    }
                 } catch (_: Throwable) {}
             }
+            // A game folder inside a shared steamapps/common that this app did NOT create (another Steam
+            // client's install this download was building on) is never wiped: only this app's own
+            // download bookkeeping is removed, so the next install starts clean but reuses every file.
+            // Ownership is decided once, up front, so the second sweep treats a folder the engine
+            // re-creates mid-cancel exactly like the first. The app's own trees (steam_games, SD) and any
+            // folder this app created are wiped whole, as always — with the manifest it wrote for them.
+            val keepFiles = targets.filter { !SteamInstallPaths.mayDeleteWholeFolder(it) }.toSet()
             fun sweep() = targets.forEach { d ->
-                try { if (d.exists()) d.deleteRecursively() } catch (_: Throwable) {}
+                try {
+                    if (!d.exists()) return@forEach
+                    if (d in keepFiles) {
+                        SteamInstallPaths.removeBookkeeping(d)
+                    } else {
+                        d.deleteRecursively()
+                        SteamAppManifest.removeFor(d.absolutePath, appId)
+                    }
+                } catch (_: Throwable) {}
             }
             sweep()
             try { Thread.sleep(1500L) } catch (_: InterruptedException) { Thread.currentThread().interrupt() }

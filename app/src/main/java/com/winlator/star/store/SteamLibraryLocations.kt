@@ -15,11 +15,19 @@ import java.util.UUID
  * and any number of extra "library locations" the user adds, like Steam's own "Steam Library Folders".
  *
  * ── Layout ────────────────────────────────────────────────────────────────────────────────────
- * The user picks an ordinary folder `<chosen>`; games land in `<chosen>/bannerlator/steam_games/<Name>`.
- * That is deliberately the SAME tail the SD-card install uses ([SteamSdInstall.SD_SUBDIR]) and still
- * carries a `steam_games` path segment, because a lot of existing code recognises a store-installed
- * Steam game by that segment (shortcut tagging, Goldberg/SteamLite launch, EA support, install-script
- * lookup). A `<chosen>` whose own path contains "steam_games" is therefore refused in [add].
+ * The user picks an ordinary "Games" folder `<chosen>`; it becomes a regular Steam library: the
+ * `steamapps` folder is `<chosen>/steamapps` (or `<chosen>` itself when it is already named `steamapps`,
+ * see [SteamInstallPaths.steamappsDirOf]) and games land in `<steamapps>/common/<installdir>` with an
+ * `appmanifest_<appid>.acf` beside them ([SteamAppManifest]) — the folder every Steam client uses, so
+ * other launchers and emulators open the same game without a re-download. Adding a folder that already
+ * has a `steamapps` builds on it: nothing existing is reset, moved or rewritten.
+ *
+ * Libraries added before this layout (`<chosen>/bannerlator/steam_games/<Name>`) keep working: that
+ * folder is remembered as the location's [Location.legacyBase] while it exists, so its games are still
+ * listed, moved and swept; NEW installs go to `<steamapps>/common`. The app-internal default and the
+ * auto-detected SD-card entry keep the `steam_games` layout ([SteamSdInstall.SD_SUBDIR]).
+ * [SteamInstallPaths] recognises both layouts. A `<chosen>` whose own path contains "steam_games" is
+ * refused in [add], because the legacy recognition rule would read it as the install root.
  *
  * ── What is stored ────────────────────────────────────────────────────────────────────────────
  * Only the list of folders (in [SteamPrefs]) and the pre-selected default's id. A game's real location
@@ -49,13 +57,16 @@ object SteamLibraryLocations {
 
     enum class Kind { INTERNAL, SD, LIBRARY }
 
-    /** A persisted user library: [path] is the folder the user picked (not the `steam_games` base). */
+    /** A persisted user library: [path] is the folder the user picked (not its `steamapps` or `common`). */
     data class Library(val id: String, val label: String, val path: String)
 
     /**
-     * One selectable install target. [base] is the `steam_games` folder a game's own folder is created
-     * under; [rootPath] is what the user would recognise (the picked folder / card root, "" for the
-     * internal default). [available] is false while a library's folder is unreachable (card pulled).
+     * One selectable install target. [base] is the folder a game's own folder is created under —
+     * `steamapps/common` for a user library, `steam_games` for the internal default and the SD card;
+     * [rootPath] is what the user would recognise (the picked folder / card root, "" for the internal
+     * default). [available] is false while a library's folder is unreachable (card pulled).
+     * [legacyBase] is a library's old `<chosen>/bannerlator/steam_games` folder, set only while it exists:
+     * games installed there before the steamapps layout still belong to this location.
      */
     data class Location(
         val id: String,
@@ -65,11 +76,15 @@ object SteamLibraryLocations {
         val base: File,
         val available: Boolean,
         val freeBytes: Long,
+        val legacyBase: File? = null,
     ) {
         /** The `installRoot` to hand to [SteamDepotDownloader.installApp]; null = the internal default. */
         val installRoot: String? get() = if (kind == Kind.INTERNAL) null else base.absolutePath
 
-        fun contains(dir: String): Boolean = isUnder(dir, base)
+        /** Every folder whose games belong to this location: [base] plus the library's [legacyBase]. */
+        val bases: List<File> get() = listOfNotNull(base, legacyBase)
+
+        fun contains(dir: String): Boolean = bases.any { isUnder(dir, it) }
 
         /** Same rule the downloader's free-space guard applies; an unknown size (<= 1) never blocks. */
         fun fits(installBytes: Long): Boolean =
@@ -131,8 +146,14 @@ object SteamLibraryLocations {
     /** The default `steam_games` base: internal app-private storage. */
     fun internalBase(ctx: Context): File = MoveGameStorage.internalBase(ctx)
 
-    /** The `steam_games` base inside a user library folder. */
-    private fun baseOf(libraryPath: String): File = File(libraryPath, SteamSdInstall.SD_SUBDIR)
+    /** The `steamapps/common` folder inside a user library folder — where its games install. */
+    fun commonOf(libraryPath: String): File = SteamInstallPaths.commonDirOf(File(libraryPath))
+
+    /** The `steamapps` folder of a user library folder (see [SteamInstallPaths.steamappsDirOf]). */
+    fun steamappsOf(libraryPath: String): File = SteamInstallPaths.steamappsDirOf(File(libraryPath))
+
+    /** The pre-steamapps `<folder>/bannerlator/steam_games` folder of a user library folder. */
+    private fun legacyBaseOf(libraryPath: String): File = File(libraryPath, SteamSdInstall.SD_SUBDIR)
 
     /**
      * Every location a game can install to, in display order: internal, the SD card (when one is
@@ -147,9 +168,11 @@ object SteamLibraryLocations {
             internal, available = true, freeBytes = SteamSdInstall.freeBytes(ctx.filesDir),
         )
         val libs = libraries(ctx)
-        val libBases = libs.map { baseOf(it.path).absolutePath }.toSet()
+        // A card whose root was added as a library is shown once, as that library (its new installs
+        // use steamapps; the card's older bannerlator/steam_games games stay listed through legacyBase).
+        val libLegacyBases = libs.map { legacyBaseOf(it.path).absolutePath }.toSet()
         val sd = runCatching { SteamSdInstall.detect(ctx) }.getOrNull()
-        if (sd != null && sd.steamGamesBase.absolutePath !in libBases) {
+        if (sd != null && sd.steamGamesBase.absolutePath !in libLegacyBases) {
             out += Location(
                 ID_SD, Kind.SD, sd.label, sd.root.absolutePath, sd.steamGamesBase,
                 available = true, freeBytes = sd.freeBytes,
@@ -158,10 +181,12 @@ object SteamLibraryLocations {
         for (lib in libs) {
             val root = File(lib.path)
             val reachable = root.isDirectory
-            val base = baseOf(lib.path)
+            val base = commonOf(lib.path)
+            val legacy = legacyBaseOf(lib.path).takeIf { reachable && it.isDirectory }
             out += Location(
                 lib.id, Kind.LIBRARY, lib.label, lib.path, base, reachable,
                 if (reachable) SteamSdInstall.freeBytes(if (base.isDirectory) base else root) else 0L,
+                legacy,
             )
         }
         return out
@@ -171,39 +196,46 @@ object SteamLibraryLocations {
     fun describe(ctx: Context): List<Entry> {
         val locs = locations(ctx)
         val def = defaultLocationId(ctx, locs)
-        return locs.map { Entry(it, it.id == def, gamesIn(ctx, it.base)) }
+        return locs.map { Entry(it, it.id == def, gamesIn(ctx, it.bases)) }
     }
 
-    /** The configured library bases only (no volume probing) — for defensive partial-download sweeps. */
-    fun libraryBases(ctx: Context): List<File> = libraries(ctx).map { baseOf(it.path) }
+    /**
+     * Every configured library's game folders — `steamapps/common` and the old `bannerlator/steam_games`
+     * (whether or not it exists) — with no volume probing. For defensive partial-download sweeps and for
+     * telling a library install from an SD one.
+     */
+    fun libraryBases(ctx: Context): List<File> =
+        libraries(ctx).flatMap { listOf(commonOf(it.path), legacyBaseOf(it.path)) }
 
-    /** The location whose base holds [installDir] (the deepest match), or null when it is on none. */
+    /** The location whose bases hold [installDir] (the deepest match), or null when it is on none. */
     fun locationOf(locations: List<Location>, installDir: String): Location? =
-        locations.filter { it.contains(installDir) }.maxByOrNull { it.base.absolutePath.length }
+        locations.filter { it.contains(installDir) }.maxByOrNull { loc ->
+            loc.bases.filter { isUnder(installDir, it) }.maxOf { it.absolutePath.length }
+        }
 
     /**
-     * Display names of the games installed under [base] (folder really present) or still downloading
-     * into it. Cheap: two small DB reads and one `isDirectory` per installed game.
+     * Display names of the games installed under [bases] (folder really present) or still downloading
+     * into them. Cheap: two small DB reads and one `isDirectory` per installed game.
      */
-    fun gamesIn(ctx: Context, base: File): List<String> {
+    fun gamesIn(ctx: Context, bases: List<File>): List<String> {
         val names = LinkedHashMap<Int, String>()
         try {
             val db = SteamDatabase.getInstance(ctx)
             for (row in db.getInstalledGames()) {
                 val dir = row.installDir
-                if (!dir.isNullOrBlank() && isUnder(dir, base) && File(dir).isDirectory) {
+                if (!dir.isNullOrBlank() && bases.any { isUnder(dir, it) } && File(dir).isDirectory) {
                     names[row.appId] = row.name.orEmpty().ifBlank { "App ${row.appId}" }
                 }
             }
             for (dl in db.getActiveDownloads()) {
                 val dir = dl.installDir
-                if (!dir.isNullOrBlank() && isUnder(dir, base) && dl.appId !in names) {
+                if (!dir.isNullOrBlank() && bases.any { isUnder(dir, it) } && dl.appId !in names) {
                     val name = db.getGame(dl.appId)?.name.orEmpty().ifBlank { "App ${dl.appId}" }
                     names[dl.appId] = ctx.getString(R.string.steam_lib_game_downloading, name)
                 }
             }
         } catch (t: Throwable) {
-            Log.w(TAG, "could not list games under ${base.absolutePath}", t)
+            Log.w(TAG, "could not list games under ${bases.joinToString { it.absolutePath }}", t)
         }
         return names.values.toList()
     }
@@ -213,9 +245,12 @@ object SteamLibraryLocations {
     /**
      * Validates [rawPath] (a folder from the file manager) and, when usable, stores it as a library.
      * Checks, in order: exists; sits on a storage volume (so Wine can map it); path free of
-     * "steam_games"; not already listed; `<path>/bannerlator/steam_games` can be created and written
-     * to (a real write, since `canWrite()` lies on FUSE); at least [SteamSdInstall.FREE_SPACE_MARGIN] free.
-     * Creates the `bannerlator/steam_games` folders on success — nothing else on the disk is touched.
+     * "steam_games"; not already listed (compared by the resolved `steamapps` folder); the library's
+     * `steamapps/common` can be created and written to (a real write, since `canWrite()` lies on FUSE);
+     * at least [SteamSdInstall.FREE_SPACE_MARGIN] free.
+     * Makes the folder a Steam library on success: creates `steamapps/common` where missing and a minimal
+     * `libraryfolders.vdf` only when there is none ([SteamAppManifest.ensureLibrary]). An existing
+     * `steamapps` is built upon, never reset — nothing already there is moved, renamed or rewritten.
      */
     fun add(ctx: Context, rawPath: String): AddResult {
         fun reject(res: Int, vararg args: Any) = AddResult.Rejected(ctx.getString(res, *args))
@@ -227,15 +262,14 @@ object SteamLibraryLocations {
         if (abs.contains("steam_games", ignoreCase = true)) return reject(R.string.steam_lib_err_name)
 
         val libs = libraries(ctx)
-        val base = baseOf(abs)
-        val taken = HashSet<String>()
-        taken += internalBase(ctx).absolutePath
-        runCatching { SteamSdInstall.detect(ctx) }.getOrNull()?.let { taken += it.steamGamesBase.absolutePath }
-        libs.forEach { taken += baseOf(it.path).absolutePath }
-        if (base.absolutePath in taken) return reject(R.string.steam_lib_err_duplicate)
+        val steamapps = steamappsOf(abs)
+        val common = File(steamapps, SteamInstallPaths.COMMON)
+        if (libs.any { steamappsOf(it.path).absolutePath == steamapps.absolutePath }) {
+            return reject(R.string.steam_lib_err_duplicate)
+        }
 
-        if (!(base.isDirectory || base.mkdirs()) || !canWriteInto(base)) return reject(R.string.steam_lib_err_write)
-        if (SteamSdInstall.freeBytes(base) < SteamSdInstall.FREE_SPACE_MARGIN) {
+        if (!SteamAppManifest.ensureLibrary(steamapps) || !canWriteInto(common)) return reject(R.string.steam_lib_err_write)
+        if (SteamSdInstall.freeBytes(common) < SteamSdInstall.FREE_SPACE_MARGIN) {
             return reject(R.string.steam_lib_err_space, SteamSdInstall.fmtBytes(SteamSdInstall.FREE_SPACE_MARGIN))
         }
 
@@ -258,7 +292,7 @@ object SteamLibraryLocations {
     fun remove(ctx: Context, id: String): RemoveResult {
         val libs = libraries(ctx)
         val lib = libs.firstOrNull { it.id == id } ?: return RemoveResult.NotFound
-        val games = gamesIn(ctx, baseOf(lib.path))
+        val games = gamesIn(ctx, listOf(commonOf(lib.path), legacyBaseOf(lib.path)))
         if (games.isNotEmpty()) return RemoveResult.Blocked(lib, games)
         saveLibraries(ctx, libs.filter { it.id != id })
         if (SteamPrefs.getDefaultInstallLocation(ctx) == id) SteamPrefs.setDefaultInstallLocation(ctx, "")

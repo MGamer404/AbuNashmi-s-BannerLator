@@ -250,6 +250,19 @@ object SteamPrefs {
         prefs.edit().putString(K_DEFAULT_INSTALL_LOCATION, id).apply()
     }
 
+    // ── PICS config.installdir per app ───────────────────────────────────────
+    // Valve's folder name under steamapps/common — the one every Steam client (and the appmanifest's
+    // "installdir") uses. Written by the library sync (SteamRepository.processAppKv, straight into this
+    // same prefs file under the same key) and read when a game is installed into a steamapps library,
+    // so other clients find it by that exact name. Kept here rather than as a steam.db column so no
+    // schema change is needed and an older build can still open the database. Not credentials — NOT
+    // cleared on logout.
+    const val K_PICS_INSTALLDIR_PREFIX = "pics_installdir_"
+
+    /** The PICS `config.installdir` recorded for [appId], or "" when it has not been seen yet. */
+    fun getPicsInstallDir(appId: Int): String =
+        prefs.getString(K_PICS_INSTALLDIR_PREFIX + appId, "") ?: ""
+
     // ── Master opt-in for the whole friends/chat feature (default OFF) ────────
     // The friends list, presence sharing and chat are OFF until the user opts in. Default FALSE so a
     // brand-new sign-in shows the store working with the social side dormant (no online status shared)

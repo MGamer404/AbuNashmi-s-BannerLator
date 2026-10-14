@@ -11,7 +11,7 @@ import java.io.File
 /**
  * Moves an INSTALLED Steam game between internal storage (`imagefs/steam_games`), the SD card
  * (`<sd>/bannerlator/steam_games`) and any extra library folder the user added
- * ([SteamLibraryLocations], `<folder>/bannerlator/steam_games`) after the fact, without a re-download.
+ * ([SteamLibraryLocations], `<folder>/steamapps/common`) after the fact, without a re-download.
  *
  * [SteamSdInstall] already lets a FRESH download land on the card; this is the same destination
  * reached from the other side, for a game that is already on disk. The gear menu on the detail page
@@ -192,8 +192,11 @@ object MoveGameStorage {
 
         // Keep the folder NAME across the move — the installer's safe-name, whatever it is — so the
         // SteamLite canonical-name derivation and any user muscle memory stay put. Only collide-rename
-        // if something is already sitting there.
-        val dest = CopyGameToDriveC.autoRenamedDest(File(to.base, source.name))
+        // if something is already sitting there. The exception is a steamapps/common target: there the
+        // folder takes the name other Steam clients look for (an existing manifest's installdir, else
+        // Valve's PICS installdir; see SteamInstallPaths.freshInstallDir), and a folder already sitting
+        // there is never merged into — the copy goes to a collide-renamed sibling instead.
+        val dest = CopyGameToDriveC.autoRenamedDest(SteamInstallPaths.freshInstallDir(to.base, appId, source.name))
 
         val size = CopyGameToDriveC.folderSize(source, isCancelled)
         val shortcuts = shortcutsUnder(ctx, source)
@@ -306,6 +309,11 @@ object MoveGameStorage {
                 val knownSize = runCatching { db.getGame(plan.appId)?.sizeBytes }.getOrNull()
                     ?.takeIf { it > 0L } ?: plan.sizeBytes
                 db.markInstalled(plan.appId, plan.dest.absolutePath, knownSize)
+                // Steam-layout bookkeeping (no-ops for every non-steamapps location): the new folder is
+                // this app's own, it gets its appmanifest, and the old library's manifest goes with
+                // the old copy. Never throws.
+                SteamInstallPaths.markOwned(plan.dest)
+                SteamAppManifest.relocate(ctx, plan.appId, plan.source, plan.dest, knownSize)
                 // markInstalled (unlike markUninstalled) doesn't invalidate, and the library list
                 // caches install_dir — refresh it so the SD badge and paths repaint immediately.
                 runCatching { SteamRepository.getInstance().invalidateGameCache() }
