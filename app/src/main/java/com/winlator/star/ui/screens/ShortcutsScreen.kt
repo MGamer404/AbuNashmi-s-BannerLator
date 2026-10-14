@@ -448,27 +448,16 @@ fun ShortcutsScreen(vm: ShortcutsViewModel = viewModel()) {
     // patch the install (resolved off-main from the Room steam_games row) and launch. Shared by the
     // popup's Goldberg pick and the pre-flight's "Launch with Goldberg" fallback.
     fun launchWithGoldberg(s: Shortcut, gm: GoldbergMode) {
-        val appId = steamAppIdOf(s)
         SteamPrefs.init(context)
-        SteamPrefs.setGoldbergMode(appId, gm)
-        // Resolve the on-disk install dir (Room steam_games row) off the main thread, then
-        // patch the tier and launch. Mirrors SteamGameDetailActivity.onGoldbergModeSelected.
+        // GoldbergPatcher.applyForShortcutAsync resolves appId / install dir / exe from the shortcut
+        // (extras, then the games DB and the exe path), stamps launchMode=Goldberg on it (so the
+        // preflight / fail-card fallbacks really launch as Goldberg), applies the tier, and reports the
+        // REAL result. A failure is shown to the user; the game still launches (unpatched) afterwards.
         val applyThenLaunch = {
-            Thread({
-                val installDir = runCatching {
-                    SteamDatabase.getInstance(context).getGame(appId)?.installDir
-                }.getOrNull().orEmpty()
-                activity.runOnUiThread {
-                    if (installDir.isEmpty()) {
-                        // Nothing to patch (unresolved install dir) — launch as-is.
-                        launchShortcutNow(activity, s)
-                    } else {
-                        GoldbergPatcher.applyModeAsync(context, appId, installDir, s.name, gm) { _, _ ->
-                            launchShortcutNow(activity, s)
-                        }
-                    }
-                }
-            }, "goldberg-apply-launch").start()
+            GoldbergPatcher.applyForShortcutAsync(context, s, gm) { ok, msg ->
+                if (!ok) Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                launchShortcutNow(activity, s)
+            }
         }
         if (!GoldbergComponent.isInstalled(context)) {
             componentDownloadFor = s
@@ -581,6 +570,13 @@ fun ShortcutsScreen(vm: ShortcutsViewModel = viewModel()) {
                 launchWithSteamLite(shortcut)
             remembered && shortcut.getExtra("launchMode", "") == "AppSteam" && isSteamOriginShortcut(shortcut) ->
                 launchWithAppSteam(shortcut)
+            // A remembered Goldberg pick re-applies the (idempotent) patch each launch: a Verify / Update,
+            // a game update or a moved install can have put the original steam_api dll back.
+            remembered && shortcut.getExtra("launchMode", "") == "Goldberg" && isSteamOriginShortcut(shortcut) -> {
+                SteamPrefs.init(context)
+                val gm = SteamPrefs.getGoldbergMode(steamAppIdOf(shortcut)).let { if (it == GoldbergMode.OFF) GoldbergMode.REGULAR else it }
+                launchWithGoldberg(shortcut, gm)
+            }
             remembered -> launchShortcutNow(activity, shortcut)
             else -> launchChoiceFor = shortcut
         }

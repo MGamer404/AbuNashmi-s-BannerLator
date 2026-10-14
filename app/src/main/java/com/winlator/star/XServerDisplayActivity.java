@@ -64,6 +64,7 @@ import com.winlator.star.store.SteamLiteAchievementWatcher;
 import com.winlator.star.store.EpicOverlayManager;
 import com.winlator.star.store.GogCloudSaveManager;
 import com.winlator.star.store.GogCloudSavePaths;
+import com.winlator.star.store.GoldbergDiag;
 import com.winlator.star.store.GoldbergMode;
 import com.winlator.star.store.GoldbergPatcher;
 import com.winlator.star.store.SteamAchievementStore;
@@ -561,6 +562,122 @@ public class XServerDisplayActivity extends AppCompatActivity {
             gameExitWatchHandler.postDelayed(this, 2000);
         }
     };
+
+    // ── Goldberg launch watchdog ──────────────────────────────────────────────────────────────────
+    // A Goldberg launch whose game never shows a window used to sit on a black screen for ever: the
+    // guest process (wine explorer /desktop=shell) outlives a dead game, so the "guest exited" card
+    // never fires, and the exit watch above only reacts to a game it has SEEN. This watches the guest's
+    // process list: no game process after ~45 s, or a game that appeared and vanished again before any
+    // window, raises a failure card and is written to goldberg_diag.txt. Goldberg launches only, so
+    // slow first launches of other games are untouched; "Keep waiting" dismisses the card and re-arms.
+    /** First real (non-desktop) game window seen: X11 app window, or the Wayland compositor's game surface. */
+    private volatile boolean gameWindowSeen = false;
+    private volatile boolean gbWatchActive = false;
+    private volatile boolean gbCardShown = false;
+    private volatile long gbLastEvalMs = 0L;
+    private long gbWatchStartMs = 0L;
+    private volatile long gbWatchDeadlineMs = 45_000L;
+    private boolean gbGameSeen = false;
+    private int gbGoneTicks = 0;
+    /** What GoldbergPatcher.resolveLaunch decided for this launch (also written to the report). */
+    private String gbLaunchNote = "";
+    private final Handler gbWatchHandler = new Handler(Looper.getMainLooper());
+    private static final java.util.Set<String> GB_SYSTEM_PROCS = new java.util.HashSet<>(java.util.Arrays.asList(
+            "winhandler.exe", "explorer.exe", "services.exe", "svchost.exe", "plugplay.exe", "rpcss.exe",
+            "wineboot.exe", "conhost.exe", "winedevice.exe", "start.exe", "tabtip.exe", "wfm.exe", "cmd.exe"));
+    private final Runnable gbWatchRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (!gbWatchActive || exiting) return;
+            if (gameWindowSeen) {
+                GoldbergDiag.append("game window seen after "
+                        + ((android.os.SystemClock.elapsedRealtime() - gbWatchStartMs) / 1000) + "s — watchdog done");
+                gbWatchActive = false;
+                return;
+            }
+            long now = android.os.SystemClock.elapsedRealtime();
+            if (winHandler != null) {
+                winHandler.setOnGetProcessInfoListener(gameExitProcListener);
+                winHandler.listProcesses();
+            }
+            // No process report at all (the guest's winhandler never answered) and the deadline is up.
+            if (!gbCardShown && now - gbWatchStartMs >= gbWatchDeadlineMs && now - gbLastEvalMs > 9000L) {
+                showGoldbergWatchdogCard("The game never started",
+                        "No process report from the guest after " + ((now - gbWatchStartMs) / 1000) + " s.", true);
+            }
+            gbWatchHandler.postDelayed(this, 3000);
+        }
+    };
+
+    private void startGoldbergWatchdog() {
+        gbWatchStartMs = android.os.SystemClock.elapsedRealtime();
+        gbWatchDeadlineMs = 45_000L;
+        gbLastEvalMs = gbWatchStartMs;
+        gbGameSeen = false;
+        gbGoneTicks = 0;
+        gbCardShown = false;
+        gbWatchActive = true;
+        gbWatchHandler.removeCallbacks(gbWatchRunnable);
+        gbWatchHandler.postDelayed(gbWatchRunnable, 6000L);
+    }
+
+    private void stopGoldbergWatchdog() {
+        gbWatchActive = false;
+        gbWatchHandler.removeCallbacks(gbWatchRunnable);
+    }
+
+    /** Called with a complete guest process list ({@link #gameTickNames}). */
+    private void evaluateGoldbergWatchdogTick() {
+        if (!gbWatchActive || gameWindowSeen || exiting || gbCardShown) return;
+        gbLastEvalMs = android.os.SystemClock.elapsedRealtime();
+        boolean present = false;
+        for (String n : gameTickNames) {
+            if (n.endsWith(".exe") && !GB_SYSTEM_PROCS.contains(n)) { present = true; break; }
+        }
+        long elapsed = gbLastEvalMs - gbWatchStartMs;
+        if (present) { gbGameSeen = true; gbGoneTicks = 0; }
+        else if (gbGameSeen) gbGoneTicks++;
+        if (gbGameSeen && gbGoneTicks >= 3) {
+            showGoldbergWatchdogCard("The game closed before showing a window",
+                    "It started and then exited without ever creating a window.", false);
+        } else if (elapsed >= gbWatchDeadlineMs) {
+            if (present) {
+                showGoldbergWatchdogCard("The game is running but shows no window",
+                        "Its process is alive after " + (elapsed / 1000) + " s but no game window appeared.", true);
+            } else if (gbGameSeen) {
+                showGoldbergWatchdogCard("The game closed before showing a window",
+                        "It started and then exited without ever creating a window.", false);
+            } else {
+                showGoldbergWatchdogCard("The game never started",
+                        "No game process appeared " + (elapsed / 1000) + " s after launch.", true);
+            }
+        }
+    }
+
+    private void showGoldbergWatchdogCard(final String what, final String detail, final boolean keepWaiting) {
+        if (gbCardShown) return;
+        gbCardShown = true;
+        GoldbergDiag.append("WATCHDOG: " + what + " — " + detail + (gbLaunchNote.isEmpty() ? "" : " | launch: " + gbLaunchNote));
+        final String logDir = com.winlator.star.core.LogLocation
+                .resolveGameLogDir(this, currentLogGameName()).getAbsolutePath();
+        final boolean logging = isLaunchLoggingEnabled();
+        runOnUiThread(() -> {
+            if (exiting || preloaderDialog == null) return;
+            cancelLaunchTimers();
+            java.util.List<com.winlator.star.core.FailureAction> actions = new ArrayList<>();
+            if (keepWaiting) {
+                actions.add(new com.winlator.star.core.FailureAction("Keep waiting", false, () -> {
+                    GoldbergDiag.append("user chose Keep waiting");
+                    gbWatchDeadlineMs = (android.os.SystemClock.elapsedRealtime() - gbWatchStartMs) + 90_000L;
+                    gbCardShown = false;
+                    try { preloaderDialog.closeOnUiThread(); } catch (Throwable ignored) {}
+                }));
+            }
+            preloaderDialog.fail("Launching Windows", what,
+                    detail + " Goldberg report: " + logDir + "/" + GoldbergDiag.OUTPUT_NAME,
+                    logDir, logging, actions);
+        });
+    }
 
     // Drift-detected CPU-affinity re-pin. A user-selected affinity (Task Manager Processor Affinity
     // dialog from the in-game side menu, Prefer Big Cores, or per-window task affinity) is a ONE-SHOT
@@ -3073,6 +3190,8 @@ public class XServerDisplayActivity extends AppCompatActivity {
         xServer.windowManager.addOnWindowModificationListener(new WindowManager.OnWindowModificationListener() {
             @Override
             public void onUpdateWindowContent(Window window) {
+                // Goldberg watchdog: a real game window (the Wine desktop itself does not count).
+                if (!gameWindowSeen && window.isApplicationWindow() && !window.isDesktopWindow()) gameWindowSeen = true;
                 if (!winStarted && window.isApplicationWindow()) {
                     winStarted = true;   // set first so this fires exactly once
                     x11CursorWanted = true;
@@ -5425,6 +5544,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
         } catch (Throwable ignored) {}
         installerWatchHandler.removeCallbacks(installerWatchRunnable);
         gameExitWatchHandler.removeCallbacks(gameExitWatchRunnable);
+        stopGoldbergWatchdog();
         affinityReapplyHandler.removeCallbacks(affinityReapplyRunnable);
         stopDxApiDetection();
         // Stop the session foreground service (also removes its ongoing notification).
@@ -6880,36 +7000,59 @@ public class XServerDisplayActivity extends AppCompatActivity {
             // (1) Seed — only for Goldberg-on games (an OFF game runs genuine Steam, no GSE store to
             // seed). Uses the SAME GSE path the watcher watches (shared helper). Best-effort/no-op on
             // no-real-state; never wipes local unlocks.
-            try {
-                SteamPrefs.INSTANCE.init(appCtx); // idempotent + cheap; XServer path may not have inited it
-                if (SteamPrefs.INSTANCE.getGoldbergMode(appId) != GoldbergMode.OFF) {
-                    java.io.File gseFile = AchievementWatcher.gseAchievementsFile(containerRoot, appId);
-                    SteamAchievementStore.seedGse(appCtx, appId, gseFile);
+            // The seed and the schema both may touch the Steam network (a fetch when nothing is cached),
+            // so they run on a worker and the launch waits at most 10 s for them: an offline / slow
+            // Steam session must never hold the guest back. The schema is fetched ONCE for the whole
+            // install and copied to every steam_api dir (GoldbergPatcher.ensureAchievementSchema). If
+            // the worker finishes after we stopped waiting, it re-snapshots the watcher so the seeded
+            // unlocks are not toasted as new ones.
+            final java.util.concurrent.atomic.AtomicBoolean seedTimedOut = new java.util.concurrent.atomic.AtomicBoolean(false);
+            final java.util.concurrent.CountDownLatch seedLatch = new java.util.concurrent.CountDownLatch(1);
+            Thread seedThread = new Thread(() -> {
+                try {
+                    SteamPrefs.INSTANCE.init(appCtx); // idempotent + cheap; XServer path may not have inited it
+                    if (SteamPrefs.INSTANCE.getGoldbergMode(appId) != GoldbergMode.OFF) {
+                        java.io.File gseFile = AchievementWatcher.gseAchievementsFile(containerRoot, appId);
+                        SteamAchievementStore.seedGse(appCtx, appId, gseFile);
 
-                    // Also ensure the gbe_fork achievement SCHEMA (definitions) exists beside each
-                    // swapped steam_api dll. A fresh Goldberg apply writes this in GoldbergPatcher's
-                    // sharedPrep, but an install patched BEFORE this fix never got it — writing it here
-                    // makes those existing installs (e.g. HL2) work on next launch WITHOUT a manual
-                    // re-apply. DEFS only (real earned state is the seedGse call above); fully guarded
-                    // and a no-op when no defs are cached, so it can never break the launch. Runs here,
-                    // before the guest boots, so gbe_fork reads it at startup.
-                    try {
+                        // Also ensure the gbe_fork achievement SCHEMA (definitions) exists beside each
+                        // swapped steam_api dll (installs patched by an older build never got it).
+                        // DEFS only (the real earned state is the seedGse call above); a no-op when no
+                        // defs are cached. Runs before the guest boots so gbe_fork reads it at startup.
                         java.io.File installRoot = new java.io.File(ref.installDir);
                         if (installRoot.isDirectory()) {
+                            java.util.List<java.io.File> dirs = new ArrayList<>();
                             for (GoldbergPatcher.PatchTarget target : GoldbergPatcher.analyze(installRoot)) {
-                                java.io.File settingsDir = new java.io.File(target.getDir(), "steam_settings");
-                                settingsDir.mkdirs();
-                                SteamAchievementStore.writeGbeAchievementSchema(appCtx, appId, settingsDir);
+                                dirs.add(target.getDir());
                             }
+                            GoldbergPatcher.ensureAchievementSchema(appCtx, appId, dirs, GoldbergPatcher.SCHEMA_TIMEOUT_MS);
                         }
-                    } catch (Throwable t) {
-                        Log.w("BH_STEAM_ACHV", "achievement schema ensure failed (appId=" + appId + ")", t);
+                    } else {
+                        Log.i("BH_STEAM_ACHV", "achievement seed: Goldberg OFF for appId=" + appId + " — no seed");
                     }
-                } else {
-                    Log.i("BH_STEAM_ACHV", "achievement seed: Goldberg OFF for appId=" + appId + " — no seed");
+                } catch (Throwable t) {
+                    Log.w("BH_STEAM_ACHV", "GSE seed failed (appId=" + appId + ")", t);
+                } finally {
+                    seedLatch.countDown();
+                    try {
+                        AchievementWatcher late = achievementWatcher;
+                        if (seedTimedOut.get() && late != null && achievementWatcherArmed
+                                && !isFinishing() && !isDestroyed()) {
+                            late.start(appCtx, appId, containerRoot);
+                        }
+                    } catch (Throwable ignored) {}
                 }
-            } catch (Throwable t) {
-                Log.w("BH_STEAM_ACHV", "GSE seed failed (appId=" + appId + ")", t);
+            }, "BH-GoldbergSeed");
+            seedThread.setDaemon(true);
+            seedThread.start();
+            try {
+                if (!seedLatch.await(10, TimeUnit.SECONDS)) {
+                    seedTimedOut.set(true);
+                    Log.w("BH_STEAM_ACHV", "seed/schema still running after 10s (appId=" + appId + ") — launching without waiting");
+                    GoldbergDiag.append("achievement seed/schema exceeded 10s — launched without waiting for it");
+                }
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
             }
 
             // (2) Arm the watcher — its snapshot now includes the seeded state. start()/stop() are
@@ -8936,6 +9079,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
         // compositor reports the window presenting GPU frames, then each of its frames.
         com.winlator.star.wayland.WaylandCompositor.setGameListener(new com.winlator.star.wayland.WaylandCompositor.GameListener() {
             @Override public void onGameSurface(String window, String gpuName) {
+                if (window != null) gameWindowSeen = true;   // Goldberg watchdog: the game presented a frame
                 if (window == null) {
                     frameRatingWindowId = -1;
                     fpsCounter.reset();
@@ -10957,6 +11101,10 @@ public class XServerDisplayActivity extends AppCompatActivity {
             // The guest process died. If it never rendered a window, this is a launch failure — show
             // the failure card and let the user read it (Close finishes). If it had already rendered,
             // this is a normal exit / in-game crash: keep the existing exit-on-termination behaviour.
+            if (goldbergLaunchActive) {
+                GoldbergDiag.append("guest process exited: status=" + status + " winStarted=" + winStarted
+                        + " gameWindowSeen=" + gameWindowSeen);
+            }
             if (eaRefusalShown) {
                 // EA Desktop refused the licence and the card already names EA's reason; the guest
                 // tearing down after the agent's logoff is expected — keep that card.
@@ -11039,6 +11187,10 @@ public class XServerDisplayActivity extends AppCompatActivity {
         // boots, so the game's steam_api finds a live client. No-op for every other launch.
         awaitAppSteamHost();
 
+        // Goldberg launches: write goldberg_diag.txt into the game's log folder (whatever the Log Manager
+        // toggles say) with what is on disk and what is about to be launched.
+        writeGoldbergDiagnostics();
+
         // Start all environment components (XServer, Audio, Wine, etc.)
         preloaderDialog.step(4, "Launching Windows…");
         environment.startEnvironmentComponents();
@@ -11048,6 +11200,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
         String preloaderGameName = (shortcut != null) ? shortcut.name : container.getName();
         preloaderDialog.enterGuest("Waiting for " + preloaderGameName + " to render…");
         runOnUiThread(this::startLaunchTimers);
+        if (goldbergLaunchActive) runOnUiThread(this::startGoldbergWatchdog);
 
         // Wayland: the launch overlay must ALWAYS clear so the guest is visible — the compositor
         // present path (first-frame hook) may not fire for a shm-only desktop, and the guest must
@@ -14316,6 +14469,120 @@ return true;
         return "on (" + why + ", " + sw.envName + "=" + sw.envValue + ")";
     }
 
+    /** True for a launch that really runs as Goldberg (set by {@link #writeGoldbergDiagnostics()}). */
+    private boolean goldbergLaunchActive = false;
+
+    /**
+     * Goldberg launches only: write {@code goldberg_diag.txt} into the game's log folder — on every
+     * launch, independent of the Log Manager toggles — with the app/device/layer, the shortcut and its
+     * launch mode, what GoldbergPatcher last did (swapped dlls with md5s vs their .bak, steam_settings,
+     * ColdClient ini), the exe handed to Wine and the env that matters. The watchdog and the guest
+     * termination append their verdicts. Runs on the launch worker just before the guest starts.
+     * Never throws.
+     */
+    private void writeGoldbergDiagnostics() {
+        goldbergLaunchActive = false;
+        try {
+            if (shortcut == null || container == null || realSteamPlan != null || appSteamPlan != null
+                    || !"Goldberg".equals(shortcut.getExtra("launchMode"))) {
+                GoldbergDiag.end();
+                return;
+            }
+            goldbergLaunchActive = true;
+            final Context appCtx = getApplicationContext();
+            java.util.List<String> lines = new ArrayList<>();
+            lines.add("app: " + com.winlator.star.BuildConfig.VERSION_NAME
+                    + " (code " + com.winlator.star.BuildConfig.VERSION_CODE + ")");
+            lines.add("device: " + android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL
+                    + " / Android SDK " + android.os.Build.VERSION.SDK_INT);
+            lines.add("shortcut: " + shortcut.name + " (" + shortcut.file.getPath() + ")");
+            lines.add("shortcut exe (Windows path): " + shortcut.path);
+            java.io.File hostExe = GoldbergPatcher.hostExeOf(shortcut);
+            lines.add("shortcut exe (host): " + (hostExe == null ? "<unmapped>"
+                    : hostExe.getPath() + " exists=" + hostExe.isFile()));
+            lines.add("launchMode=" + shortcut.getExtra("launchMode") + " remembered="
+                    + shortcut.getExtra("launchModeRemembered", "") + " steamAppId="
+                    + shortcut.getExtra("steamAppId", "") + " execArgs='" + shortcut.getExtra("execArgs") + "'");
+            lines.add("container: id=" + container.id + " name=" + container.getName()
+                    + " wine=" + container.getWineVersion()
+                    + " arm64ec=" + (wineInfo != null && wineInfo.isArm64EC())
+                    + " emulator=" + emulator + " dxwrapper=" + dxwrapper
+                    + " graphicsDriver=" + container.getGraphicsDriver());
+            lines.add("display backend: " + (waylandMode ? "Wayland" : "X11") + " renderer=" + resolvedRenderer());
+            lines.add("guest command: " + (guestProgramLauncherComponent != null
+                    ? guestProgramLauncherComponent.getGuestExecutable() : "<none>"));
+            lines.add("launch resolution: " + (gbLaunchNote.isEmpty() ? "(tier needs no loader)" : gbLaunchNote));
+            for (String k : new String[]{"WINEDLLOVERRIDES", "WINEDEBUG", "SteamGameId", "SteamAppId", "WINEESYNC", "WINENTSYNC"}) {
+                lines.add("env " + k + "=" + (envVars.has(k) ? envVars.get(k) : "<unset>"));
+            }
+
+            SteamAppRef ref = resolveSteamAppRef();
+            if (ref == null) {
+                lines.add("steam app: UNRESOLVED (no appId/install dir from the shortcut or the games DB)");
+            } else {
+                SteamPrefs.INSTANCE.init(appCtx);
+                lines.add("steam app: appId=" + ref.appId + " goldbergTier="
+                        + SteamPrefs.INSTANCE.getGoldbergMode(ref.appId));
+                lines.add("--- last apply ---");
+                lines.addAll(GoldbergDiag.lastApplyReport(appCtx, ref.appId));
+                lines.add("--- install on disk now ---");
+                lines.addAll(GoldbergDiag.describeInstall(appCtx, ref.installDir));
+            }
+            lines.add("--- launch log ---");
+            java.io.File logDir = com.winlator.star.core.LogLocation.resolveGameLogDir(appCtx, currentLogGameName());
+            GoldbergDiag.begin(logDir, lines);
+        } catch (Throwable t) {
+            Log.w("BH_GOLDBERG", "writeGoldbergDiagnostics failed", t);
+        }
+    }
+
+    /**
+     * For a Goldberg launch, the file name Wine should execute in the shortcut's folder instead of
+     * {@code winFilename}: the ColdClient loader when the game's tier is COLDCLIENT, or a replacement
+     * for a baked-in loader shortcut whose loader no longer exists. Null = leave the shortcut alone
+     * (every other tier / launch mode, or nothing to change). Records its verdict in
+     * {@link #gbLaunchNote}. Runs on the launch worker thread. Never throws.
+     */
+    private String resolveGoldbergLaunchName(String winFilename) {
+        try {
+            if (shortcut == null || container == null || appSteamPlan != null || realSteamPlan != null) return null;
+            String lm = shortcut.getExtra("launchMode");
+            if ("Raw".equals(lm) || "RealSteam".equals(lm) || "AppSteam".equals(lm)) return null;
+            boolean loaderShortcut = winFilename != null && winFilename.toLowerCase().startsWith("steamclient_loader");
+            int appId = 0;
+            try { appId = Integer.parseInt(shortcut.getExtra("steamAppId", "0").trim()); }
+            catch (NumberFormatException ignored) {}
+            if (appId <= 0) {
+                SteamAppRef ref = resolveSteamAppRef();
+                if (ref != null) appId = ref.appId;
+            }
+            if (appId <= 0) return null;
+            SteamPrefs.INSTANCE.init(getApplicationContext());
+            GoldbergMode gm = SteamPrefs.INSTANCE.getGoldbergMode(appId);
+            if (gm != GoldbergMode.COLDCLIENT && !loaderShortcut) return null;
+            java.io.File host = GoldbergPatcher.hostExeOf(shortcut);
+            if (host == null) {
+                gbLaunchNote = "ColdClient: couldn't map the shortcut path '" + shortcut.path + "' to a host file";
+                Log.w("BH_GOLDBERG", gbLaunchNote);
+                return null;
+            }
+            GoldbergPatcher.LaunchResolution r = GoldbergPatcher.resolveLaunch(this, appId, host.getAbsolutePath());
+            gbLaunchNote = r.note;
+            Log.i("BH_GOLDBERG", "launch resolution: " + r.note + " -> " + r.exe.getPath());
+            if (gm == GoldbergMode.COLDCLIENT && !r.usedLoader) {
+                // Loud fallback: Goldberg is NOT active for this launch (the original steam_api is in place).
+                AppUtils.showToast(this, "Goldberg ColdClient: loader not found — launching the game without it");
+            }
+            if (r.exe.equals(host)) return null;
+            java.io.File hostDir = host.getParentFile();
+            if (hostDir == null || !hostDir.equals(r.exe.getParentFile())) return null;
+            return r.exe.getName();
+        } catch (Throwable t) {
+            Log.w("BH_GOLDBERG", "resolveGoldbergLaunchName failed — launching the shortcut as-is", t);
+            return null;
+        }
+    }
+
     private String getWineStartCommand() {
         // Initialize overrideEnvVars if not already done
         EnvVars envVars = getOverrideEnvVars();
@@ -14352,6 +14619,11 @@ return true;
                     execArgs = filename.substring(spaceIndex + 1) + execArgs;
                     filename = filename.substring(0, spaceIndex);
                 }
+
+                // Goldberg ColdClient: run the loader that sits beside the game exe (resolved NOW, so an
+                // existing shortcut works and a stale loader shortcut is repaired). Same folder → /dir holds.
+                String goldbergName = resolveGoldbergLaunchName(filename);
+                if (goldbergName != null) filename = goldbergName;
 
                 args += "/dir " + StringUtils.escapeDOSPath(exeDir) + " \"" + filename + "\"" + execArgs;
             }
@@ -16713,6 +16985,7 @@ return true;
     }
 
     private void evaluateGameExitTick() {
+        evaluateGoldbergWatchdogTick();
         if (!autoCloseOnExitEnabled || autoCloseExeName == null) return;
         boolean present = false;
         for (String n : gameTickNames) {
@@ -16732,6 +17005,9 @@ return true;
                 gameGoneTicks = 0;
                 return;
             }
+            // A Goldberg game that vanished before ever showing a window is reported by the Goldberg
+            // watchdog's failure card, not silently closed (the user needs to see why).
+            if (gbWatchActive && !gameWindowSeen) return;
             gameGoneTicks++;
             // Require a few consecutive empty ticks so a brief gap (e.g. a loader that relaunches the
             // same exe) doesn't trigger an early close.
