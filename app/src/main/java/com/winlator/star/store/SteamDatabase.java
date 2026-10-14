@@ -1049,6 +1049,12 @@ public final class SteamDatabase extends SQLiteOpenHelper {
     // steam_achievements
     // =========================================================================
 
+    /** Drop every cached achievement row. Earned state is per account, so an account switch clears
+     *  it (the next fetch refills it); the icons on disk are per app and stay. */
+    public void clearAchievements() {
+        getWritableDatabase().delete("steam_achievements", null, null);
+    }
+
     /** Insert or replace one achievement's schema + earned state (icon/iconGray are raw filenames). */
     public void upsertAchievement(int appId, String apiName, String displayName, String description,
                                   boolean hidden, String icon, String iconGray,

@@ -313,6 +313,8 @@ object SteamFriendsStore {
                 // Only a full sign-out / account switch wipes cached chat; a transient SessionExpired
                 // (e.g. app backgrounded) keeps the conversation so it's still there on foreground.
                 if (ev == "LoggedOut") reset()
+                // "Change account": the roster, nicknames and chat belong to the account just left.
+                if (ev.startsWith("AccountSwitched:")) resetForAccountSwitch()
                 // Any session drop/change re-arms the one-time online sync so presence re-fetches once the
                 // session is live again. A plain screen re-open must NOT re-sync (that churned presence).
                 if (ev == "LoggedOut" || ev == "SessionExpired" ||
@@ -818,6 +820,21 @@ object SteamFriendsStore {
         _unread.value = emptyMap()
         _typing.value = emptyMap()
         lastTypingSent.clear()
+    }
+
+    /**
+     * Account switch ("Change account"): [reset] plus the friend roster itself. A sign-out keeps the
+     * roster on purpose (so a brief logoff never blanks everyone to Offline), but a DIFFERENT account
+     * must never see the previous one's friends while its own list is still on the wire.
+     */
+    private fun resetForAccountSwitch() {
+        reset()
+        friendIds.clear()
+        incomingIds.clear()
+        outgoingIds.clear()
+        friendMap.clear()
+        nicknames.clear()
+        publish()
     }
 
     // ── Persistence (chat history survives backgrounding / process death) ────────────
@@ -1585,7 +1602,11 @@ object SteamFriendsStore {
                 if (fresh != null) {
                     _selfProfile.value = fresh
                     selfProfileFetchedAt = System.currentTimeMillis()
-                    appContext?.let { SteamSelfProfileCache.save(it, selfId, fresh) }
+                    appContext?.let {
+                        SteamSelfProfileCache.save(it, selfId, fresh)
+                        // The account chooser shows this account's name + avatar.
+                        SteamAccountStore.updateIdentity(it, selfId, fresh.personaName, fresh.avatarUrl)
+                    }
                 } else {
                     // Keep whatever is on screen. A null here means "no live session", which is a
                     // reason to show stale data, not to erase it.
