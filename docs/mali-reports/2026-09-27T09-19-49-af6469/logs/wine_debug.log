@@ -1,0 +1,1162 @@
+=== Wine Debug Log ===
+WINEDEBUG: +warn,+err,+fixme
+WINEPREFIX: /data/user/0/com.winlator.banner/files/imagefs/home/xuser/.wine
+Container ID: 1
+Shortcut file: /data/user/0/com.winlator.banner/files/imagefs/home/xuser-1/.wine/drive_c/users/xuser/Desktop/Mewgenics.desktop
+Shortcut path (resolved): G:\Mewgenics.exe
+--- DX Wrapper State ---
+dxwrapper type: wined3d
+dxwrapperConfig (raw): version=2.7.3,framerate=0,async=0,asyncCache=0,vkd3dVersion=2.8,vkd3dLevel=12_1,ddrawrapper=none,csmt=3,gpuName=NVIDIA GeForce GTX 480,videoMemorySize=2048,strict_shader_math=1,OffscreenRenderingMode=fbo,renderer=gl
+vkd3dVersion (parsed): 2.8
+dxvk version (parsed): 2.7.3
+ddrawrapper (parsed): none
+cached dxwrapper extra: wined3d
+--- End DX Wrapper State ---
+=== Wine output below ===
+[BOX64] Box64 arm64 v0.3.7 ca846814 with Dynarec built on Jun 25 2025 10:26:38
+[BOX64] Dynarec for ARM64, with extension: ASIMD AES CRC32 PMULL ATOMICS SHA1 SHA2 USCAT FLAGM FLAGM2 FRINT AFP
+sh: lscpu: inaccessible or not found
+[BOX64] Running on unknown aarch64 cpu with 8 cores, pagesize: 4096
+[BOX64] Will use hardware counter measured at 13.0 MHz emulating 3.3 GHz
+[BOX64] Wine64 detected, WINEPRELOADRESERVE=""
+[BOX64] Didn't detect 48bits of address space, considering it's 39bits
+[BOX64] Warning, program break not found
+[BOX64] WINE prereserve of 0x10000:0x8000 done
+[BOX64] WINE prereserve of 0x110000:0x30000000 done
+[BOX64] WINE prereserve of 0x7f000000:0x3000000 done
+[BOX64] Detected running wine with "explorer"
+[BOX64] Warning, older then 2.34 pthread_kill not found, using current one
+[BOX64] Counted 130 Env var
+[BOX64] BOX64 trying to Preload /data/user/0/com.winlator.banner/files/imagefs/usr/lib/libandroid-sysvshm.so /data/user/0/com.winlator.banner/files/imagefs/usr/lib/libfakeinput.so 
+[BOX64] Library search path: 
+[BOX64] Binary search path: ./:bin/:/data/user/0/com.winlator.banner/files/contents/Wine/9.0-X86_64-1/bin/:/data/user/0/com.winlator.banner/files/imagefs/usr/bin/
+[BOX64] Looking for wine
+[BOX64] BOX64ENV: Variables overridden:
+	BOX64_DYNAREC_BIGBLOCK=3
+	BOX64_DYNAREC_CALLRET=1
+	BOX64_DYNAREC_FASTNAN=1
+	BOX64_DYNAREC_FASTROUND=0
+	BOX64_DYNAREC_FORWARD=512
+	BOX64_DYNAREC_MISSING=1
+	BOX64_DYNAREC_NATIVEFLAGS=0
+	BOX64_DYNAREC_SAFEFLAGS=0
+	BOX64_DYNAREC_STRONGMEM=0
+	BOX64_DYNAREC_WAIT=1
+	BOX64_DYNAREC_WEAKBARRIER=1
+	BOX64_DYNAREC_X87DOUBLE=0
+	BOX64_LOG=1
+	BOX64_MMAP32=0
+	BOX64_NOBANNER=0
+	BOX64_NORCFILES=1
+	BOX64_UNITYPLAYER=0
+	BOX64_X11GLX=1
+	BOX64_AVX=0
+	BOX64_DYNAREC=1
+[BOX64] argv[1]="explorer"
+[BOX64] argv[2]="/desktop=shell,1280x720"
+[BOX64] argv[3]="winhandler.exe"
+[BOX64] argv[4]="/dir"
+[BOX64] argv[5]="C:\\Program Files (x86)\\Steam"
+[BOX64] argv[6]=""steam.exe""
+[BOX64] argv[7]="C:\686060.spec"
+[BOX64] Rename process to "wine"
+[BOX64] Warning, cannot pre-load /data/user/0/com.winlator.banner/files/imagefs/usr/lib/libandroid-sysvshm.so
+[BOX64] Warning, cannot pre-load /data/user/0/com.winlator.banner/files/imagefs/usr/lib/libfakeinput.so
+[BOX64] Warning, program break not found
+[BOX64] Using native(wrapped) libdl.so
+[BOX64] Warning, program break not found
+[BOX64] Using native(wrapped) libc.so
+[BOX64] Warning, program break not found
+[BOX64] Using native(wrapped) libpthread.so
+[BOX64] Using native(wrapped) libm.so
+[BOX64] Using native(wrapped) libbsd.so
+[BOX64] Warning, program break not found
+[BOX64] Using emulated /data/user/0/com.winlator.banner/files/contents/Wine/9.0-X86_64-1/bin/../lib/wine/x86_64-unix/ntdll.so
+[BOX64] Box64 arm64 v0.3.7 ca846814 with Dynarec built on Jun 25 2025 10:26:38
+[BOX64] Dynarec for ARM64, with extension: ASIMD AES CRC32 PMULL ATOMICS SHA1 SHA2 USCAT FLAGM FLAGM2 FRINT AFP
+[BOX64] Running on unknown aarch64 cpu with 8 cores, pagesize: 4096
+[BOX64] Will use hardware counter measured at 13.0 MHz emulating 3.3 GHz
+[BOX64] Wine preloader detected, loading "/data/user/0/com.winlator.banner/files/contents/Wine/9.0-X86_64-1/lib/wine/../../bin/wine" directly
+[BOX64] Wine64 detected, WINEPRELOADRESERVE=""
+[BOX64] Didn't detect 48bits of address space, considering it's 39bits
+[BOX64] Warning, program break not found
+[BOX64] WINE prereserve of 0x10000:0x8000 done
+[BOX64] WINE prereserve of 0x110000:0x30000000 done
+[BOX64] WINE prereserve of 0x7f000000:0x3000000 done
+[BOX64] Detected running wine with "explorer"
+[BOX64] Warning, older then 2.34 pthread_kill not found, using current one
+[BOX64] Counted 132 Env var
+[BOX64] BOX64 trying to Preload /data/user/0/com.winlator.banner/files/imagefs/usr/lib/libandroid-sysvshm.so /data/user/0/com.winlator.banner/files/imagefs/usr/lib/libfakeinput.so 
+[BOX64] Library search path: 
+[BOX64] Binary search path: ./:bin/:/data/user/0/com.winlator.banner/files/contents/Wine/9.0-X86_64-1/bin/:/data/user/0/com.winlator.banner/files/imagefs/usr/bin/
+[BOX64] Looking for /data/user/0/com.winlator.banner/files/contents/Wine/9.0-X86_64-1/lib/wine/../../bin/wine
+[BOX64] BOX64ENV: Variables overridden:
+	BOX64_DYNAREC_BIGBLOCK=3
+	BOX64_DYNAREC_CALLRET=1
+	BOX64_DYNAREC_FASTNAN=1
+	BOX64_DYNAREC_FASTROUND=0
+	BOX64_DYNAREC_FORWARD=512
+	BOX64_DYNAREC_MISSING=1
+	BOX64_DYNAREC_NATIVEFLAGS=0
+	BOX64_DYNAREC_SAFEFLAGS=0
+	BOX64_DYNAREC_STRONGMEM=0
+	BOX64_DYNAREC_WAIT=1
+	BOX64_DYNAREC_WEAKBARRIER=1
+	BOX64_DYNAREC_X87DOUBLE=0
+	BOX64_LOG=1
+	BOX64_MMAP32=0
+	BOX64_NOBANNER=0
+	BOX64_NORCFILES=1
+	BOX64_UNITYPLAYER=0
+	BOX64_X11GLX=1
+	BOX64_AVX=0
+	BOX64_DYNAREC=1
+[BOX64] argv[1]="explorer"
+[BOX64] argv[2]="/desktop=shell,1280x720"
+[BOX64] argv[3]="winhandler.exe"
+[BOX64] argv[4]="/dir"
+[BOX64] argv[5]="C:\\Program Files (x86)\\Steam"
+[BOX64] argv[6]=""steam.exe""
+[BOX64] argv[7]="C:\686060.spec"
+[BOX64] Rename process to "wine"
+[BOX64] Warning, cannot pre-load /data/user/0/com.winlator.banner/files/imagefs/usr/lib/libandroid-sysvshm.so
+[BOX64] Warning, cannot pre-load /data/user/0/com.winlator.banner/files/imagefs/usr/lib/libfakeinput.so
+[BOX64] Warning, program break not found
+[BOX64] Using native(wrapped) libdl.so
+[BOX64] Warning, program break not found
+[BOX64] Using native(wrapped) libc.so
+[BOX64] Warning, program break not found
+[BOX64] Using native(wrapped) libpthread.so
+[BOX64] Using native(wrapped) libm.so
+[BOX64] Using native(wrapped) libbsd.so
+[BOX64] Warning, program break not found
+[BOX64] Using emulated /data/user/0/com.winlator.banner/files/contents/Wine/9.0-X86_64-1/bin/../lib/wine/x86_64-unix/ntdll.so
+[BOX64] posix_spawn(0x724dc816a8, "/data/user/0/com.winlator.banner/files/contents/Wine/9.0-X86_64-1/lib/wine/../../bin/wineserver", 0x0, 0x0, 0x724dc816b0["/data/user/0/com.winlator.banner/files/contents/Wine/9.0-X86_64-1/lib/wine/../../bin/wineserver", "", ...], 0x724dc81a78), IsX64=1, IsX86=0 IsScript=0 envp is context->envv
+[BOX64]  => posix_spawn(0x724dc816a8, "/data/user/0/com.winlator.banner/files/imagefs/usr/bin/box64", 0x0, 0x0, 0x7ffaa99d00 ["/data/user/0/com.winlator.banner/files/imagefs/usr/bin/box64", "/data/user/0/com.winlator.banner/files/contents/Wine/9.0-X86_64-1/lib/wine/../../bin/wineserver", ""...:1], 0x7ffaa9a420)
+[BOX64] posix_spawn returned 0
+[BOX64] Box64 arm64 v0.3.7 ca846814 with Dynarec built on Jun 25 2025 10:26:38
+[BOX64] Dynarec for ARM64, with extension: ASIMD AES CRC32 PMULL ATOMICS SHA1 SHA2 USCAT FLAGM FLAGM2 FRINT AFP
+[BOX64] Running on unknown aarch64 cpu with 8 cores, pagesize: 4096
+[BOX64] Will use hardware counter measured at 13.0 MHz emulating 3.3 GHz
+[BOX64] Didn't detect 48bits of address space, considering it's 39bits
+[BOX64] Warning, program break not found
+[BOX64] Warning, older then 2.34 pthread_kill not found, using current one
+[BOX64] Counted 132 Env var
+[BOX64] BOX64 trying to Preload /data/user/0/com.winlator.banner/files/imagefs/usr/lib/libandroid-sysvshm.so /data/user/0/com.winlator.banner/files/imagefs/usr/lib/libfakeinput.so 
+[BOX64] Library search path: 
+[BOX64] Binary search path: ./:bin/:/data/user/0/com.winlator.banner/files/contents/Wine/9.0-X86_64-1/bin/:/data/user/0/com.winlator.banner/files/imagefs/usr/bin/
+[BOX64] Looking for /data/user/0/com.winlator.banner/files/contents/Wine/9.0-X86_64-1/lib/wine/../../bin/wineserver
+[BOX64] BOX64ENV: Variables overridden:
+	BOX64_DYNAREC_BIGBLOCK=3
+	BOX64_DYNAREC_CALLRET=1
+	BOX64_DYNAREC_FASTNAN=1
+	BOX64_DYNAREC_FASTROUND=0
+	BOX64_DYNAREC_FORWARD=512
+	BOX64_DYNAREC_MISSING=1
+	BOX64_DYNAREC_NATIVEFLAGS=0
+	BOX64_DYNAREC_SAFEFLAGS=0
+	BOX64_DYNAREC_STRONGMEM=0
+	BOX64_DYNAREC_WAIT=1
+	BOX64_DYNAREC_WEAKBARRIER=1
+	BOX64_DYNAREC_X87DOUBLE=0
+	BOX64_LOG=1
+	BOX64_MMAP32=0
+	BOX64_NOBANNER=0
+	BOX64_NORCFILES=1
+	BOX64_UNITYPLAYER=0
+	BOX64_X11GLX=1
+	BOX64_AVX=0
+	BOX64_DYNAREC=1
+[BOX64] Rename process to "wineserver"
+[BOX64] Warning, cannot pre-load /data/user/0/com.winlator.banner/files/imagefs/usr/lib/libandroid-sysvshm.so
+[BOX64] Warning, cannot pre-load /data/user/0/com.winlator.banner/files/imagefs/usr/lib/libfakeinput.so
+[BOX64] Warning, program break not found
+[BOX64] Using native(wrapped) libdl.so
+[BOX64] Warning, program break not found
+[BOX64] Using native(wrapped) libc.so
+[BOX64] Warning, program break not found
+[BOX64] Using native(wrapped) libpthread.so
+[BOX64] Using native(wrapped) libm.so
+[BOX64] Using native(wrapped) libbsd.so
+002c:err:virtual:map_fixed_area out of memory for 0x6ffffff50000-0x6ffffffec000
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\wineboot.exe" at 0000000140000000: builtin
+002c:err:virtual:map_fixed_area out of memory for 0x6fffffee0000-0x6ffffff33000
+002c:err:virtual:map_fixed_area out of memory for 0x6fffffdc0000-0x6fffffec8000
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernelbase.dll" at 000000027FBC0000: builtin
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernel32.dll" at 000000027FCD0000: builtin
+002c:err:virtual:map_fixed_area out of memory for 0x6fffffd70000-0x6fffffdaa000
+002c:err:virtual:map_fixed_area out of memory for 0x6fffffd30000-0x6fffffd55000
+002c:err:virtual:map_fixed_area out of memory for 0x6fffffc40000-0x6fffffd15000
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ucrtbase.dll" at 000000027FA70000: builtin
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\sechost.dll" at 000000027FB50000: builtin
+002c:err:virtual:map_fixed_area out of memory for 0x6fffffb80000-0x6fffffc21000
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\msvcrt.dll" at 000000027F9C0000: builtin
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\advapi32.dll" at 000000027FB80000: builtin
+002c:err:virtual:map_fixed_area out of memory for 0x6fffffb40000-0x6fffffb64000
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ws2_32.dll" at 000000027F990000: builtin
+0034:err:virtual:map_fixed_area out of memory for 0x6ffffff50000-0x6ffffffec000
+0034:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\winemenubuilder.exe" at 0000000140000000: builtin
+0034:err:virtual:map_fixed_area out of memory for 0x6fffffee0000-0x6ffffff33000
+0034:err:virtual:map_fixed_area out of memory for 0x6fffffdc0000-0x6fffffec8000
+0034:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernelbase.dll" at 000000027FBC0000: builtin
+0034:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernel32.dll" at 000000027FCD0000: builtin
+0034:err:virtual:map_fixed_area out of memory for 0x6fffff9c0000-0x6fffffb2c000
+0034:err:virtual:map_fixed_area out of memory for 0x6fffff8b0000-0x6fffff9a4000
+0034:err:virtual:map_fixed_area out of memory for 0x6fffffd70000-0x6fffffdaa000
+0034:err:virtual:map_fixed_area out of memory for 0x6fffffd30000-0x6fffffd55000
+0034:err:virtual:map_fixed_area out of memory for 0x6fffffc40000-0x6fffffd15000
+0034:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ucrtbase.dll" at 000000027F800000: builtin
+0034:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\sechost.dll" at 000000027F8E0000: builtin
+0034:err:virtual:map_fixed_area out of memory for 0x6fffffb80000-0x6fffffc21000
+0034:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\msvcrt.dll" at 000000027F750000: builtin
+0034:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\advapi32.dll" at 000000027F910000: builtin
+0034:err:virtual:map_fixed_area out of memory for 0x6fffff710000-0x6fffff8a0000
+0034:err:virtual:map_fixed_area out of memory for 0x6fffff680000-0x6fffff6f9000
+0034:err:virtual:map_fixed_area out of memory for 0x6fffff630000-0x6fffff666000
+0034:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\win32u.dll" at 000000027F500000: builtin
+0034:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\gdi32.dll" at 000000027F540000: builtin
+0034:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\user32.dll" at 000000027F5C0000: builtin
+0034:err:virtual:map_fixed_area out of memory for 0x6fffff5d0000-0x6fffff613000
+0034:err:virtual:map_fixed_area out of memory for 0x6fffff540000-0x6fffff5b3000
+003c:err:virtual:map_fixed_area out of memory for 0x6ffffff50000-0x6ffffffec000
+0034:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\rpcrt4.dll" at 000000027F430000: builtin
+0034:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\combase.dll" at 000000027F4B0000: builtin
+0034:err:virtual:map_fixed_area out of memory for 0x6fffff510000-0x6fffff523000
+0034:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\coml2.dll" at 000000027F410000: builtin
+0034:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ole32.dll" at 000000027F950000: builtin
+0034:err:virtual:map_fixed_area out of memory for 0x6fffff3f0000-0x6fffff4fb000
+0034:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\oleaut32.dll" at 000000027F300000: builtin
+0034:err:virtual:map_fixed_area out of memory for 0x6fffff3c0000-0x6fffff3df000
+0034:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\propsys.dll" at 000000027F2E0000: builtin
+0034:err:virtual:map_fixed_area out of memory for 0x6fffff370000-0x6fffff3ad000
+0034:err:virtual:map_fixed_area out of memory for 0x6fffff340000-0x6fffff354000
+0034:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shcore.dll" at 000000027F280000: builtin
+0034:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shlwapi.dll" at 000000027F2A0000: builtin
+0034:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\windowscodecs.dll" at 000000027FA50000: builtin
+0034:err:virtual:map_fixed_area out of memory for 0x6ffffeaa0000-0x6fffff32a000
+0034:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shell32.dll" at 000000027E9F0000: builtin
+003c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\services.exe" at 0000000140000000: builtin
+003c:err:virtual:map_fixed_area out of memory for 0x6fffffee0000-0x6ffffff33000
+003c:err:virtual:map_fixed_area out of memory for 0x6fffffdc0000-0x6fffffec8000
+003c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernelbase.dll" at 000000027FBD0000: builtin
+003c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernel32.dll" at 000000027FCE0000: builtin
+003c:err:virtual:map_fixed_area out of memory for 0x6fffff540000-0x6fffff5b3000
+003c:err:virtual:map_fixed_area out of memory for 0x6fffffd70000-0x6fffffdaa000
+003c:err:virtual:map_fixed_area out of memory for 0x6fffffd30000-0x6fffffd55000
+003c:err:virtual:map_fixed_area out of memory for 0x6fffffc40000-0x6fffffd15000
+003c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ucrtbase.dll" at 000000027FA00000: builtin
+003c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\sechost.dll" at 000000027FAE0000: builtin
+003c:err:virtual:map_fixed_area out of memory for 0x6fffffb80000-0x6fffffc21000
+003c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\msvcrt.dll" at 000000027F950000: builtin
+003c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\advapi32.dll" at 000000027FB10000: builtin
+003c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\rpcrt4.dll" at 000000027FB50000: builtin
+003c:err:virtual:map_fixed_area out of memory for 0x6ffffea80000-0x6ffffea8b000
+003c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\userenv.dll" at 000000027F940000: builtin
+003c:err:virtual:map_fixed_area out of memory for 0x6ffffea10000-0x6ffffea68000
+003c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\setupapi.dll" at 000000027F8E0000: builtin
+0034:err:virtual:map_fixed_area out of memory for 0x6ffffe9e0000-0x6ffffe9fb000
+0034:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\imm32.dll" at 000000027E9D0000: builtin
+0048:err:virtual:map_fixed_area out of memory for 0x6ffffff50000-0x6ffffffec000
+0050:err:virtual:map_fixed_area out of memory for 0x6ffffff50000-0x6ffffffec000
+0048:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\winedevice.exe" at 0000000140000000: builtin
+0048:err:virtual:map_fixed_area out of memory for 0x6fffffee0000-0x6ffffff33000
+0048:err:virtual:map_fixed_area out of memory for 0x6fffffdc0000-0x6fffffec8000
+0048:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernelbase.dll" at 000000027FBB0000: builtin
+0048:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernel32.dll" at 000000027FCC0000: builtin
+0050:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\explorer.exe" at 0000000140000000: builtin
+0050:err:virtual:map_fixed_area out of memory for 0x6fffffee0000-0x6ffffff33000
+0048:err:virtual:map_fixed_area out of memory for 0x6fffffd70000-0x6fffffdaa000
+0048:err:virtual:map_fixed_area out of memory for 0x6fffffd30000-0x6fffffd55000
+0048:err:virtual:map_fixed_area out of memory for 0x6fffffc40000-0x6fffffd15000
+0050:err:virtual:map_fixed_area out of memory for 0x6fffffdc0000-0x6fffffec8000
+0048:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ucrtbase.dll" at 000000027FA60000: builtin
+0048:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\sechost.dll" at 000000027FB40000: builtin
+0050:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernelbase.dll" at 000000027FBD0000: builtin
+0048:err:virtual:map_fixed_area out of memory for 0x6fffffb80000-0x6fffffc21000
+0050:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernel32.dll" at 000000027FCE0000: builtin
+0048:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\msvcrt.dll" at 000000027F9B0000: builtin
+0048:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\advapi32.dll" at 000000027FB70000: builtin
+0048:err:virtual:map_fixed_area out of memory for 0x6ffffe970000-0x6ffffe9c6000
+0048:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ntoskrnl.exe" at 000000027F950000: builtin
+0050:err:virtual:map_fixed_area out of memory for 0x6fffff540000-0x6fffff5b3000
+0050:err:virtual:map_fixed_area out of memory for 0x6fffffd70000-0x6fffffdaa000
+0050:err:virtual:map_fixed_area out of memory for 0x6fffffd30000-0x6fffffd55000
+0050:err:virtual:map_fixed_area out of memory for 0x6fffffc40000-0x6fffffd15000
+0050:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ucrtbase.dll" at 000000027FA00000: builtin
+0050:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\sechost.dll" at 000000027FAE0000: builtin
+0050:err:virtual:map_fixed_area out of memory for 0x6fffffb80000-0x6fffffc21000
+0050:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\msvcrt.dll" at 000000027F950000: builtin
+0050:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\advapi32.dll" at 000000027FB10000: builtin
+0050:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\rpcrt4.dll" at 000000027FB50000: builtin
+0050:err:virtual:map_fixed_area out of memory for 0x6fffff710000-0x6fffff8a0000
+0050:err:virtual:map_fixed_area out of memory for 0x6fffff680000-0x6fffff6f9000
+0050:err:virtual:map_fixed_area out of memory for 0x6fffff630000-0x6fffff666000
+0050:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\win32u.dll" at 000000027F700000: builtin
+0050:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\gdi32.dll" at 000000027F740000: builtin
+0050:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\user32.dll" at 000000027F7C0000: builtin
+0048:err:virtual:map_fixed_area out of memory for 0x6fffff540000-0x6fffff5b3000
+0048:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\rpcrt4.dll" at 000000027F8D0000: builtin
+0050:err:virtual:map_fixed_area out of memory for 0x6ffffe9e0000-0x6ffffe9fb000
+0050:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\imm32.dll" at 000000027F6E0000: builtin
+0050:err:virtual:map_fixed_area out of memory for 0x6ffffe940000-0x6ffffe953000
+0050:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\winex11.drv" at 000000027F6C0000: builtin
+005c:err:virtual:map_fixed_area out of memory for 0x6ffffe920000-0x6ffffe92f000
+005c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\drivers\\mountmgr.sys" at 000000027F8C0000: builtin
+005c:err:virtual:map_fixed_area out of memory for 0x6ffffea10000-0x6ffffea68000
+005c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\setupapi.dll" at 000000027F860000: builtin
+0074:err:virtual:map_fixed_area out of memory for 0x6ffffff50000-0x6ffffffec000
+0050:err:virtual:map_fixed_area out of memory for 0x6ffffe8d0000-0x6ffffe902000
+0050:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\uxtheme.dll" at 000000027F680000: builtin
+0074:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\winedevice.exe" at 0000000140000000: builtin
+0074:err:virtual:map_fixed_area out of memory for 0x6fffffee0000-0x6ffffff33000
+0074:err:virtual:map_fixed_area out of memory for 0x6fffffdc0000-0x6fffffec8000
+0074:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernelbase.dll" at 000000027FBB0000: builtin
+0074:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernel32.dll" at 000000027FCC0000: builtin
+0074:err:virtual:map_fixed_area out of memory for 0x6fffffd70000-0x6fffffdaa000
+0074:err:virtual:map_fixed_area out of memory for 0x6fffffd30000-0x6fffffd55000
+0074:err:virtual:map_fixed_area out of memory for 0x6fffffc40000-0x6fffffd15000
+0074:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ucrtbase.dll" at 000000027FA60000: builtin
+0074:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\sechost.dll" at 000000027FB40000: builtin
+0074:err:virtual:map_fixed_area out of memory for 0x6fffffb80000-0x6fffffc21000
+0074:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\msvcrt.dll" at 000000027F9B0000: builtin
+0074:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\advapi32.dll" at 000000027FB70000: builtin
+0074:err:virtual:map_fixed_area out of memory for 0x6ffffe970000-0x6ffffe9c6000
+0074:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ntoskrnl.exe" at 000000027F950000: builtin
+0074:err:virtual:map_fixed_area out of memory for 0x6fffff540000-0x6fffff5b3000
+0074:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\rpcrt4.dll" at 000000027F8D0000: builtin
+0050:err:virtual:map_fixed_area out of memory for 0x6ffffeaa0000-0x6fffff32a000
+0050:err:virtual:map_fixed_area out of memory for 0x6fffff370000-0x6fffff3ad000
+0050:err:virtual:map_fixed_area out of memory for 0x6fffff340000-0x6fffff354000
+0050:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shcore.dll" at 000000027ED90000: builtin
+0050:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shlwapi.dll" at 000000027EDB0000: builtin
+0050:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shell32.dll" at 000000027EDF0000: builtin
+0080:err:virtual:map_fixed_area out of memory for 0x6ffffe8b0000-0x6ffffe8bb000
+0080:err:virtual:map_fixed_area out of memory for 0x6ffffe890000-0x6ffffe89e000
+0080:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\drivers\\hidparse.sys" at 000000027F8B0000: builtin
+0080:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\drivers\\winebus.sys" at 000000027F8C0000: builtin
+0080:err:virtual:map_fixed_area out of memory for 0x6ffffea10000-0x6ffffea68000
+0080:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\setupapi.dll" at 000000027F850000: builtin
+0050:err:virtual:map_fixed_area out of memory for 0x6fffff8b0000-0x6fffff9a4000
+0050:err:virtual:map_fixed_area out of memory for 0x6fffff5d0000-0x6fffff613000
+0050:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\combase.dll" at 000000027EC40000: builtin
+0050:err:virtual:map_fixed_area out of memory for 0x6fffff510000-0x6fffff523000
+0050:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\coml2.dll" at 000000027EC20000: builtin
+0050:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ole32.dll" at 000000027EC90000: builtin
+0088:fixme:hid:handle_IRP_MN_QUERY_ID Unhandled type 00000005
+0088:err:virtual:map_fixed_area out of memory for 0x6ffffe870000-0x6ffffe877000
+0088:err:virtual:map_fixed_area out of memory for 0x6ffffe850000-0x6ffffe85c000
+0088:err:virtual:map_fixed_area out of memory for 0x6fffff710000-0x6fffff8a0000
+0088:err:virtual:map_fixed_area out of memory for 0x6fffff680000-0x6fffff6f9000
+0088:err:virtual:map_fixed_area out of memory for 0x6fffff630000-0x6fffff666000
+0050:err:virtual:map_fixed_area out of memory for 0x6ffffe730000-0x6ffffe831000
+0088:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\win32u.dll" at 000000027F5F0000: builtin
+0088:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\gdi32.dll" at 000000027F630000: builtin
+0088:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\user32.dll" at 000000027F6B0000: builtin
+0088:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\drivers\\hidclass.sys" at 000000027F840000: builtin
+0088:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\drivers\\winehid.sys" at 000000027FDC0000: builtin
+0050:err:virtual:map_fixed_area out of memory for 0x6fffff3f0000-0x6fffff4fb000
+0050:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\oleaut32.dll" at 000000027EA00000: builtin
+0050:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\actxprxy.dll" at 000000027EB10000: builtin
+0050:trace:seh:dispatch_exception code=6ba flags=0 addr=000000027FBE3F87 ip=27fbe3f87
+0050:warn:seh:dispatch_exception RPC_S_SERVER_UNAVAILABLE exception (code=6ba) raised
+0050:trace:seh:dispatch_exception  rax=00000000800ee930 rbx=000000008121da40 rcx=00000000800ee930 rdx=0000000000000000
+0050:trace:seh:dispatch_exception  rsi=00000000800eec08 rdi=000000000000006c rbp=000000027ec7a138 rsp=00000000800ee910
+0050:trace:seh:dispatch_exception   r8=0000000000000000  r9=0000000000000000 r10=0000000080690888 r11=0000000080690000
+0050:trace:seh:dispatch_exception  r12=000000008121cbdc r13=000000027ec63b90 r14=000000008121cbb0 r15=000000027ec6af6c
+0050:trace:seh:call_stack_handlers found wine frame 00000000800EEAE0 rsp 00000000800EEDE0 handler 000000027EC61CF0
+0050:trace:seh:call_teb_handler calling TEB handler 000000027EC61CF0 (rec=00000000800EE930, frame=00000000800EEAE0 context=00000000800EDEF0, dispatch=00000000800EDDC0)
+0050:trace:seh:call_teb_handler handler at 000000027EC61CF0 returned 1
+0050:trace:seh:call_stack_handlers found wine frame 00000000800EEE10 rsp 00000000800EEF90 handler 000000027EC63B90
+0050:trace:seh:call_teb_handler calling TEB handler 000000027EC63B90 (rec=00000000800EE930, frame=00000000800EEE10 context=00000000800EDEF0, dispatch=00000000800EDDC0)
+0050:trace:seh:RtlRestoreContext returning to 000000027EC63B8A stack 00000000800EEDE0
+0088:err:virtual:map_fixed_area out of memory for 0x6ffffe9e0000-0x6ffffe9fb000
+0088:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\imm32.dll" at 000000027F5D0000: builtin
+0080:err:ntoskrnl:ZwLoadDriver failed to create driver L"\\Registry\\Machine\\System\\CurrentControlSet\\Services\\winebth": c0000142
+003c:fixme:service:scmdatabase_autostart_services Auto-start service L"winebth" failed to start: 1114
+0088:fixme:hid:handle_IRP_MN_QUERY_ID Unhandled type 00000005
+0088:fixme:hid:handle_IRP_MN_QUERY_ID Unhandled type 00000005
+0088:fixme:hid:handle_IRP_MN_QUERY_ID Unhandled type 00000005
+0088:trace:seh:dispatch_exception code=6ba flags=0 addr=000000027FBC3F87 ip=27fbc3f87
+0088:warn:seh:dispatch_exception RPC_S_SERVER_UNAVAILABLE exception (code=6ba) raised
+0088:trace:seh:dispatch_exception  rax=0000000080a0ec20 rbx=0000000080695510 rcx=0000000080a0ec20 rdx=0000000000000000
+0088:trace:seh:dispatch_exception  rsi=0000000080a0eea8 rdi=00000000000000c8 rbp=0000000000008000 rsp=0000000080a0ec00
+0088:trace:seh:dispatch_exception   r8=0000000000000000  r9=0000000000000000 r10=00000000806905e8 r11=0000000080690000
+0088:trace:seh:dispatch_exception  r12=0000000000000001 r13=000000000000007d r14=000000027f979af4 r15=00000000000000b4
+0088:trace:seh:call_vectored_handlers calling handler at 000000027F95D640 code=6ba flags=0
+0088:trace:seh:call_vectored_handlers handler at 000000027F95D640 returned 0
+0088:trace:seh:call_stack_handlers found wine frame 0000000080A0ED80 rsp 0000000080A0F0D0 handler 000000027F970370
+0088:trace:seh:call_teb_handler calling TEB handler 000000027F970370 (rec=0000000080A0EC20, frame=0000000080A0ED80 context=0000000080A0E1E0, dispatch=0000000080A0E0B0)
+0088:trace:seh:call_teb_handler handler at 000000027F970370 returned 1
+0088:trace:seh:call_stack_handlers found wine frame 0000000080A0F100 rsp 0000000080A0F260 handler 000000027F9713C0
+0088:trace:seh:call_teb_handler calling TEB handler 000000027F9713C0 (rec=0000000080A0EC20, frame=0000000080A0F100 context=0000000080A0E1E0, dispatch=0000000080A0E0B0)
+0088:trace:seh:RtlRestoreContext returning to 000000027F9713BA stack 0000000080A0F0D0
+0088:trace:seh:dispatch_exception code=6ba flags=0 addr=000000027FBC3F87 ip=27fbc3f87
+0088:warn:seh:dispatch_exception RPC_S_SERVER_UNAVAILABLE exception (code=6ba) raised
+0088:trace:seh:dispatch_exception  rax=0000000080a0ec20 rbx=0000000080695510 rcx=0000000080a0ec20 rdx=0000000000000000
+0088:trace:seh:dispatch_exception  rsi=0000000080a0eea8 rdi=00000000000000c8 rbp=0000000000008000 rsp=0000000080a0ec00
+0088:trace:seh:dispatch_exception   r8=0000000000000000  r9=0000000000000000 r10=00000000806905e8 r11=0000000080690000
+0088:trace:seh:dispatch_exception  r12=0000000000000001 r13=000000000000007d r14=000000027f979af4 r15=00000000000000b4
+0088:trace:seh:call_vectored_handlers calling handler at 000000027F95D640 code=6ba flags=0
+0088:trace:seh:call_vectored_handlers handler at 000000027F95D640 returned 0
+0088:trace:seh:call_stack_handlers found wine frame 0000000080A0ED80 rsp 0000000080A0F0D0 handler 000000027F970370
+0088:trace:seh:call_teb_handler calling TEB handler 000000027F970370 (rec=0000000080A0EC20, frame=0000000080A0ED80 context=0000000080A0E1E0, dispatch=0000000080A0E0B0)
+0088:trace:seh:call_teb_handler handler at 000000027F970370 returned 1
+0088:trace:seh:call_stack_handlers found wine frame 0000000080A0F100 rsp 0000000080A0F260 handler 000000027F9713C0
+0088:trace:seh:call_teb_handler calling TEB handler 000000027F9713C0 (rec=0000000080A0EC20, frame=0000000080A0F100 context=0000000080A0E1E0, dispatch=0000000080A0E0B0)
+0088:trace:seh:RtlRestoreContext returning to 000000027F9713BA stack 0000000080A0F0D0
+00a8:err:virtual:map_fixed_area out of memory for 0x6ffffff50000-0x6ffffffec000
+0088:trace:seh:dispatch_exception code=6ba flags=0 addr=000000027FBC3F87 ip=27fbc3f87
+0088:warn:seh:dispatch_exception RPC_S_SERVER_UNAVAILABLE exception (code=6ba) raised
+0088:trace:seh:dispatch_exception  rax=0000000080a0ec20 rbx=0000000080695510 rcx=0000000080a0ec20 rdx=0000000000000000
+0088:trace:seh:dispatch_exception  rsi=0000000080a0eea8 rdi=00000000000000c8 rbp=0000000000008000 rsp=0000000080a0ec00
+0088:trace:seh:dispatch_exception   r8=0000000000000000  r9=0000000000000000 r10=00000000806905a8 r11=0000000080690000
+0088:trace:seh:dispatch_exception  r12=0000000000000001 r13=000000000000007d r14=000000027f979af4 r15=00000000000000b4
+0088:trace:seh:call_vectored_handlers calling handler at 000000027F95D640 code=6ba flags=0
+0088:trace:seh:call_vectored_handlers handler at 000000027F95D640 returned 0
+0088:trace:seh:call_stack_handlers found wine frame 0000000080A0ED80 rsp 0000000080A0F0D0 handler 000000027F970370
+0088:trace:seh:call_teb_handler calling TEB handler 000000027F970370 (rec=0000000080A0EC20, frame=0000000080A0ED80 context=0000000080A0E1E0, dispatch=0000000080A0E0B0)
+0088:trace:seh:call_teb_handler handler at 000000027F970370 returned 1
+0088:trace:seh:call_stack_handlers found wine frame 0000000080A0F100 rsp 0000000080A0F260 handler 000000027F9713C0
+0088:trace:seh:call_teb_handler calling TEB handler 000000027F9713C0 (rec=0000000080A0EC20, frame=0000000080A0F100 context=0000000080A0E1E0, dispatch=0000000080A0E0B0)
+0088:trace:seh:RtlRestoreContext returning to 000000027F9713BA stack 0000000080A0F0D0
+0088:trace:seh:dispatch_exception code=6ba flags=0 addr=000000027FBC3F87 ip=27fbc3f87
+0088:warn:seh:dispatch_exception RPC_S_SERVER_UNAVAILABLE exception (code=6ba) raised
+0088:trace:seh:dispatch_exception  rax=0000000080a0ec20 rbx=0000000080695510 rcx=0000000080a0ec20 rdx=0000000000000000
+0088:trace:seh:dispatch_exception  rsi=0000000080a0eea8 rdi=00000000000000c8 rbp=0000000000008000 rsp=0000000080a0ec00
+0088:trace:seh:dispatch_exception   r8=0000000000000000  r9=0000000000000000 r10=00000000806905a8 r11=0000000080690000
+0088:trace:seh:dispatch_exception  r12=0000000000000001 r13=000000000000007d r14=000000027f979af4 r15=00000000000000b4
+0088:trace:seh:call_vectored_handlers calling handler at 000000027F95D640 code=6ba flags=0
+0088:trace:seh:call_vectored_handlers handler at 000000027F95D640 returned 0
+0088:trace:seh:call_stack_handlers found wine frame 0000000080A0ED80 rsp 0000000080A0F0D0 handler 000000027F970370
+0088:trace:seh:call_teb_handler calling TEB handler 000000027F970370 (rec=0000000080A0EC20, frame=0000000080A0ED80 context=0000000080A0E1E0, dispatch=0000000080A0E0B0)
+0088:trace:seh:call_teb_handler handler at 000000027F970370 returned 1
+0088:trace:seh:call_stack_handlers found wine frame 0000000080A0F100 rsp 0000000080A0F260 handler 000000027F9713C0
+0088:trace:seh:call_teb_handler calling TEB handler 000000027F9713C0 (rec=0000000080A0EC20, frame=0000000080A0F100 context=0000000080A0E1E0, dispatch=0000000080A0E0B0)
+0088:trace:seh:RtlRestoreContext returning to 000000027F9713BA stack 0000000080A0F0D0
+00a8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\plugplay.exe" at 0000000140000000: builtin
+00a8:err:virtual:map_fixed_area out of memory for 0x6fffffee0000-0x6ffffff33000
+00a8:err:virtual:map_fixed_area out of memory for 0x6fffffdc0000-0x6fffffec8000
+00a8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernelbase.dll" at 000000027FBB0000: builtin
+00a8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernel32.dll" at 000000027FCC0000: builtin
+00a8:err:virtual:map_fixed_area out of memory for 0x6fffffd70000-0x6fffffdaa000
+00a8:err:virtual:map_fixed_area out of memory for 0x6fffffd30000-0x6fffffd55000
+00a8:err:virtual:map_fixed_area out of memory for 0x6fffffc40000-0x6fffffd15000
+00a8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ucrtbase.dll" at 000000027FA60000: builtin
+00a8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\sechost.dll" at 000000027FB40000: builtin
+00a8:err:virtual:map_fixed_area out of memory for 0x6fffffb80000-0x6fffffc21000
+00a8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\msvcrt.dll" at 000000027F9B0000: builtin
+00a8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\advapi32.dll" at 000000027FB70000: builtin
+00a8:err:virtual:map_fixed_area out of memory for 0x6fffff540000-0x6fffff5b3000
+00a8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\rpcrt4.dll" at 000000027F930000: builtin
+00a8:err:virtual:map_fixed_area out of memory for 0x6fffff710000-0x6fffff8a0000
+00a8:err:virtual:map_fixed_area out of memory for 0x6fffff680000-0x6fffff6f9000
+00a8:err:virtual:map_fixed_area out of memory for 0x6fffff630000-0x6fffff666000
+00a8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\win32u.dll" at 000000027F6E0000: builtin
+00a8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\gdi32.dll" at 000000027F720000: builtin
+00a8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\user32.dll" at 000000027F7A0000: builtin
+00a8:err:virtual:map_fixed_area out of memory for 0x6ffffe9e0000-0x6ffffe9fb000
+00a8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\imm32.dll" at 000000027F6C0000: builtin
+00c8:err:virtual:map_fixed_area out of memory for 0x6ffffff50000-0x6ffffffec000
+00c8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\svchost.exe" at 0000000140000000: builtin
+00c8:err:virtual:map_fixed_area out of memory for 0x6fffffee0000-0x6ffffff33000
+00c8:err:virtual:map_fixed_area out of memory for 0x6fffffdc0000-0x6fffffec8000
+00c8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernelbase.dll" at 000000027FBB0000: builtin
+00c8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernel32.dll" at 000000027FCC0000: builtin
+00c8:err:virtual:map_fixed_area out of memory for 0x6fffffd70000-0x6fffffdaa000
+00c8:err:virtual:map_fixed_area out of memory for 0x6fffffd30000-0x6fffffd55000
+00c8:err:virtual:map_fixed_area out of memory for 0x6fffffc40000-0x6fffffd15000
+00c8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ucrtbase.dll" at 000000027FA60000: builtin
+00c8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\sechost.dll" at 000000027FB40000: builtin
+00c8:err:virtual:map_fixed_area out of memory for 0x6fffffb80000-0x6fffffc21000
+00c8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\msvcrt.dll" at 000000027F9B0000: builtin
+00c8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\advapi32.dll" at 000000027FB70000: builtin
+00c8:err:virtual:map_fixed_area out of memory for 0x6ffffe710000-0x6ffffe717000
+00c8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\wevtsvc.dll" at 000000027FDC0000: builtin
+00c8:err:virtual:map_fixed_area out of memory for 0x6fffff540000-0x6fffff5b3000
+00c8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\rpcrt4.dll" at 000000027F930000: builtin
+005c:err:virtual:map_fixed_area out of memory for 0x6ffffe6f0000-0x6ffffe6f7000
+005c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\drivers\\nsiproxy.sys" at 000000027FDC0000: builtin
+00dc:err:nsi:poll_netlink bind failed, errno 13.
+005c:err:virtual:map_fixed_area out of memory for 0x6ffffe6d0000-0x6ffffe6e0000
+005c:err:virtual:map_fixed_area out of memory for 0x6ffffe690000-0x6ffffe6b2000
+005c:err:virtual:map_fixed_area out of memory for 0x6ffffe660000-0x6ffffe672000
+005c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\dnsapi.dll" at 000000027F800000: builtin
+005c:err:virtual:map_fixed_area out of memory for 0x6ffffe640000-0x6ffffe64a000
+005c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\nsi.dll" at 000000027F7F0000: builtin
+005c:err:virtual:map_fixed_area out of memory for 0x6fffffb40000-0x6fffffb64000
+005c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ws2_32.dll" at 000000027F7C0000: builtin
+005c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\iphlpapi.dll" at 000000027F820000: builtin
+005c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\drivers\\ndis.sys" at 000000027F850000: builtin
+005c:err:dnsapi:DllMain No libresolv support, expect problems
+0060:trace:seh:handle_syscall_fault code=c0000005 flags=0 addr=0x3f0200b0a4 ip=3f0200b0a4 tid=0060
+0060:trace:seh:handle_syscall_fault  info[0]=0000000000000000
+0060:trace:seh:handle_syscall_fault  info[1]=0000000000000000
+0060:trace:seh:handle_syscall_fault  rax=0000000000000000 rbx=00000000000000d8 rcx=00000000205dd5eb rdx=0000000000000018
+0060:trace:seh:handle_syscall_fault  rsi=00000078c94f81d8 rdi=00000078cc0a9360 rbp=000000014030f9c0 rsp=000000014030f9a0
+0060:trace:seh:handle_syscall_fault   r8=000000014030f980  r9=0000000000000008 r10=0000000000000258 r11=0000000080c47d84
+0060:trace:seh:handle_syscall_fault  r12=0000000080c33684 r13=0000000000000048 r14=0000000080c44784 r15=0000000000000444
+0060:trace:seh:handle_syscall_fault returning to user mode ip=000000027fdc14f7 ret=c0000005
+002c:err:virtual:map_fixed_area out of memory for 0x6ffffeaa0000-0x6fffff32a000
+002c:err:virtual:map_fixed_area out of memory for 0x6fffff370000-0x6fffff3ad000
+002c:err:virtual:map_fixed_area out of memory for 0x6fffff340000-0x6fffff354000
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shcore.dll" at 000000027F0A0000: builtin
+002c:err:virtual:map_fixed_area out of memory for 0x6fffff710000-0x6fffff8a0000
+002c:err:virtual:map_fixed_area out of memory for 0x6fffff680000-0x6fffff6f9000
+002c:err:virtual:map_fixed_area out of memory for 0x6fffff630000-0x6fffff666000
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\win32u.dll" at 000000027EE50000: builtin
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\gdi32.dll" at 000000027EE90000: builtin
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\user32.dll" at 000000027EF10000: builtin
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shlwapi.dll" at 000000027F0C0000: builtin
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shell32.dll" at 000000027F100000: builtin
+00e8:err:virtual:map_fixed_area out of memory for 0x6ffffff50000-0x6ffffffec000
+002c:err:virtual:map_fixed_area out of memory for 0x6ffffe9e0000-0x6ffffe9fb000
+00e8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\rpcss.exe" at 0000000140000000: builtin
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\imm32.dll" at 000000027EE30000: builtin
+00e8:err:virtual:map_fixed_area out of memory for 0x6fffffee0000-0x6ffffff33000
+002c:err:virtual:map_fixed_area out of memory for 0x6fffff8b0000-0x6fffff9a4000
+00e8:err:virtual:map_fixed_area out of memory for 0x6fffffdc0000-0x6fffffec8000
+002c:err:virtual:map_fixed_area out of memory for 0x6fffff5d0000-0x6fffff613000
+002c:err:virtual:map_fixed_area out of memory for 0x6fffff540000-0x6fffff5b3000
+00e8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernelbase.dll" at 000000027FBC0000: builtin
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\rpcrt4.dll" at 000000027EC60000: builtin
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\combase.dll" at 000000027ECE0000: builtin
+00e8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernel32.dll" at 000000027FCD0000: builtin
+002c:err:virtual:map_fixed_area out of memory for 0x6fffff510000-0x6fffff523000
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\coml2.dll" at 000000027EC40000: builtin
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ole32.dll" at 000000027ED30000: builtin
+00e8:err:virtual:map_fixed_area out of memory for 0x6fffff540000-0x6fffff5b3000
+00e8:err:virtual:map_fixed_area out of memory for 0x6fffffd70000-0x6fffffdaa000
+00e8:err:virtual:map_fixed_area out of memory for 0x6fffffd30000-0x6fffffd55000
+00e8:err:virtual:map_fixed_area out of memory for 0x6fffffc40000-0x6fffffd15000
+00e8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ucrtbase.dll" at 000000027F9F0000: builtin
+00e8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\sechost.dll" at 000000027FAD0000: builtin
+00e8:err:virtual:map_fixed_area out of memory for 0x6fffffb80000-0x6fffffc21000
+00e8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\msvcrt.dll" at 000000027F940000: builtin
+00e8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\advapi32.dll" at 000000027FB00000: builtin
+00e8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\rpcrt4.dll" at 000000027FB40000: builtin
+0024:err:virtual:map_fixed_area out of memory for 0x6ffffff50000-0x6ffffffec000
+0024:err:virtual:try_map_free_area mmap() error Out of memory, range 0x7ffffff50000-0x7ffffffec000, unix_prot 0x7.
+0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\start.exe" at 0000000140000000: builtin
+0024:err:virtual:map_fixed_area out of memory for 0x6fffffee0000-0x6ffffff33000
+0024:err:virtual:try_map_free_area mmap() error Out of memory, range 0x7ffffff90000-0x7ffffffe3000, unix_prot 0x7.
+0024:err:virtual:map_fixed_area out of memory for 0x6fffffdc0000-0x6fffffec8000
+0024:err:virtual:try_map_free_area mmap() error Out of memory, range 0x7fffffee0000-0x7ffffffe8000, unix_prot 0x7.
+0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernelbase.dll" at 000000013FDF0000: builtin
+0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernel32.dll" at 000000013FF00000: builtin
+0024:err:virtual:map_fixed_area out of memory for 0x6ffffeaa0000-0x6fffff32a000
+0024:err:virtual:try_map_free_area mmap() error Out of memory, range 0x7fffff760000-0x7ffffffea000, unix_prot 0x7.
+0024:err:virtual:map_fixed_area out of memory for 0x6fffff370000-0x6fffff3ad000
+0024:err:virtual:try_map_free_area mmap() error Out of memory, range 0x7ffffffb0000-0x7ffffffed000, unix_prot 0x7.
+0024:err:virtual:map_fixed_area out of memory for 0x6fffff340000-0x6fffff354000
+0024:err:virtual:try_map_free_area mmap() error Out of memory, range 0x7ffffffd0000-0x7ffffffe4000, unix_prot 0x7.
+0024:err:virtual:map_fixed_area out of memory for 0x6fffffd70000-0x6fffffdaa000
+0024:err:virtual:try_map_free_area mmap() error Out of memory, range 0x7ffffffb0000-0x7ffffffea000, unix_prot 0x7.
+0024:err:virtual:map_fixed_area out of memory for 0x6fffffd30000-0x6fffffd55000
+0024:err:virtual:try_map_free_area mmap() error Out of memory, range 0x7ffffffc0000-0x7ffffffe5000, unix_prot 0x7.
+0024:err:virtual:map_fixed_area out of memory for 0x6fffffc40000-0x6fffffd15000
+0024:err:virtual:try_map_free_area mmap() error Out of memory, range 0x7ffffff10000-0x7ffffffe5000, unix_prot 0x7.
+0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ucrtbase.dll" at 000000013F3B0000: builtin
+0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\sechost.dll" at 000000013F490000: builtin
+0024:err:virtual:map_fixed_area out of memory for 0x6fffffb80000-0x6fffffc21000
+0024:err:virtual:try_map_free_area mmap() error Out of memory, range 0x7ffffff40000-0x7ffffffe1000, unix_prot 0x7.
+0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\msvcrt.dll" at 000000013F300000: builtin
+0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\advapi32.dll" at 000000013F4C0000: builtin
+0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shcore.dll" at 000000013F500000: builtin
+0024:err:virtual:map_fixed_area out of memory for 0x6fffff710000-0x6fffff8a0000
+0024:err:virtual:try_map_free_area mmap() error Out of memory, range 0x7fffffe60000-0x7fffffff0000, unix_prot 0x7.
+0024:err:virtual:map_fixed_area out of memory for 0x6fffff680000-0x6fffff6f9000
+0024:err:virtual:try_map_free_area mmap() error Out of memory, range 0x7ffffff70000-0x7ffffffe9000, unix_prot 0x7.
+0024:err:virtual:map_fixed_area out of memory for 0x6fffff630000-0x6fffff666000
+0024:err:virtual:try_map_free_area mmap() error Out of memory, range 0x7ffffffb0000-0x7ffffffe6000, unix_prot 0x7.
+0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\win32u.dll" at 000000013F0B0000: builtin
+0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\gdi32.dll" at 000000013F0F0000: builtin
+0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\user32.dll" at 000000013F170000: builtin
+0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shlwapi.dll" at 000000013F520000: builtin
+0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shell32.dll" at 000000013F560000: builtin
+[BOX64] Warning, program break not found
+[BOX64] Using emulated /data/user/0/com.winlator.banner/files/contents/Wine/9.0-X86_64-1/lib/wine/x86_64-unix/win32u.so
+0034:err:virtual:map_fixed_area out of memory for 0x6ffffe940000-0x6ffffe953000
+0034:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\winex11.drv" at 000000027E9B0000: builtin
+[BOX64] Warning, program break not found
+[BOX64] Using native(wrapped) libfreetype.so
+[BOX64] Warning, program break not found
+[BOX64] Using native(wrapped) libfontconfig.so
+[BOX64] Warning, program break not found
+[BOX64] Using native(wrapped) libexpat.so.1
+[BOX64] Using native(wrapped) libfreetype.so.6
+0024:err:virtual:map_fixed_area out of memory for 0x6ffffe9e0000-0x6ffffe9fb000
+0024:err:virtual:try_map_free_area mmap() error Out of memory, range 0x7ffffffd0000-0x7ffffffeb000, unix_prot 0x7.
+0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\imm32.dll" at 000000013F090000: builtin
+0034:err:virtual:map_fixed_area out of memory for 0x6ffffe8d0000-0x6ffffe902000
+0034:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\uxtheme.dll" at 000000027E970000: builtin
+[BOX64] Box64 arm64 v0.3.7 ca846814 with Dynarec built on Jun 25 2025 10:26:38
+[BOX64] Dynarec for ARM64, with extension: ASIMD AES CRC32 PMULL ATOMICS SHA1 SHA2 USCAT FLAGM FLAGM2 FRINT AFP
+[BOX64] Running on unknown aarch64 cpu with 8 cores, pagesize: 4096
+[BOX64] Will use hardware counter measured at 13.0 MHz emulating 3.3 GHz
+[BOX64] Wine preloader detected, loading "/data/user/0/com.winlator.banner/files/contents/Wine/9.0-X86_64-1/lib/wine/../../bin/wine" directly
+[BOX64] Wine64 detected, WINEPRELOADRESERVE="140000000-14001d000"
+[BOX64] Didn't detect 48bits of address space, considering it's 39bits
+[BOX64] Warning, program break not found
+[BOX64] WINE prereserve of 0x10000:0x8000 done
+[BOX64] WINE prereserve of 0x110000:0x30000000 done
+[BOX64] WINE prereserve of 0x7f000000:0x3000000 done
+[BOX64] WINE prereserve of 0x140000000:0x14001d000 done
+[BOX64] Detected running wine with "explorer.exe"
+[BOX64] Warning, older then 2.34 pthread_kill not found, using current one
+[BOX64] Counted 135 Env var
+[BOX64] BOX64 trying to Preload /data/user/0/com.winlator.banner/files/imagefs/usr/lib/libandroid-sysvshm.so /data/user/0/com.winlator.banner/files/imagefs/usr/lib/libfakeinput.so 
+[BOX64] Library search path: 
+[BOX64] Binary search path: ./:bin/:/data/user/0/com.winlator.banner/files/contents/Wine/9.0-X86_64-1/bin/:/data/user/0/com.winlator.banner/files/imagefs/usr/bin/
+[BOX64] Looking for /data/user/0/com.winlator.banner/files/contents/Wine/9.0-X86_64-1/lib/wine/../../bin/wine
+[BOX64] BOX64ENV: Variables overridden:
+	BOX64_DYNAREC_BIGBLOCK=3
+	BOX64_DYNAREC_CALLRET=1
+	BOX64_DYNAREC_FASTNAN=1
+	BOX64_DYNAREC_FASTROUND=0
+	BOX64_DYNAREC_FORWARD=512
+	BOX64_DYNAREC_MISSING=1
+	BOX64_DYNAREC_NATIVEFLAGS=0
+	BOX64_DYNAREC_SAFEFLAGS=0
+	BOX64_DYNAREC_STRONGMEM=0
+	BOX64_DYNAREC_WAIT=1
+	BOX64_DYNAREC_WEAKBARRIER=1
+	BOX64_DYNAREC_X87DOUBLE=0
+	BOX64_LOG=1
+	BOX64_MMAP32=0
+	BOX64_NOBANNER=0
+	BOX64_NORCFILES=1
+	BOX64_UNITYPLAYER=0
+	BOX64_X11GLX=1
+	BOX64_AVX=0
+	BOX64_DYNAREC=1
+[BOX64] argv[1]="C:\windows\system32\explorer.exe"
+[BOX64] argv[2]="/desktop=shell,1280x720"
+[BOX64] argv[3]="winhandler.exe"
+[BOX64] argv[4]="/dir"
+[BOX64] argv[5]="C:\\Program Files (x86)\\Steam"
+[BOX64] argv[6]=""steam.exe""
+[BOX64] argv[7]="C:\686060.spec"
+[BOX64] Rename process to "wine"
+[BOX64] Warning, cannot pre-load /data/user/0/com.winlator.banner/files/imagefs/usr/lib/libandroid-sysvshm.so
+[BOX64] Warning, cannot pre-load /data/user/0/com.winlator.banner/files/imagefs/usr/lib/libfakeinput.so
+[BOX64] Warning, program break not found
+[BOX64] Using native(wrapped) libdl.so
+[BOX64] Warning, program break not found
+[BOX64] Using native(wrapped) libc.so
+[BOX64] Warning, program break not found
+[BOX64] Using native(wrapped) libpthread.so
+[BOX64] Using native(wrapped) libm.so
+[BOX64] Using native(wrapped) libbsd.so
+[BOX64] Warning, program break not found
+[BOX64] Using emulated /data/user/0/com.winlator.banner/files/contents/Wine/9.0-X86_64-1/bin/../lib/wine/x86_64-unix/ntdll.so
+010c:err:virtual:map_fixed_area out of memory for 0x6ffffff50000-0x6ffffffec000
+010c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\explorer.exe" at 0000000140000000: builtin
+010c:err:virtual:map_fixed_area out of memory for 0x6fffffee0000-0x6ffffff33000
+010c:err:virtual:map_fixed_area out of memory for 0x6fffffdc0000-0x6fffffec8000
+010c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernelbase.dll" at 000000027FBD0000: builtin
+010c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernel32.dll" at 000000027FCE0000: builtin
+010c:err:virtual:map_fixed_area out of memory for 0x6fffff540000-0x6fffff5b3000
+010c:err:virtual:map_fixed_area out of memory for 0x6fffffd70000-0x6fffffdaa000
+010c:err:virtual:map_fixed_area out of memory for 0x6fffffd30000-0x6fffffd55000
+010c:err:virtual:map_fixed_area out of memory for 0x6fffffc40000-0x6fffffd15000
+010c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ucrtbase.dll" at 000000027FA00000: builtin
+010c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\sechost.dll" at 000000027FAE0000: builtin
+010c:err:virtual:map_fixed_area out of memory for 0x6fffffb80000-0x6fffffc21000
+010c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\msvcrt.dll" at 000000027F950000: builtin
+010c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\advapi32.dll" at 000000027FB10000: builtin
+010c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\rpcrt4.dll" at 000000027FB50000: builtin
+0034:err:virtual:map_fixed_area out of memory for 0x6ffffe620000-0x6ffffe629000
+010c:err:virtual:map_fixed_area out of memory for 0x6fffff710000-0x6fffff8a0000
+0034:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\version.dll" at 000000027FDD0000: builtin
+010c:err:virtual:map_fixed_area out of memory for 0x6fffff680000-0x6fffff6f9000
+010c:err:virtual:map_fixed_area out of memory for 0x6fffff630000-0x6fffff666000
+010c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\win32u.dll" at 000000027F700000: builtin
+010c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\gdi32.dll" at 000000027F740000: builtin
+010c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\user32.dll" at 000000027F7C0000: builtin
+[BOX64] Warning, program break not found
+[BOX64] Using emulated /data/user/0/com.winlator.banner/files/contents/Wine/9.0-X86_64-1/lib/wine/x86_64-unix/win32u.so
+[BOX64] Warning, program break not found
+[BOX64] Using native(wrapped) libfreetype.so
+[BOX64] Warning, program break not found
+[BOX64] Using native(wrapped) libfontconfig.so
+[BOX64] Warning, program break not found
+[BOX64] Using native(wrapped) libexpat.so.1
+[BOX64] Using native(wrapped) libfreetype.so.6
+010c:err:virtual:map_fixed_area out of memory for 0x6ffffe9e0000-0x6ffffe9fb000
+010c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\imm32.dll" at 000000027F6E0000: builtin
+010c:err:virtual:map_fixed_area out of memory for 0x6ffffe940000-0x6ffffe953000
+010c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\winex11.drv" at 000000027F6C0000: builtin
+[BOX64] Warning, program break not found
+[BOX64] Using emulated /data/user/0/com.winlator.banner/files/contents/Wine/9.0-X86_64-1/lib/wine/x86_64-unix/winex11.so
+[BOX64] Warning, program break not found
+[BOX64] Using native(wrapped) libXext.so
+[BOX64] Warning, program break not found
+[BOX64] Using native(wrapped) libX11.so.6
+[BOX64] Warning, program break not found
+[BOX64] Using native(wrapped) libxcb.so.1
+[BOX64] Warning, program break not found
+[BOX64] Using native(wrapped) libXau.so.6
+[BOX64] Using native(wrapped) libXdmcp.so.6
+[BOX64] Using native(wrapped) libdl.so.2
+[BOX64] Warning, program break not found
+[BOX64] Using native(wrapped) libXcursor.so
+[BOX64] Warning, program break not found
+[BOX64] Using native(wrapped) libXfixes.so.3
+[BOX64] Warning, program break not found
+[BOX64] Using native(wrapped) libXrender.so.1
+010c:err:virtual:map_fixed_area out of memory for 0x6ffffe8d0000-0x6ffffe902000
+010c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\uxtheme.dll" at 000000027F680000: builtin
+010c:err:virtual:map_fixed_area out of memory for 0x6fffffa10000-0x6fffffb29000
+010c:trace:loaddll:build_module Loaded L"C:\\windows\\winsxs\\amd64_microsoft.windows.common-controls_6595b64144ccf1df_6.0.2600.2982_none_deadbeef\\comctl32.dll" at 000000027F560000: builtin
+010c:err:virtual:map_fixed_area out of memory for 0x6ffffeaa0000-0x6fffff32a000
+010c:err:virtual:map_fixed_area out of memory for 0x6fffff370000-0x6fffff3ad000
+010c:err:virtual:map_fixed_area out of memory for 0x6fffff340000-0x6fffff354000
+010c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shcore.dll" at 000000027EC70000: builtin
+010c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shlwapi.dll" at 000000027EC90000: builtin
+010c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shell32.dll" at 000000027ECD0000: builtin
+010c:err:virtual:map_fixed_area out of memory for 0x6fffff8b0000-0x6fffff9a4000
+010c:err:virtual:map_fixed_area out of memory for 0x6fffff5d0000-0x6fffff613000
+010c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\combase.dll" at 000000027EB20000: builtin
+010c:err:virtual:map_fixed_area out of memory for 0x6fffff510000-0x6fffff523000
+010c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\coml2.dll" at 000000027EB00000: builtin
+010c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ole32.dll" at 000000027EB70000: builtin
+011c:err:virtual:map_fixed_area out of memory for 0x6ffffff50000-0x6ffffffec000
+011c:trace:loaddll:build_module Loaded L"C:\\windows\\winhandler.exe" at 0000000140000000: native
+010c:err:virtual:map_fixed_area out of memory for 0x6ffffe730000-0x6ffffe831000
+010c:err:virtual:map_fixed_area out of memory for 0x6fffff3f0000-0x6fffff4fb000
+010c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\oleaut32.dll" at 000000027E8E0000: builtin
+010c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\actxprxy.dll" at 000000027E9F0000: builtin
+011c:err:virtual:map_fixed_area out of memory for 0x6fffffee0000-0x6ffffff33000
+011c:err:virtual:map_fixed_area out of memory for 0x6fffffdc0000-0x6fffffec8000
+011c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernelbase.dll" at 000000027FBC0000: builtin
+011c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernel32.dll" at 000000027FCD0000: builtin
+011c:err:virtual:map_fixed_area out of memory for 0x6fffffb80000-0x6fffffc21000
+011c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\msvcrt.dll" at 000000027FB10000: builtin
+011c:err:virtual:map_fixed_area out of memory for 0x6ffffeaa0000-0x6fffff32a000
+011c:err:virtual:map_fixed_area out of memory for 0x6fffff370000-0x6fffff3ad000
+011c:err:virtual:map_fixed_area out of memory for 0x6fffff340000-0x6fffff354000
+011c:err:virtual:map_fixed_area out of memory for 0x6fffffd70000-0x6fffffdaa000
+011c:err:virtual:map_fixed_area out of memory for 0x6fffffd30000-0x6fffffd55000
+011c:err:virtual:map_fixed_area out of memory for 0x6fffffc40000-0x6fffffd15000
+011c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ucrtbase.dll" at 000000027F0D0000: builtin
+011c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\sechost.dll" at 000000027F1B0000: builtin
+011c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\advapi32.dll" at 000000027F1E0000: builtin
+011c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shcore.dll" at 000000027F220000: builtin
+011c:err:virtual:map_fixed_area out of memory for 0x6fffff710000-0x6fffff8a0000
+011c:err:virtual:map_fixed_area out of memory for 0x6fffff680000-0x6fffff6f9000
+011c:err:virtual:map_fixed_area out of memory for 0x6fffff630000-0x6fffff666000
+011c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\win32u.dll" at 000000027EE80000: builtin
+011c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\gdi32.dll" at 000000027EEC0000: builtin
+011c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\user32.dll" at 000000027EF40000: builtin
+011c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shlwapi.dll" at 000000027F240000: builtin
+011c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\SHELL32.dll" at 000000027F280000: builtin
+011c:err:virtual:map_fixed_area out of memory for 0x6fffffb40000-0x6fffffb64000
+011c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\WS2_32.dll" at 000000027EE50000: builtin
+011c:err:virtual:map_fixed_area out of memory for 0x6ffffe9e0000-0x6ffffe9fb000
+011c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\imm32.dll" at 000000027EE30000: builtin
+011c:err:virtual:map_fixed_area out of memory for 0x6fffff8b0000-0x6fffff9a4000
+011c:err:virtual:map_fixed_area out of memory for 0x6fffff5d0000-0x6fffff613000
+011c:err:virtual:map_fixed_area out of memory for 0x6fffff540000-0x6fffff5b3000
+011c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\rpcrt4.dll" at 000000027EC60000: builtin
+011c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\combase.dll" at 000000027ECE0000: builtin
+011c:err:virtual:map_fixed_area out of memory for 0x6fffff510000-0x6fffff523000
+011c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\coml2.dll" at 000000027EC40000: builtin
+011c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ole32.dll" at 000000027ED30000: builtin
+0128:err:virtual:map_fixed_area out of memory for 0x6ffffe940000-0x6ffffe953000
+0128:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\winex11.drv" at 000000027EC20000: builtin
+0130:err:virtual:map_fixed_area out of memory for 0x6ffffff50000-0x6ffffffec000
+0130:trace:loaddll:build_module Loaded L"C:\\Program Files (x86)\\Steam\\steam.exe" at 0000000140000000: native
+0128:err:virtual:map_fixed_area out of memory for 0x6ffffe8d0000-0x6ffffe902000
+0128:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\uxtheme.dll" at 000000027EBE0000: builtin
+0130:err:virtual:map_fixed_area out of memory for 0x6fffffee0000-0x6ffffff33000
+0130:err:virtual:map_fixed_area out of memory for 0x6fffffdc0000-0x6fffffec8000
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernelbase.dll" at 000000027FCE0000: builtin
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernel32.dll" at 000000027FDF0000: builtin
+0130:err:virtual:map_fixed_area out of memory for 0x6fffffd70000-0x6fffffdaa000
+0130:err:virtual:map_fixed_area out of memory for 0x6fffffd30000-0x6fffffd55000
+0130:err:virtual:map_fixed_area out of memory for 0x6fffffc40000-0x6fffffd15000
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ucrtbase.dll" at 000000027FB90000: builtin
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\sechost.dll" at 000000027FC70000: builtin
+0130:err:virtual:map_fixed_area out of memory for 0x6fffffb80000-0x6fffffc21000
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\msvcrt.dll" at 000000027FAE0000: builtin
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ADVAPI32.dll" at 000000027FCA0000: builtin
+0130:err:virtual:map_fixed_area out of memory for 0x6fffff710000-0x6fffff8a0000
+0130:err:virtual:map_fixed_area out of memory for 0x6fffff680000-0x6fffff6f9000
+0130:err:virtual:map_fixed_area out of memory for 0x6fffff630000-0x6fffff666000
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\win32u.dll" at 000000027F890000: builtin
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\gdi32.dll" at 000000027F8D0000: builtin
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\USER32.dll" at 000000027F950000: builtin
+0130:err:virtual:map_fixed_area out of memory for 0x6fffffb40000-0x6fffffb64000
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\WS2_32.dll" at 000000027F860000: builtin
+0130:err:virtual:map_fixed_area out of memory for 0x6ffffe9e0000-0x6ffffe9fb000
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\imm32.dll" at 000000027F840000: builtin
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=000000000000003b
+0130:trace:seh:dispatch_exception  info[1]=00000000801eed80
+0130:warn:seh:dispatch_exception "[wn-launcher] agent channel: connected to 127.0.0.1:32849\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EEBD0 rsp 00000000801EED50 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EEAE0, frame=00000000801EEBD0 context=00000000801EE0A0, dispatch=00000000801EDF70)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EEB90
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=0000000000000053
+0130:trace:seh:dispatch_exception  info[1]=00000000801eed80
+0130:warn:seh:dispatch_exception "[wn-launcher] Steam Launcher in-process Steam launcher starting (pid=300 tid=304)\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EEBD0 rsp 00000000801EED50 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EEAE0, frame=00000000801EEBD0 context=00000000801EE0A0, dispatch=00000000801EDF70)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EEB90
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=0000000000000094
+0130:trace:seh:dispatch_exception  info[1]=00000000801eed80
+0130:warn:seh:dispatch_exception "[wn-launcher] env appId=686060 steamId=[steamid] user=[redacted] exe=C:\\Program Files (x86)\\Steam\\steamapps\\common\\Mewgenics\\Mewgenics.exe\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EEBD0 rsp 00000000801EED50 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EEAE0, frame=00000000801EEBD0 context=00000000801EE0A0, dispatch=00000000801EDF70)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EEB90
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=0000000000000049
+0130:trace:seh:dispatch_exception  info[1]=00000000801eed80
+0130:warn:seh:dispatch_exception "[wn-launcher] token len=495 prefix=eyAidHlwIjogIkpX suffix=I4h0tkn3hsCg\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EEBD0 rsp 00000000801EED50 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EEAE0, frame=00000000801EEBD0 context=00000000801EE0A0, dispatch=00000000801EDF70)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EEB90
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=0000000000000134
+0130:trace:seh:dispatch_exception  info[1]=00000000801eed80
+0130:warn:seh:dispatch_exception "[wn-launcher] token JWT payload: { \"iss\": \"steam\", \"sub\": \"[steamid]\", \"aud\": [ \"client\", \"web\", \"renew\", \"derive\" ], \"exp\": 1808270326, \"nbf\": 1781470070, \"iat\": 1790110070, \"jti\": \"0006_28D3684F_63079\", \"oat\": 1790110070, \"per\": 1, \"ip_subject\": \""...
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EEBD0 rsp 00000000801EED50 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EEAE0, frame=00000000801EEBD0 context=00000000801EE0A0, dispatch=00000000801EDF70)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EEB90
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=0000000000000082
+0130:trace:seh:dispatch_exception  info[1]=00000000801ee970
+0130:warn:seh:dispatch_exception "[wn-launcher] cmlist: seeded config.vdf CMWebSocket (replaced) dc=waw1 with 6 endpoint(s), first=cmp2-waw1.steamserver.net:27018\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EE7C0 rsp 00000000801EE940 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EE6D0, frame=00000000801EE7C0 context=00000000801EDC90, dispatch=00000000801EDB60)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EE780
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=0000000000000071
+0130:trace:seh:dispatch_exception  info[1]=00000000801eebb0
+0130:warn:seh:dispatch_exception "[wn-launcher] HKCU ActiveProcess + Steam install registry seeded (pid=300, activeUser=866563589, SteamPath set)\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EEA00 rsp 00000000801EEB80 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EE910, frame=00000000801EEA00 context=00000000801EDED0, dispatch=00000000801EDDA0)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EE9C0
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=00000000000000c6
+0130:trace:seh:dispatch_exception  info[1]=00000000801ee9b0
+0130:warn:seh:dispatch_exception "[wn-launcher] app manifest staged: C:\\Program Files (x86)\\Steam\\steamapps\\appmanifest_686060.acf (installdir=\"Mewgenics\", depots=686061:9085703319287754794:5156954972 shared=(none) scripts=(none))\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EE800 rsp 00000000801EE980 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EE710, frame=00000000801EE800 context=00000000801EDCD0, dispatch=00000000801EDBA0)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EE7C0
+0130:err:virtual:map_fixed_area out of memory for 0x6ffffe490000-0x6ffffe62d000
+0130:err:virtual:map_fixed_area out of memory for 0x6ffffeaa0000-0x6fffff32a000
+0130:err:virtual:map_fixed_area out of memory for 0x6fffff370000-0x6fffff3ad000
+0130:err:virtual:map_fixed_area out of memory for 0x6fffff340000-0x6fffff354000
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shcore.dll" at 000000027EDB0000: builtin
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shlwapi.dll" at 000000027EDD0000: builtin
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\SHELL32.dll" at 000000027EE10000: builtin
+0130:err:virtual:map_fixed_area out of memory for 0x6fffff9f0000-0x6fffff9f8000
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\PSAPI.DLL" at 000000027EDA0000: builtin
+0130:trace:loaddll:build_module Loaded L"C:\\Program Files (x86)\\Steam\\tier0_s64.dll" at 000000027F6A0000: native
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=000000000000003c
+0130:trace:seh:dispatch_exception  info[1]=00000000801eed80
+0130:warn:seh:dispatch_exception "[wn-launcher] preload tier0_s64.dll: ok (000000027f6a0000)\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EEBD0 rsp 00000000801EED50 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EEAE0, frame=00000000801EEBD0 context=00000000801EE0A0, dispatch=00000000801EDF70)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EEB90
+0130:err:virtual:map_fixed_area out of memory for 0x6ffffe3b0000-0x6ffffe472000
+0130:trace:loaddll:build_module Loaded L"C:\\Program Files (x86)\\Steam\\vstdlib_s64.dll" at 000000027ECD0000: native
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=000000000000003e
+0130:trace:seh:dispatch_exception  info[1]=00000000801eed80
+0130:warn:seh:dispatch_exception "[wn-launcher] preload vstdlib_s64.dll: ok (000000027ecd0000)\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EEBD0 rsp 00000000801EED50 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EEAE0, frame=00000000801EEBD0 context=00000000801EE0A0, dispatch=00000000801EDF70)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EEB90
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=0000000000000038
+0130:trace:seh:dispatch_exception  info[1]=00000000801eed80
+0130:warn:seh:dispatch_exception "[wn-launcher] preload crashhandler64.dll: FAIL GLE=126\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EEBD0 rsp 00000000801EED50 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EEAE0, frame=00000000801EEBD0 context=00000000801EE0A0, dispatch=00000000801EDF70)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EEB90
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=0000000000000036
+0130:trace:seh:dispatch_exception  info[1]=00000000801eed80
+0130:warn:seh:dispatch_exception "[wn-launcher] preload steamservice.dll: FAIL GLE=126\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EEBD0 rsp 00000000801EED50 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EEAE0, frame=00000000801EEBD0 context=00000000801EE0A0, dispatch=00000000801EDF70)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EEB90
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=0000000000000044
+0130:trace:seh:dispatch_exception  info[1]=00000000801eed80
+0130:warn:seh:dispatch_exception "[wn-launcher] preloads done; installing unhandled-exception filter\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EEBD0 rsp 00000000801EED50 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EEAE0, frame=00000000801EEBD0 context=00000000801EE0A0, dispatch=00000000801EDF70)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EEB90
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=0000000000000035
+0130:trace:seh:dispatch_exception  info[1]=00000000801eed80
+0130:warn:seh:dispatch_exception "[wn-launcher] UEF installed (prev=000000014001f750)\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EEBD0 rsp 00000000801EED50 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EEAE0, frame=00000000801EEBD0 context=00000000801EE0A0, dispatch=00000000801EDF70)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EEB90
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=0000000000000088
+0130:trace:seh:dispatch_exception  info[1]=00000000801eead0
+0130:warn:seh:dispatch_exception "[wn-launcher] modules(pre-LoadLibrary): base=0000000140000000 size=0x12c000 name=steam.exe path=C:\\Program Files (x86)\\Steam\\steam.exe\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EE920 rsp 00000000801EEAA0 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EE830, frame=00000000801EE920 context=00000000801EDDF0, dispatch=00000000801EDCC0)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EE8E0
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=000000000000007e
+0130:trace:seh:dispatch_exception  info[1]=00000000801eead0
+0130:warn:seh:dispatch_exception "[wn-launcher] modules(pre-LoadLibrary): base=000000027fe50000 size=0x9c000 name=ntdll.dll path=C:\\windows\\system32\\ntdll.dll\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EE920 rsp 00000000801EEAA0 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EE830, frame=00000000801EE920 context=00000000801EDDF0, dispatch=00000000801EDCC0)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EE8E0
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=0000000000000084
+0130:trace:seh:dispatch_exception  info[1]=00000000801eead0
+0130:warn:seh:dispatch_exception "[wn-launcher] modules(pre-LoadLibrary): base=000000027fdf0000 size=0x53000 name=kernel32.dll path=C:\\windows\\system32\\kernel32.dll\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EE920 rsp 00000000801EEAA0 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EE830, frame=00000000801EE920 context=00000000801EDDF0, dispatch=00000000801EDCC0)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EE8E0
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=0000000000000089
+0130:trace:seh:dispatch_exception  info[1]=00000000801eead0
+0130:warn:seh:dispatch_exception "[wn-launcher] modules(pre-LoadLibrary): base=000000027fce0000 size=0x108000 name=kernelbase.dll path=C:\\windows\\system32\\kernelbase.dll\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EE920 rsp 00000000801EEAA0 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EE830, frame=00000000801EE920 context=00000000801EDDF0, dispatch=00000000801EDCC0)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EE8E0
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=0000000000000084
+0130:trace:seh:dispatch_exception  info[1]=00000000801eead0
+0130:warn:seh:dispatch_exception "[wn-launcher] modules(pre-LoadLibrary): base=000000027fca0000 size=0x3a000 name=ADVAPI32.dll path=C:\\windows\\system32\\ADVAPI32.dll\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EE920 rsp 00000000801EEAA0 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EE830, frame=00000000801EE920 context=00000000801EDDF0, dispatch=00000000801EDCC0)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EE8E0
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=0000000000000082
+0130:trace:seh:dispatch_exception  info[1]=00000000801eead0
+0130:warn:seh:dispatch_exception "[wn-launcher] modules(pre-LoadLibrary): base=000000027fc70000 size=0x25000 name=sechost.dll path=C:\\windows\\system32\\sechost.dll\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EE920 rsp 00000000801EEAA0 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EE830, frame=00000000801EE920 context=00000000801EDDF0, dispatch=00000000801EDCC0)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EE8E0
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=0000000000000084
+0130:trace:seh:dispatch_exception  info[1]=00000000801eead0
+0130:warn:seh:dispatch_exception "[wn-launcher] modules(pre-LoadLibrary): base=000000027fb90000 size=0xd5000 name=ucrtbase.dll path=C:\\windows\\system32\\ucrtbase.dll\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EE920 rsp 00000000801EEAA0 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EE830, frame=00000000801EE920 context=00000000801EDDF0, dispatch=00000000801EDCC0)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EE8E0
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=0000000000000080
+0130:trace:seh:dispatch_exception  info[1]=00000000801eead0
+0130:warn:seh:dispatch_exception "[wn-launcher] modules(pre-LoadLibrary): base=000000027fae0000 size=0xa1000 name=msvcrt.dll path=C:\\windows\\system32\\msvcrt.dll\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EE920 rsp 00000000801EEAA0 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EE830, frame=00000000801EE920 context=00000000801EDDF0, dispatch=00000000801EDCC0)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EE8E0
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=0000000000000081
+0130:trace:seh:dispatch_exception  info[1]=00000000801eead0
+0130:warn:seh:dispatch_exception "[wn-launcher] modules(pre-LoadLibrary): base=000000027f950000 size=0x190000 name=USER32.dll path=C:\\windows\\system32\\USER32.dll\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EE920 rsp 00000000801EEAA0 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EE830, frame=00000000801EE920 context=00000000801EDDF0, dispatch=00000000801EDCC0)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EE8E0
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=000000000000007e
+0130:trace:seh:dispatch_exception  info[1]=00000000801eead0
+0130:warn:seh:dispatch_exception "[wn-launcher] modules(pre-LoadLibrary): base=000000027f8d0000 size=0x79000 name=gdi32.dll path=C:\\windows\\system32\\gdi32.dll\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EE920 rsp 00000000801EEAA0 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EE830, frame=00000000801EE920 context=00000000801EDDF0, dispatch=00000000801EDCC0)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EE8E0
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=0000000000000080
+0130:trace:seh:dispatch_exception  info[1]=00000000801eead0
+0130:warn:seh:dispatch_exception "[wn-launcher] modules(pre-LoadLibrary): base=000000027f890000 size=0x36000 name=win32u.dll path=C:\\windows\\system32\\win32u.dll\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EE920 rsp 00000000801EEAA0 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EE830, frame=00000000801EE920 context=00000000801EDDF0, dispatch=00000000801EDCC0)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EE8E0
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=0000000000000080
+0130:trace:seh:dispatch_exception  info[1]=00000000801eead0
+0130:warn:seh:dispatch_exception "[wn-launcher] modules(pre-LoadLibrary): base=000000027f860000 size=0x24000 name=WS2_32.dll path=C:\\windows\\system32\\WS2_32.dll\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EE920 rsp 00000000801EEAA0 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EE830, frame=00000000801EE920 context=00000000801EDDF0, dispatch=00000000801EDCC0)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EE8E0
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=000000000000007e
+0130:trace:seh:dispatch_exception  info[1]=00000000801eead0
+0130:warn:seh:dispatch_exception "[wn-launcher] modules(pre-LoadLibrary): base=000000027f840000 size=0x1b000 name=imm32.dll path=C:\\windows\\system32\\imm32.dll\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EE920 rsp 00000000801EEAA0 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EE830, frame=00000000801EE920 context=00000000801EDDF0, dispatch=00000000801EDCC0)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EE8E0
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=0000000000000090
+0130:trace:seh:dispatch_exception  info[1]=00000000801eead0
+0130:warn:seh:dispatch_exception "[wn-launcher] modules(pre-LoadLibrary): base=000000027f6a0000 size=0x19d000 name=tier0_s64.dll path=C:\\Program Files (x86)\\Steam\\tier0_s64.dll\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EE920 rsp 00000000801EEAA0 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EE830, frame=00000000801EE920 context=00000000801EDDF0, dispatch=00000000801EDCC0)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EE8E0
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=0000000000000083
+0130:trace:seh:dispatch_exception  info[1]=00000000801eead0
+0130:warn:seh:dispatch_exception "[wn-launcher] modules(pre-LoadLibrary): base=000000027ee10000 size=0x88a000 name=SHELL32.dll path=C:\\windows\\system32\\SHELL32.dll\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EE920 rsp 00000000801EEAA0 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EE830, frame=00000000801EE920 context=00000000801EDDF0, dispatch=00000000801EDCC0)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EE8E0
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=0000000000000082
+0130:trace:seh:dispatch_exception  info[1]=00000000801eead0
+0130:warn:seh:dispatch_exception "[wn-launcher] modules(pre-LoadLibrary): base=000000027edd0000 size=0x3d000 name=shlwapi.dll path=C:\\windows\\system32\\shlwapi.dll\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EE920 rsp 00000000801EEAA0 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EE830, frame=00000000801EE920 context=00000000801EDDF0, dispatch=00000000801EDCC0)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EE8E0
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=0000000000000080
+0130:trace:seh:dispatch_exception  info[1]=00000000801eead0
+0130:warn:seh:dispatch_exception "[wn-launcher] modules(pre-LoadLibrary): base=000000027edb0000 size=0x14000 name=shcore.dll path=C:\\windows\\system32\\shcore.dll\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EE920 rsp 00000000801EEAA0 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EE830, frame=00000000801EE920 context=00000000801EDDF0, dispatch=00000000801EDCC0)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EE8E0
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=000000000000007d
+0130:trace:seh:dispatch_exception  info[1]=00000000801eead0
+0130:warn:seh:dispatch_exception "[wn-launcher] modules(pre-LoadLibrary): base=000000027eda0000 size=0x8000 name=PSAPI.DLL path=C:\\windows\\system32\\PSAPI.DLL\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EE920 rsp 00000000801EEAA0 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EE830, frame=00000000801EE920 context=00000000801EDDF0, dispatch=00000000801EDCC0)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EE8E0
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=0000000000000093
+0130:trace:seh:dispatch_exception  info[1]=00000000801eead0
+0130:warn:seh:dispatch_exception "[wn-launcher] modules(pre-LoadLibrary): base=000000027ecd0000 size=0xc2000 name=vstdlib_s64.dll path=C:\\Program Files (x86)\\Steam\\vstdlib_s64.dll\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EE920 rsp 00000000801EEAA0 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EE830, frame=00000000801EE920 context=00000000801EDDF0, dispatch=00000000801EDCC0)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EE8E0
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=0000000000000032
+0130:trace:seh:dispatch_exception  info[1]=00000000801eead0
+0130:warn:seh:dispatch_exception "[wn-launcher] modules(pre-LoadLibrary): total=19\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EE920 rsp 00000000801EEAA0 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EE830, frame=00000000801EE920 context=00000000801EDDF0, dispatch=00000000801EDCC0)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EE8E0
+0130:err:virtual:map_fixed_area out of memory for 0x6ffffcab0000-0x6ffffe39a000
+0130:err:virtual:map_fixed_area out of memory for 0x6fffff8b0000-0x6fffff9a4000
+0130:err:virtual:map_fixed_area out of memory for 0x6fffff5d0000-0x6fffff613000
+0130:err:virtual:map_fixed_area out of memory for 0x6fffff540000-0x6fffff5b3000
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\rpcrt4.dll" at 000000027D210000: builtin
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\combase.dll" at 000000027D290000: builtin
+0130:err:virtual:map_fixed_area out of memory for 0x6fffff510000-0x6fffff523000
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\coml2.dll" at 000000027D1F0000: builtin
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ole32.dll" at 000000027D2E0000: builtin
+0130:err:virtual:map_fixed_area out of memory for 0x6fffff3f0000-0x6fffff4fb000
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\OLEAUT32.dll" at 000000027D0E0000: builtin
+0130:err:virtual:map_fixed_area out of memory for 0x6ffffca50000-0x6ffffca97000
+0130:err:virtual:map_fixed_area out of memory for 0x6fffff9c0000-0x6fffff9da000
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\msacm32.dll" at 000000027D070000: builtin
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\WINMM.dll" at 000000027D090000: builtin
+0130:err:virtual:map_fixed_area out of memory for 0x6ffffc9b0000-0x6ffffca39000
+0130:err:virtual:map_fixed_area out of memory for 0x6fffff3c0000-0x6fffff3d4000
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\bcrypt.dll" at 000000027CFC0000: builtin
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\CRYPT32.dll" at 000000027CFE0000: builtin
+0130:err:virtual:map_fixed_area out of memory for 0x6ffffe690000-0x6ffffe6b2000
+0130:err:virtual:map_fixed_area out of memory for 0x6ffffe660000-0x6ffffe672000
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\dnsapi.dll" at 000000027CF70000: builtin
+0130:err:virtual:map_fixed_area out of memory for 0x6ffffe640000-0x6ffffe64a000
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\nsi.dll" at 000000027CF60000: builtin
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\IPHLPAPI.DLL" at 000000027CF90000: builtin
+0130:err:virtual:map_fixed_area out of memory for 0x6ffffc990000-0x6ffffc99f000
+0130:err:virtual:map_fixed_area out of memory for 0x6ffffc910000-0x6ffffc97f000
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\dbghelp.dll" at 000000027CEE0000: builtin
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\imagehlp.dll" at 000000027CF50000: builtin
+0130:err:virtual:map_fixed_area out of memory for 0x6ffffc8f0000-0x6ffffc8f9000
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\VERSION.dll" at 000000027CED0000: builtin
+0130:err:virtual:map_fixed_area out of memory for 0x6ffffea10000-0x6ffffea68000
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\SETUPAPI.dll" at 000000027CE70000: builtin
+0130:err:virtual:map_fixed_area out of memory for 0x6ffffc8d0000-0x6ffffc8da000
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\MSWSOCK.dll" at 000000027CE60000: builtin
+0130:err:virtual:map_fixed_area out of memory for 0x6ffffc8a0000-0x6ffffc8bd000
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\Secur32.dll" at 000000027CE40000: builtin
+0130:trace:loaddll:build_module Loaded L"C:\\Program Files (x86)\\Steam\\steamclient64.dll" at 000000027D3E0000: native
+0130:err:dnsapi:DllMain No libresolv support, expect problems
+0130:err:virtual:map_fixed_area out of memory for 0x6ffffc880000-0x6ffffc88c000
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\Kerberos.dll" at 000000027CE30000: builtin
+0130:err:kerberos:kerberos_LsaApInitializePackage no Kerberos support, expect problems
+0130:err:virtual:map_fixed_area out of memory for 0x6ffffc860000-0x6ffffc86e000
+0130:err:virtual:map_fixed_area out of memory for 0x6ffffc830000-0x6ffffc850000
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\netapi32.dll" at 000000027CE00000: builtin
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\MSV1_0.dll" at 000000027CE20000: builtin
+0130:err:winediag:ntlm_check_version ntlm_auth was not found. Make sure that ntlm_auth >= 3.0.25 is in your path. Usually, you can find it in the winbind package of your distribution.
+0130:err:ntlm:ntlm_LsaApInitializePackage no NTLM support, expect problems
+0130:trace:loaddll:free_modref Unloaded module L"C:\\windows\\system32\\MSV1_0.dll" : builtin
+0130:trace:loaddll:free_modref Unloaded module L"C:\\windows\\system32\\netapi32.dll" : builtin
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=000000000000006a
+0130:trace:seh:dispatch_exception  info[1]=00000000801eed80
+0130:warn:seh:dispatch_exception "[wn-launcher] steamclient64.dll loaded at 000000027d3e0000 (strategy 1/4: LOAD_WITH_ALTERED_SEARCH_PATH)\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EEBD0 rsp 00000000801EED50 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EEAE0, frame=00000000801EEBD0 context=00000000801EE0A0, dispatch=00000000801EDF70)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EEB90
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=00000000000000cf
+0130:trace:seh:dispatch_exception  info[1]=00000000801eed80
+0130:warn:seh:dispatch_exception "[wn-launcher] exports CreateInterface=000000027e0bd030 CreateGlobalUser=000000027d8d5d10 BLoggedOn=000000027d8d5c40 BGetCallback=000000027dd3b620 FreeLastCallback=000000027dd3b650 Breakpad=000000027dd5afa0\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EEBD0 rsp 00000000801EED50 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EEAE0, frame=00000000801EEBD0 context=00000000801EE0A0, dispatch=00000000801EDF70)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EEB90
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=000000000000002e
+0130:trace:seh:dispatch_exception  info[1]=00000000801eed80
+0130:warn:seh:dispatch_exception "[wn-launcher] Breakpad_SteamSetAppID(686060)\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EEBD0 rsp 00000000801EED50 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EEAE0, frame=00000000801EEBD0 context=00000000801EE0A0, dispatch=00000000801EDF70)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EEB90
+0130:trace:seh:dispatch_exception code=40010006 flags=0 addr=000000027FCF3F87 ip=27fcf3f87
+0130:trace:seh:dispatch_exception  info[0]=000000000000005b
+0130:trace:seh:dispatch_exception  info[1]=00000000801eed80
+0130:warn:seh:dispatch_exception "[wn-launcher] CreateInterface(CLIENTENGINE_INTERFACE_VERSION005) -> 000000027eb60ba0 rc=0\n"
+0130:trace:seh:call_stack_handlers found wine frame 00000000801EEBD0 rsp 00000000801EED50 handler 000000027FE19650
+0130:trace:seh:call_teb_handler calling TEB handler 000000027FE19650 (rec=00000000801EEAE0, frame=00000000801EEBD0 context=00000000801EE0A0, dispatch=00000000801EDF70)
+0130:trace:seh:RtlRestoreContext returning to 000000027FE1964A stack 00000000801EEB90
+0130:err:virtual:map_fixed_area out of memory for 0x6ffffe940000-0x6ffffe953000
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\winex11.drv" at 000000027CE10000: builtin
+0130:err:virtual:map_fixed_area out of memory for 0x6ffffe8d0000-0x6ffffe902000
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\uxtheme.dll" at 000000027CDD0000: builtin
+0130:err:virtual:map_fixed_area out of memory for 0x6ffffc860000-0x6ffffc86d000
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\cfgmgr32.dll" at 000000027CDC0000: builtin
+0130:err:virtual:map_fixed_area out of memory for 0x6ffffc820000-0x6ffffc84c000
+0130:err:virtual:map_fixed_area out of memory for 0x6ffffc5a0000-0x6ffffc80e000
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\opengl32.dll" at 000000007BF00000: builtin
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\wined3d.dll" at 000000027CB20000: builtin
+0130:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\DXGI.dll" at 000000027CD90000: builtin
+0130:err:winediag:wined3d_dll_init Setting multithreaded command stream to 0x3.
+0130:err:winediag:wined3d_dll_init Setting strict shader math to 0x1.
+0130:err:winediag:wined3d_dll_init Using the OpenGL renderer.
+Memory mapping flag was not specified
+hook_android_load_sphal_library: filename: vulkan.mali.so
+hook_android_dlopen_ext: filename: vulkan.mali.so
+hook_android_dlopen_ext: loading custom driver: /data/user/0/com.winlator.banner/files/contents/adrenotools/Mesa PanVK Driver for Mali/libvulkan_freedreno.so
+hook_android_dlopen_ext: hook failed: failed to load custom driver: dlopen failed: library "libdrm.so.2" not found: needed by /data/user/0/com.winlator.banner/files/contents/adrenotools/Mesa PanVK Driver for Mali/libvulkan_freedreno.so in namespace vulkan.mali.so!
+hook_android_dlopen_ext: falling back!
+[info]: Adding extension VK_EXT_device_fault
+[info]: Enabling VK_EXT_device_fault features
+[info]: create_bcn_compute_pipelines took 1315 ms
+WARNING: Some incorrect rendering might occur because the selected Vulkan device (Mali-G720-Immortalis MC12) doesn't support base Zink requirements: feats.features.logicOp feats.features.fillModeNonSolid feats.features.shaderClipDistance 
+MESA: info: threaded context 4091353312 created
+Mesa: warning: Window 29360159 has no colormap!
+MESA: info: threaded context 3491813600 created
+Mesa: warning: MakeCurrent: incompatible visuals for context and drawbuffer
+Mesa: warning: MakeCurrent: incompatible visuals for context and readbuffer
+MESA: info: threaded context 3442866400 created
+Mesa: error: GL_INVALID_ENUM in glGetIntegerv(pname=GL_VIEWPORT_SUBPIXEL_BITS)
+MESA: warning: WARNING: Incorrect rendering will happen because the Vulkan device doesn't support the 'VK_EXT_depth_clip_enable' feature
+0130:fixme:ntdll:NtQuerySystemInformation info_class SYSTEM_PERFORMANCE_INFORMATION
+X connection to :0 broken (explicit kill or server shutdown).
+010c:fixme:x11drv:X11DRV_DestroyNotify window 0x10074/180000e destroyed from the outside
+010c:fixme:x11drv:X11DRV_DestroyNotify window 0x10072/180000d destroyed from the outside
+010c:fixme:x11drv:X11DRV_DestroyNotify window 0x10070/180000c destroyed from the outside
+010c:fixme:x11drv:X11DRV_DestroyNotify window 0x2006a/180000b destroyed from the outside
+010c:fixme:x11drv:X11DRV_DestroyNotify window 0x10060/180000a destroyed from the outside
+010c:fixme:x11drv:X11DRV_DestroyNotify window 0x4004c/1800009 destroyed from the outside
+X connection to :0 broken (explicit kill or server shutdown).
+X connection to :0 broken (explicit kill or server shutdown).

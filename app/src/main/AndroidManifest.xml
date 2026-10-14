@@ -1,0 +1,374 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Declare features that might be needed -->
+    <uses-feature
+        android:glEsVersion="0x00020000"
+        android:required="true" />
+    <uses-feature
+        android:name="android.hardware.vr.headtracking"
+        android:required="false" />
+    <uses-feature
+        android:name="com.oculus.feature.PASSTHROUGH"
+        android:required="false" />
+    <uses-feature
+        android:name="oculus.software.handtracking"
+        android:required="false" />
+    <uses-feature
+        android:name="oculus.software.overlay_keyboard"
+        android:required="false" />
+    <!-- Mic capture is opt-in per container/shortcut (DirectAudio) — never required to run. -->
+    <uses-feature
+        android:name="android.hardware.microphone"
+        android:required="false" />
+    <!-- Steam Controller support (opt-in, Input Controls → Device): Bluetooth LE or USB, neither required. -->
+    <uses-feature
+        android:name="android.hardware.bluetooth_le"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.usb.host"
+        android:required="false" />
+
+    <!-- Permissions (unique, no duplicates) -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Ends background processes of another app that holds the Steam login. GameHub
+         starts itself with the phone via boot receivers and signs the Linux client out
+         seconds after every login; a normal permission, and it cannot touch anything in
+         the foreground. -->
+    <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
+    <!-- Opt-in per-container/shortcut Microphone: granted only when the user enables the toggle;
+         the DirectAudio driver opens the AAudio INPUT stream (the app never records itself). -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <!-- Opt-in Steam Controller support: SDL connects to an already-paired Steam Controller over
+         Bluetooth LE (no scanning). BLUETOOTH covers targetSdk < 31; BLUETOOTH_CONNECT is the Android 12+
+         runtime permission, requested only when the user turns the setting on. -->
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>
+    <uses-permission android:name="com.android.launcher.permission.INSTALL_SHORTCUT" />
+    <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- Held only while a depot download is running (SteamDepotDownloader) so the aggressive OEM
+         task-killer can't kill the process mid-download and cause a LogonSessionReplaced churn. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Lets the user exempt the app from battery optimisation so a multi-hour background
+         extraction (UnpackService) isn't paused/killed by aggressive OEM power managers. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission
+        android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
+
+    <!-- Games tab → Add Android game lists the apps a launcher would (API 30+ package visibility).
+         Only launcher entries, never QUERY_ALL_PACKAGES. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+        </intent>
+    </queries>
+
+    <application
+        android:name="com.winlator.star.BannerlatorApp"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:theme="@style/AppTheme"
+        android:appCategory="game"
+        android:isGame="true"
+        android:largeHeap="true"
+        android:extractNativeLibs="true"
+        android:allowBackup="false"
+        android:allowAudioPlaybackCapture="true"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:hardwareAccelerated="true"
+        android:supportsRtl="true"
+        tools:ignore="DataExtractionRules,GoogleAppIndexingWarning">
+
+        <!-- Main activity -->
+        <activity
+            android:name="com.winlator.star.MainActivity"
+            android:theme="@style/Theme.Bannerlator.Splash"
+            android:screenOrientation="sensor"
+            android:exported="true"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|density|navigation">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+
+        <!-- colorMode|touchscreen|uiMode on top of the usual set so MOVING BETWEEN DISPLAYS does not
+             recreate the session. A game launched on a TV ("TV" tab) and then unplugged is handed back
+             to the handheld by the system; the two screens differ in HDR / wide-colour support (that is
+             the whole point of launching on the TV), which is a colorMode change, and an external
+             screen has no touchscreen and reports a TV uiMode. Any one of those not listed here tears
+             the activity down and restarts the whole guest — device-observed as "a fresh Wayland
+             session log, then program disconnected" when the cable came out. Handled instead by
+             onConfigurationChanged + the display listener, which pause the game and keep it alive. -->
+        <activity
+            android:name="com.winlator.star.XServerDisplayActivity"
+            android:theme="@style/AppThemeFullscreen"
+            android:launchMode="singleTask"
+            android:supportsPictureInPicture="true"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|density|navigation|colorMode|touchscreen|uiMode"
+            android:exported="true" />
+
+        <activity
+            android:name="com.winlator.star.WaylandDisplayActivity"
+            android:theme="@style/AppThemeFullscreen"
+            android:launchMode="singleTask"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|density|navigation"
+            android:exported="false" />
+
+        <!-- The handheld's "your game is on the TV" screen, shown for as long as a session runs on an
+             external display. Its own taskAffinity so it can never be merged into the session's task
+             (both are singleTask, and a shared affinity is how a NEW_TASK launch picks the wrong one) —
+             this window has to stay on the handheld while the game's task lives on the TV. The same
+             display-move configChanges as the session: it is the screen the user is holding when a
+             cable moves, and recreating it there would only make it blink. -->
+        <activity
+            android:name="com.winlator.star.display.TvCompanionActivity"
+            android:theme="@style/AppThemeFullscreen.Dark"
+            android:launchMode="singleTask"
+            android:taskAffinity=".display.TvCompanion"
+            android:screenOrientation="sensor"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|density|navigation|colorMode|touchscreen|uiMode"
+            android:exported="false" />
+
+        <activity
+            android:name="com.winlator.star.XrActivity"
+            android:theme="@style/AppThemeFullscreen"
+            android:launchMode="singleTask"
+            android:resizeableActivity="false"
+            android:screenOrientation="landscape"
+            android:process=":vr_process"
+            android:configChanges="density|orientation|screenSize|keyboard|keyboardHidden|uiMode"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="com.oculus.intent.category.VR" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name="com.winlator.star.ControlsEditorActivity"
+            android:theme="@style/AppThemeFullscreen"
+            android:screenOrientation="sensorLandscape"
+            android:exported="false" />
+
+        <activity
+            android:name="com.winlator.star.ExternalControllerBindingsActivity"
+            android:theme="@style/AppTheme"
+            android:screenOrientation="sensor"
+            android:exported="false" />
+
+        <activity
+            android:name=".saves.CustomFilePickerActivity"
+            android:theme="@style/AppTheme"
+            android:screenOrientation="sensor"
+            android:exported="false" />
+
+        <activity
+            android:name="com.winlator.star.FilePickerActivity"
+            android:theme="@style/AppTheme.Dark"
+            android:screenOrientation="sensor"
+            android:exported="false" />
+
+        <activity
+            android:name="com.winlator.star.ShortcutPickerActivity"
+            android:theme="@style/AppTheme"
+            android:screenOrientation="sensor"
+            android:exported="false" />
+
+        <activity
+            android:exported="false"
+            android:name="com.winlator.star.store.GogMainActivity"
+            android:screenOrientation="sensor"
+            android:launchMode="singleTop"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|density|navigation"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/AppTheme"/>
+        <activity 
+            android:exported="false"
+            android:name="com.winlator.star.store.GogLoginActivity"
+            android:screenOrientation="fullSensor"
+            android:theme="@style/AppTheme"/>
+        <activity 
+            android:exported="false"
+            android:name="com.winlator.star.store.GogGamesActivity"
+            android:screenOrientation="fullSensor"
+            android:theme="@style/AppTheme"/>
+
+        <activity
+            android:exported="false"
+            android:name="com.winlator.star.store.EpicMainActivity"
+            android:screenOrientation="sensor"
+            android:launchMode="singleTop"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|density|navigation"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/AppTheme"/>
+        <activity
+            android:exported="false"
+            android:name="com.winlator.star.store.MediaVideoActivity"
+            android:screenOrientation="sensor"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|density|navigation"
+            android:theme="@style/AppTheme"/>
+        <activity
+            android:exported="false"
+            android:name="com.winlator.star.store.StoreWebActivity"
+            android:screenOrientation="sensor"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|density|navigation"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/AppTheme"/>
+        <activity
+            android:exported="false"
+            android:name="com.winlator.star.store.StoreCatalogDetailActivity"
+            android:screenOrientation="sensor"
+            android:theme="@style/AppTheme"/>
+        <activity
+            android:exported="false"
+            android:name="com.winlator.star.store.EpicLoginActivity"
+            android:screenOrientation="fullSensor"
+            android:theme="@style/AppTheme"/>
+        <activity
+            android:exported="false"
+            android:name="com.winlator.star.store.EpicGamesActivity"
+            android:screenOrientation="fullSensor"
+            android:theme="@style/AppTheme"/>
+
+        <activity
+            android:exported="false"
+            android:name="com.winlator.star.store.AmazonMainActivity"
+            android:screenOrientation="sensor"
+            android:launchMode="singleTop"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|density|navigation"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/AppTheme"/>
+        <activity 
+            android:exported="false"
+            android:name="com.winlator.star.store.AmazonLoginActivity"
+            android:screenOrientation="fullSensor"
+            android:theme="@style/AppTheme"/>
+        <activity 
+            android:exported="false"
+            android:name="com.winlator.star.store.AmazonGamesActivity"
+            android:screenOrientation="fullSensor"
+            android:theme="@style/AppTheme"/>
+        <activity
+            android:exported="false"
+            android:name="com.winlator.star.store.GogGameDetailActivity"
+            android:screenOrientation="fullSensor"
+            android:theme="@style/AppTheme"/>
+        <activity
+            android:exported="false"
+            android:name="com.winlator.star.store.EpicGameDetailActivity"
+            android:screenOrientation="fullSensor"
+            android:theme="@style/AppTheme"/>
+        <activity
+            android:exported="false"
+            android:name="com.winlator.star.store.EpicFreeGamesActivity"
+            android:screenOrientation="fullSensor"
+            android:theme="@style/AppTheme"/>
+        <activity
+            android:exported="false"
+            android:name="com.winlator.star.store.AmazonGameDetailActivity"
+            android:screenOrientation="fullSensor"
+            android:theme="@style/AppTheme"/>
+        <activity
+            android:exported="false"
+            android:name="com.winlator.star.store.FolderPickerActivity"
+            android:screenOrientation="fullSensor"
+            android:theme="@style/AppTheme"/>
+
+
+        <receiver
+            android:name=".ShortcutBroadcastReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.winlator.star.SHORTCUT_ADDED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- FileProvider for sharing files -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.tileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <!-- Provider for Winlator’s DocumentProvider or similar usage -->
+        <provider
+            android:name=".core.WinlatorFilesProvider"
+            android:authorities="${applicationId}.core.WinlatorFilesProvider"
+            android:exported="true"
+            android:grantUriPermissions="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS">
+            <intent-filter>
+                <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
+            </intent-filter>
+        </provider>
+
+        <activity
+            android:name=".restore.RestoreActivity"
+            android:process=":restore_process"
+            android:theme="@style/Theme.AppCompat.Light.NoActionBar"
+            android:exported="true" />
+
+        <meta-data
+            android:name="com.samsung.android.multidisplay.keep_process_alive"
+            android:value="false"/>
+        <meta-data
+            android:name="android.allow_multiple_resumed_activities"
+            android:value="true" />
+        <activity android:name="com.winlator.star.store.SteamMainActivity" android:exported="false" android:screenOrientation="sensor" android:theme="@style/AppTheme" android:launchMode="singleTop" android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|density|navigation" android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.winlator.star.store.SteamLoginActivity" android:exported="false" android:screenOrientation="sensor" android:theme="@style/AppTheme"/>
+        <activity android:name="com.winlator.star.store.SteamGamesActivity" android:exported="false" android:screenOrientation="sensor" android:theme="@style/AppTheme" android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|density|navigation"/>
+        <activity android:name="com.winlator.star.store.SteamGameDetailActivity" android:exported="false" android:screenOrientation="sensor" android:theme="@style/AppTheme"/>
+        <activity android:name="com.winlator.star.store.DownloadManagerActivity" android:exported="false" android:screenOrientation="fullSensor" android:theme="@style/AppTheme"/>
+        <activity android:name="com.winlator.star.store.SteamSaveManagerActivity" android:exported="false" android:screenOrientation="sensor" android:theme="@style/AppTheme" android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|density|navigation"/>
+        <activity android:name="com.winlator.star.store.SteamFriendsActivity" android:exported="false" android:screenOrientation="sensor" android:theme="@style/AppTheme" android:windowSoftInputMode="adjustResize" android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|density|navigation"/>
+        <activity android:name="com.winlator.star.store.QrLoginActivity" android:exported="false" android:screenOrientation="fullSensor" android:theme="@style/AppTheme"/>
+        <activity
+            android:name="com.winlator.star.UnpackArchiveActivity"
+            android:theme="@style/AppTheme"
+            android:screenOrientation="sensor"
+            android:exported="false" />
+
+        <service
+            android:name="com.winlator.star.core.unpack.UnpackService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false" />
+
+        <service android:name="com.winlator.star.store.SteamForegroundService" android:foregroundServiceType="dataSync" android:exported="false"/>
+        <service android:name="com.winlator.star.store.download.DownloadForegroundService" android:foregroundServiceType="dataSync" android:exported="false"/>
+        <!-- Held while a container/game session is running so the OS low-memory killer can't reap
+             the guest while the app is backgrounded (else it "Shutting down" on return). -->
+        <service android:name="com.winlator.star.core.GameSessionForegroundService" android:foregroundServiceType="dataSync" android:exported="false"/>
+    </application>
+</manifest>
+
+
+
+

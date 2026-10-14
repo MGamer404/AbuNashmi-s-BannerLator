@@ -1,0 +1,102 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: maxjivi05 <maxjividen@gmail.com>
+Date: Sun, 27 Sep 2026 07:58:30 -0400
+Subject: [PATCH] syscall: translate fchmodat2, send openat2 callers to openat,
+ bound sysnum lookups by the table length
+
+Ported to termux/proot v5.1.107.92 for Bannerlator: that tree already knows openat2
+(114a7c69, rewritten into openat with the open_how flags instead of answered ENOSYS), so
+the openat2 sysnum, filter entry and ENOSYS case are dropped; fchmodat2 and the table-bound
+check are carried whole.
+
+---
+ src/syscall/enter.c         | 14 ++++++++++++++
+ src/syscall/seccomp.c       |  1 +
+ src/syscall/sysnum.c        |  2 +-
+ src/syscall/sysnums-arm.h   |  1 +
+ src/syscall/sysnums-arm64.h |  1 +
+ src/syscall/sysnums.list    |  1 +
+ 6 files changed, 19 insertions(+), 1 deletion(-)
+
+diff --git a/src/syscall/enter.c b/src/syscall/enter.c
+index f3f25d0..0433f94 100644
+--- a/src/syscall/enter.c
++++ b/src/syscall/enter.c
+@@ -2522,6 +2522,20 @@ int translate_syscall_enter(Tracee *tracee)
+ 		status = translate_path2(tracee, dirfd, path, SYSARG_2, REGULAR);
+ 		break;
+ 
++	case PR_fchmodat2:
++		dirfd = peek_reg(tracee, CURRENT, SYSARG_1);
++		flags = peek_reg(tracee, CURRENT, SYSARG_4);
++
++		status = get_sysarg_path(tracee, path, SYSARG_2);
++		if (status < 0)
++			break;
++
++		if ((flags & AT_SYMLINK_NOFOLLOW) != 0)
++			status = translate_path2(tracee, dirfd, path, SYSARG_2, SYMLINK);
++		else
++			status = translate_path2(tracee, dirfd, path, SYSARG_2, REGULAR);
++		break;
++
+ 	case PR_inotify_add_watch:
+ 		flags = peek_reg(tracee, CURRENT, SYSARG_3);
+ 
+diff --git a/src/syscall/seccomp.c b/src/syscall/seccomp.c
+index d811703..5155f99 100644
+--- a/src/syscall/seccomp.c
++++ b/src/syscall/seccomp.c
+@@ -427,6 +427,7 @@ static FilteredSysnum proot_sysnums[] = {
+ 	{ PR_faccessat2,	FILTER_SYSEXIT },
+ 	{ PR_fchdir,		FILTER_SYSEXIT },
+ 	{ PR_fchmodat,		0 },
++	{ PR_fchmodat2,		0 },
+ 	{ PR_fchownat,		0 },
+ 	{ PR_fstatat64,		0 },
+ 	{ PR_futimesat,		0 },
+diff --git a/src/syscall/sysnum.c b/src/syscall/sysnum.c
+index b5440a6..785593e 100644
+--- a/src/syscall/sysnum.c
++++ b/src/syscall/sysnum.c
+@@ -92,7 +92,7 @@ static Sysnum translate_sysnum(Abi abi, word_t sysnum)
+ 	index = sysnum - sysnums.offset;
+ 
+ 	/* Sanity checks.  */
+-	if (index > sysnums.length)
++	if (index >= sysnums.length)
+ 		return PR_void;
+ 
+ 	return sysnums.table[index];
+diff --git a/src/syscall/sysnums-arm.h b/src/syscall/sysnums-arm.h
+index 3d05974..e3f6f6b 100644
+--- a/src/syscall/sysnums-arm.h
++++ b/src/syscall/sysnums-arm.h
+@@ -359,4 +359,5 @@ static const Sysnum sysnums_arm[] = {
+ 	[ 439 ] = PR_faccessat2,
+ 	[ 435 ] = PR_clone3,
+ 	[ 437 ] = PR_openat2,
++	[ 452 ] = PR_fchmodat2,
+ };
+diff --git a/src/syscall/sysnums-arm64.h b/src/syscall/sysnums-arm64.h
+index 15cfe4f..b257339 100644
+--- a/src/syscall/sysnums-arm64.h
++++ b/src/syscall/sysnums-arm64.h
+@@ -281,4 +281,5 @@ static const Sysnum sysnums_arm64[] = {
+ 	[ 435 ] = PR_clone3,
+ 	[ 437 ] = PR_openat2,
+ 	[ 439 ] = PR_faccessat2,
++	[ 452 ] = PR_fchmodat2,
+ };
+diff --git a/src/syscall/sysnums.list b/src/syscall/sysnums.list
+index d99e231..c221ddd 100644
+--- a/src/syscall/sysnums.list
++++ b/src/syscall/sysnums.list
+@@ -72,6 +72,7 @@ SYSNUM(fanotify_mark)
+ SYSNUM(fchdir)
+ SYSNUM(fchmod)
+ SYSNUM(fchmodat)
++SYSNUM(fchmodat2)
+ SYSNUM(fchown)
+ SYSNUM(fchown32)
+ SYSNUM(fchownat)

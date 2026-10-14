@@ -1,0 +1,3 @@
+[submodule "app/src/main/cpp/vkbasalt"]
+	path = app/src/main/cpp/vkbasalt
+	url = https://github.com/DadSchoorse/vkBasalt.git

@@ -1,0 +1,35 @@
+{
+  "id": "2026-09-27T09-19-49-af6469",
+  "created": "2026-09-27T09:19:49.024Z",
+  "ip_hash": "Z3SBrLK2dn",
+  "fields": {
+    "reporter_name": "Simon",
+    "device_model": "Xiaomi 14T Pro",
+    "soc": "Dimensity 9300+",
+    "gpu": "Mali-G720-Immortalis MC12",
+    "android": "Android 16/HyperOS 3.0.302.0",
+    "ram": "12 GB",
+    "app_version": "3.1.2",
+    "install_source": "GitHub release",
+    "game_name": "Mewgenics",
+    "steam_appid": "686060",
+    "store": "Steam",
+    "exe": "Mewgenics.exe",
+    "symptom": "Black screen (no image)",
+    "when": "Never launches at all",
+    "graphics_driver": "System/custom Mesa driver",
+    "dx_wrapper": "WineD3D",
+    "dxvk": "2.7.3",
+    "proton": "Proton 10.0-arm64ec / Wine 9.0-X86_64",
+    "box64": "Performance (Mali)",
+    "resolution": "1280x720",
+    "framegen": "no",
+    "repro": "1.Game doesnt open",
+    "tried": "With other setting all I get is a could not create GL context error. Turns out my GPU drivers dont support some VK features which are needed for running Zink that I need because Mewgenics needs at least OpenGl 4.4 to run. Because of that I tried custom Mesa driver specifically (https://github.com/wonderkast02/panvk-g720-kbase-csf/releases/tag/0.1.0-beta.1.9.4) which loaded but lacked the shaderClipDistance feature I also wanted to try another driver(https://github.com/martuniykmisha012-rgb/PanVK-Mali-Android-Stubs) but this one doesnt load because of this error[hook_android_dlopen_ext: hook failed: failed to load custom driver: dlopen failed: library \"libdrm.so.2\" not found: needed by /data/user/0/com.winlator.banner/files/contents/adrenotools/Mesa PanVK Driver for Mali/libvulkan_freedreno.so in namespace vulkan.mali.so!] do at this point I left with hoping this driver might work if I give it the needed library or just making my own custom Mesa driver that will work(which I have zero idea how to do since the most coding I ever did was to write a simple c++ program at school)."
+  },
+  "logs": [
+    {
+      "name": "wine_debug.log"
+    }
+  ]
+}

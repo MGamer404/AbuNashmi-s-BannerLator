@@ -1,0 +1,6 @@
+#!/bin/sh
+# steamos-priv-write <path> <value> is how the client in Deck mode sets brightness, TDP and fan controls through sysfs.
+# None of those paths is writable from an app on Android, and the app already handles the panel from the Android side.
+# It accepts and does nothing, so the client never logs a failed helper.
+# Staged from the apk. (From The412Banner/SteamDeck.)
+exit 0
