@@ -2,6 +2,7 @@ package com.winlator.star.store
 
 import android.app.Activity
 import android.content.Intent
+import androidx.annotation.StringRes
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -27,11 +28,18 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -42,6 +50,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,6 +59,7 @@ import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -135,6 +145,79 @@ enum class LibraryTypeFilter(val label: String) {
     }
 }
 
+/** A–Z by name: case-insensitive, with the appId as the final tie-break so the order is total. */
+private val LIBRARY_BY_NAME = Comparator<SteamGame> { a, b ->
+    val byName = a.name.lowercase().compareTo(b.name.lowercase())
+    if (byName != 0) byName else a.appId.compareTo(b.appId)
+}
+
+/**
+ * The Library tab's sort. [NAME] is the DEFAULT and is exactly the order the tab has always used.
+ *
+ * [RATING] is Steam USER reviews (percent positive, as the store shows), best first. A game with no
+ * rating — not fetched yet, or fewer reviews than Steam rates — goes to the bottom, A–Z among
+ * themselves. Ties on percent go to the game with more reviews, then by name.
+ */
+enum class LibrarySort(@StringRes val labelRes: Int) {
+    NAME(R.string.steam_libsort_name),
+    RATING(R.string.steam_libsort_rating),
+    ;
+
+    fun comparator(): Comparator<SteamGame> = when (this) {
+        NAME -> LIBRARY_BY_NAME
+        RATING -> Comparator<SteamGame> { a, b ->
+            val aRated = a.reviewPercent >= 0
+            val bRated = b.reviewPercent >= 0
+            when {
+                aRated != bRated -> if (aRated) -1 else 1
+                aRated && a.reviewPercent != b.reviewPercent -> b.reviewPercent.compareTo(a.reviewPercent)
+                aRated && a.reviewTotal != b.reviewTotal -> b.reviewTotal.compareTo(a.reviewTotal)
+                else -> LIBRARY_BY_NAME.compare(a, b)
+            }
+        }
+    }
+
+    companion object {
+        /** Parse a persisted name, falling back to A–Z (what the tab did before there was a choice). */
+        fun fromName(name: String?): LibrarySort =
+            entries.firstOrNull { it.name == name } ?: NAME
+    }
+}
+
+private val DIACRITIC_MARKS = Regex("\\p{Mn}+")
+private val WHITESPACE_RUN = Regex("\\s+")
+
+/** Lower-cased with diacritics removed, so "pokemon" finds "Pokémon" and "ZOE" finds "Zoë". */
+internal fun foldForSearch(text: String): String =
+    java.text.Normalizer.normalize(text, java.text.Normalizer.Form.NFD)
+        .replace(DIACRITIC_MARKS, "")
+        .lowercase()
+
+/**
+ * The games whose name contains EVERY word of [query] (case- and accent-insensitive, any order), so
+ * "witcher 3" finds "The Witcher 3: Wild Hunt". A blank query matches everything. [folded] maps an
+ * appId to its [foldForSearch]ed name so typing doesn't re-normalise the whole library per keystroke.
+ */
+internal fun filterLibraryByQuery(
+    games: List<SteamGame>,
+    folded: Map<Int, String>,
+    query: String,
+): List<SteamGame> {
+    val words = foldForSearch(query).trim().split(WHITESPACE_RUN).filter { it.isNotEmpty() }
+    if (words.isEmpty()) return games
+    return games.filter { g ->
+        val name = folded[g.appId] ?: foldForSearch(g.name)
+        words.all { name.contains(it) }
+    }
+}
+
+/** Steam's green / amber / red for a percent-positive score (semantic colours, deliberately not themed). */
+private fun reviewColor(percent: Int): Color = when {
+    percent >= 70 -> Color(0xFF4CAF50)
+    percent >= 40 -> Color(0xFFFFC107)
+    else -> Color(0xFFF44336)
+}
+
 // ── State ─────────────────────────────────────────────────────────────────────────────────────
 
 /** Everything the Library tab and the Store tab's ownership check need, from one source of truth. */
@@ -156,6 +239,12 @@ class SteamLibraryState internal constructor(
     val ownedAppIds: Set<Int>,
     val refresh: () -> Unit,
     val reload: () -> Unit,
+    /**
+     * [reload] without the status-line rewrite and the log line — for the Steam-rating backfill,
+     * which re-reads the rows every second or so while ratings trickle in and must not clobber a
+     * sync's "Fetching app records…" progress text.
+     */
+    val reloadQuiet: () -> Unit,
     val reconnect: () -> Unit,
 )
 
@@ -177,8 +266,8 @@ fun rememberSteamLibrary(): SteamLibraryState {
         )
     }
 
-    val load: () -> Unit = load@{
-        val repo = runCatching { SteamRepository.getInstance() }.getOrNull() ?: return@load
+    fun loadRows(quiet: Boolean) {
+        val repo = runCatching { SteamRepository.getInstance() }.getOrNull() ?: return
         val rows = runCatching { repo.getCachedGameRows() }.getOrDefault(emptyList())
         // The FULL launchable set — games (plus allowlisted appIds) AND demos. The type chip narrows
         // what is DISPLAYED; it must never narrow what is OWNED. Everything past this point,
@@ -191,6 +280,7 @@ fun rememberSteamLibrary(): SteamLibraryState {
             .filter { LibraryTypeFilter.ALL.accepts(it) }
             .sortedBy { it.name.lowercase() }
         isLoading = false
+        if (quiet) return
         val demoCount = games.count { it.type == LibraryTypeFilter.TYPE_DEMO }
         if (games.isNotEmpty()) statusText = "${games.size - demoCount} games in library"
         StorefrontLog.i(
@@ -200,6 +290,9 @@ fun rememberSteamLibrary(): SteamLibraryState {
                 "${games.count { it.isInstalled }} installed",
         )
     }
+
+    val load: () -> Unit = { loadRows(quiet = false) }
+    val loadQuiet: () -> Unit = { loadRows(quiet = true) }
 
     val appCtx = LocalContext.current.applicationContext
 
@@ -307,6 +400,7 @@ fun rememberSteamLibrary(): SteamLibraryState {
             Unit
         },
         reload = load,
+        reloadQuiet = loadQuiet,
         reconnect = { runCatching { SteamRepository.getInstance().reconnectNow() } },
     )
 }
@@ -326,14 +420,51 @@ fun SteamLibraryTab(
     viewMode: String,
     typeFilter: LibraryTypeFilter,
     onTypeFilter: (LibraryTypeFilter) -> Unit,
+    query: String,
+    onQuery: (String) -> Unit,
+    sort: LibrarySort,
+    onSort: (LibrarySort) -> Unit,
     onOpenApp: (Int) -> Unit,
     onMessage: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val ctx = LocalContext.current
-    // The chip narrows only what is drawn. state.ownedAppIds stays the full set — see its doc.
-    val shown = remember(state.games, typeFilter) { typeFilter.filter(state.games) }
+    val focusManager = LocalFocusManager.current
+    // The chip narrows by type, the search by name, the sort orders what is left. All three only
+    // affect what is drawn — state.ownedAppIds stays the full set, see its doc. [query] and [sort]
+    // are hoisted into the host (like [typeFilter]) so they survive a tab switch and rotation.
+    val byType = remember(state.games, typeFilter) { typeFilter.filter(state.games) }
+    val foldedNames = remember(state.games) {
+        state.games.associate { it.appId to foldForSearch(it.name) }
+    }
+    val shown = remember(byType, foldedNames, query, sort) {
+        filterLibraryByQuery(byType, foldedNames, query).sortedWith(sort.comparator())
+    }
     val activity = ctx as? Activity
+
+    // Steam user-review backfill. Feeds the rating sort and the rating line on every card, so it runs
+    // whenever the tab is up and the library (or chip, or sort) changes — NOT per keystroke. The
+    // effect is cancelled when the tab leaves composition; scores already saved are kept. The state
+    // object is re-read through rememberUpdatedState because this effect outlives the composition
+    // that launched it.
+    val latestState by rememberUpdatedState(state)
+    var ratingsLeft by remember { mutableStateOf(0) }
+    val libraryKey = remember(state.games) { state.games.fold(0) { h, g -> h * 31 + g.appId } }
+    LaunchedEffect(libraryKey, typeFilter, sort) {
+        // What the chip is showing first, so what is on screen is rated before the rest.
+        val firstIds = byType.mapTo(HashSet(byType.size)) { it.appId }
+        val ordered = byType + state.games.filter { it.appId !in firstIds }
+        ratingsLeft = SteamReviewScores.pending(ordered).size
+        if (ratingsLeft == 0) return@LaunchedEffect
+        try {
+            SteamReviewScores.backfill(ordered) {
+                latestState.reloadQuiet()
+                ratingsLeft = SteamReviewScores.pending(ordered).size
+            }
+        } finally {
+            ratingsLeft = 0
+        }
+    }
 
     var showExePicker by remember { mutableStateOf<SteamExePickerData?>(null) }
     var addToShortcuts by remember { mutableStateOf<AddToShortcutsRequest?>(null) }
@@ -401,22 +532,61 @@ fun SteamLibraryTab(
     }
 
     Column(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        // Type chips. Same row in both orientations — they are one short line either way, and the
-        // grid below is what reflows.
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 8.dp)
-                .focusGroup(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            LibraryTypeFilter.entries.forEach { f ->
-                StoreFilterChip(
-                    label = f.label,
-                    selected = typeFilter == f,
-                    onClick = { onTypeFilter(f) },
-                )
+        // Search + sort + type chips. Landscape ("wide") has width to spare and height to save, so the
+        // three share one row; portrait stacks the search row above the chips.
+        val searchField: @Composable (Modifier) -> Unit = { fieldModifier ->
+            CatalogSearchField(
+                query = query,
+                placeholder = stringResource(R.string.steam_libsearch_hint),
+                onQueryChange = onQuery,
+                onClear = { onQuery(""); focusManager.clearFocus() },
+                onSearch = { focusManager.clearFocus() },
+                modifier = fieldModifier,
+            )
+        }
+        if (wide) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 14.dp, end = 8.dp, top = 6.dp, bottom = 6.dp)
+                    .focusGroup(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                LibraryTypeChips(typeFilter, onTypeFilter)
+                searchField(Modifier.weight(1f))
+                LibrarySortButton(sort, onSort)
             }
+        } else {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 14.dp, end = 8.dp, top = 6.dp)
+                    .focusGroup(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                searchField(Modifier.weight(1f))
+                LibrarySortButton(sort, onSort)
+            }
+            // The chips are one short line, so they keep the same single row as before.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 8.dp)
+                    .focusGroup(),
+            ) { LibraryTypeChips(typeFilter, onTypeFilter) }
+        }
+
+        // The rating sort is only as complete as the backfill: say so while it is still working,
+        // so the unrated games sitting at the bottom don't read as a bug.
+        if (sort == LibrarySort.RATING && ratingsLeft > 0) {
+            Text(
+                text = stringResource(R.string.steam_libreview_loading, ratingsLeft),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
+            )
         }
 
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
@@ -427,6 +597,21 @@ fun SteamLibraryTab(
                         "with Refresh, or add a free game from the Store tab.",
                     actionLabel = "Refresh",
                     onAction = state.refresh,
+                    modifier = Modifier.align(Alignment.Center),
+                )
+
+                // The library HAS entries and the search matches none of them (under the current
+                // chip). Checked before the chip's own empty state so typing never reads as
+                // "No demos in your library".
+                shown.isEmpty() && !state.isLoading && query.isNotBlank() -> StoreNotice(
+                    title = stringResource(R.string.steam_libsearch_empty_title),
+                    body = if (typeFilter == LibraryTypeFilter.ALL) {
+                        stringResource(R.string.steam_libsearch_empty_body, query.trim())
+                    } else {
+                        stringResource(R.string.steam_libsearch_empty_body_filtered, query.trim(), typeFilter.label)
+                    },
+                    actionLabel = stringResource(R.string.steam_libsearch_clear),
+                    onAction = { onQuery("") },
                     modifier = Modifier.align(Alignment.Center),
                 )
 
@@ -538,6 +723,93 @@ fun SteamLibraryTab(
     }
 }
 
+// ── Header controls ───────────────────────────────────────────────────────────────────────────
+
+/** The All / Games / Demos / Installed chips (the caller owns the surrounding row and focus group). */
+@Composable
+private fun LibraryTypeChips(
+    typeFilter: LibraryTypeFilter,
+    onTypeFilter: (LibraryTypeFilter) -> Unit,
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        LibraryTypeFilter.entries.forEach { f ->
+            StoreFilterChip(
+                label = f.label,
+                selected = typeFilter == f,
+                onClick = { onTypeFilter(f) },
+            )
+        }
+    }
+}
+
+/**
+ * Sort button: a 48dp icon button (focus ring for D-pad / controller) opening a small menu of the
+ * [LibrarySort] options, the active one marked with a check. The content description names the
+ * current sort so a screen reader doesn't have to open the menu to know it.
+ */
+@Composable
+private fun LibrarySortButton(
+    sort: LibrarySort,
+    onSort: (LibrarySort) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        IconButton(
+            onClick = { expanded = true },
+            modifier = Modifier.steamFocusRing(RoundedCornerShape(24.dp)),
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Sort,
+                contentDescription = stringResource(R.string.steam_libsort_cd, stringResource(sort.labelRes)),
+                // Primary while a non-default sort is active, so it reads as "something is applied".
+                tint = if (sort == LibrarySort.NAME) MaterialTheme.colorScheme.onSurfaceVariant
+                else MaterialTheme.colorScheme.primary,
+            )
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            LibrarySort.entries.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(stringResource(option.labelRes)) },
+                    trailingIcon = {
+                        if (option == sort) {
+                            Icon(
+                                Icons.Filled.Check,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    },
+                    onClick = {
+                        expanded = false
+                        onSort(option)
+                    },
+                )
+            }
+        }
+    }
+}
+
+/**
+ * "Very Positive · 92%" in Steam's green / amber / red, from the cached Steam user-review summary.
+ * Draws nothing for an unrated game. Falls back to "92% positive" when Steam gave no label.
+ */
+@Composable
+private fun LibraryRatingLine(game: SteamGame, modifier: Modifier = Modifier) {
+    if (game.reviewPercent < 0) return
+    Text(
+        text = if (game.reviewDesc.isNotEmpty()) {
+            stringResource(R.string.steam_libreview_label, game.reviewDesc, game.reviewPercent)
+        } else {
+            stringResource(R.string.steam_libreview_pct_only, game.reviewPercent)
+        },
+        style = MaterialTheme.typography.labelSmall,
+        color = reviewColor(game.reviewPercent),
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier,
+    )
+}
+
 // ── Cards ─────────────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -578,6 +850,7 @@ private fun LibraryCapsuleCard(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
+            LibraryRatingLine(game)
             if (game.isInstalled) {
                 Button(
                     onClick = onAction,
@@ -638,6 +911,7 @@ private fun LibraryDetailRow(
                 if (game.developer.isNotEmpty()) MutedLine(game.developer)
                 if (game.genres.isNotEmpty()) MutedLine(game.genres)
                 if (game.sizeBytes > 0) MutedLine(fmtLibrarySize(game.sizeBytes))
+                LibraryRatingLine(game)
                 if (game.metacriticScore > 0) {
                     Text(
                         text = "Metacritic: ${game.metacriticScore}",
