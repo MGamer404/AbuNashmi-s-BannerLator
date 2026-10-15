@@ -308,9 +308,10 @@ object SteamDepotDownloader {
      * @param debugLog when true (or in a debug build) writes the verbose steam_debug.txt firehose +
      *   JavaSteam-internal bridge for this download. Off = logcat-only; failures still leave a trace.
      * @param installRoot when non-null, the `steam_games` base a fresh install lands in instead of the
-     *   internal `imagefs/steam_games` default — used by the "Install to SD card" toggle, which passes
-     *   `<sd>/bannerlator/steam_games` ([SteamSdInstall.SdTarget.steamGamesBase]). Ignored for a resume
-     *   or an update/verify of an already-installed game, which stay in their existing directory.
+     *   internal `imagefs/steam_games` default — the install dialog's chosen location, i.e.
+     *   `<sd>/bannerlator/steam_games` ([SteamSdInstall.SdTarget.steamGamesBase]) or a user library's
+     *   `<folder>/bannerlator/steam_games` ([SteamLibraryLocations.Location.installRoot]). Ignored for a
+     *   resume or an update/verify of an already-installed game, which stay in their existing directory.
      * @param verify "verify integrity" pass: re-validate EVERY on-disk file against the live manifest
      *   and re-fetch what is missing or corrupt. Consumed by the Rust-engine path only (it selects the
      *   engine's fresh/verify mode); the JavaSteam engine ignores it — there the caller clears the
@@ -580,8 +581,8 @@ object SteamDepotDownloader {
                 dlog("SD free-space guard FAILED: need ${fmtSize(installTotal)} + margin " +
                         "${fmtSize(SteamSdInstall.FREE_SPACE_MARGIN)}, only ${fmtSize(free)} free on " +
                         probe.absolutePath)
-                emitFailed(appId, "Not enough space on the SD card — need about ${fmtSize(installTotal)}, " +
-                        "${fmtSize(free)} free. Free some space or install to internal storage.")
+                emitFailed(appId, "Not enough space at the chosen install location — need about " +
+                        "${fmtSize(installTotal)}, ${fmtSize(free)} free. Free some space or pick another location.")
                 return
             }
             dlog("SD free-space guard OK: ${fmtSize(free)} free on ${probe.absolutePath} for a " +

@@ -260,8 +260,8 @@ internal object BlDepotInstaller {
             val free = SteamSdInstall.freeBytes(probe)
             if (free < installTotalSeed + SteamSdInstall.FREE_SPACE_MARGIN) {
                 dlog("SD free-space guard FAILED: need ${fmt(installTotalSeed)} + margin, ${fmt(free)} free")
-                fail(appId, "Not enough space on the SD card — need about ${fmt(installTotalSeed)}, " +
-                        "${fmt(free)} free. Free some space or install to internal storage.")
+                fail(appId, "Not enough space at the chosen install location — need about " +
+                        "${fmt(installTotalSeed)}, ${fmt(free)} free. Free some space or pick another location.")
                 return
             }
         }

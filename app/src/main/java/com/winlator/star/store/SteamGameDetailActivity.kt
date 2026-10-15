@@ -231,13 +231,22 @@ class SteamGameDetailActivity : ComponentActivity(), SteamRepository.SteamEventL
     private var progressTextVisible by mutableStateOf(false)
 
     private var showSpeedPicker by mutableStateOf(false)
-    // Removable SD card detected when the download dialog opens (null = none, so the SD option is
-    // hidden). Detected off the UI thread in onInstallClicked before the picker is shown.
-    private var sdTarget by mutableStateOf<SteamSdInstall.SdTarget?>(null)
-    // ── Storage move (gear → Move to SD card / Move to internal storage) ─────────────────────
+    // Every install target (internal default, a detected SD card, the user's extra library folders),
+    // loaded off the UI thread in onInstallClicked before the picker is shown. The dialog offers the
+    // "where to install" choice only when there is more than the internal default.
+    private var installLocations by mutableStateOf<List<SteamLibraryLocations.Location>>(emptyList())
+    private var defaultLocationId by mutableStateOf(SteamLibraryLocations.ID_INTERNAL)
+    // The "Steam library locations" manager, opened from the download dialog's "Manage locations…".
+    private var showLibraryManager by mutableStateOf(false)
+    // Estimated install (uncompressed) size of this game, for the dialog's size-vs-free-space check.
+    // Kept current by recomputeSizeDisplay (DLC opt-outs included); 0 = unknown.
+    private var installSizeBytes = 0L
+    // ── Storage move (gear → Move to SD card / Move to internal storage / Move to another location) ─
     // The direction on offer for THIS game, recomputed off the UI thread whenever the install state
-    // changes; null hides the gear row (not installed, folder gone, or no card present).
+    // changes; null hides the gear row (not installed, folder gone, or nowhere else to go).
     private var moveStorageLabel by mutableStateOf<String?>(null)
+    // Destinations to pick from when more than one is on offer (null = chooser closed).
+    private var moveTargetChoices by mutableStateOf<List<SteamLibraryLocations.Location>?>(null)
     // The built plan, shown in the confirm dialog. Null = no dialog.
     private var movePlan by mutableStateOf<MoveGameStorage.Plan?>(null)
     // Live progress while a move runs; null = not running.
@@ -441,18 +450,42 @@ class SteamGameDetailActivity : ComponentActivity(), SteamRepository.SteamEventL
                             DownloadSpeedConfig.TIER_BLAZING -> 3
                             else -> 2  // Fast
                         },
-                        sdTarget = sdTarget,
+                        locations = installLocations,
+                        defaultLocationId = defaultLocationId,
+                        installBytes = installSizeBytes,
+                        onManageLocations = { showLibraryManager = true },
                         onDismiss = { showSpeedPicker = false },
-                        onDownload = { tier, debugLog, installToSd ->
+                        onDownload = { tier, debugLog, installRoot ->
                             showSpeedPicker = false
                             lastSpeedTier = tier
                             installBtnEnabled = false
                             installBtnText = "Starting…"
-                            // SD toggle → install under <sd>/bannerlator/steam_games; else internal default.
-                            val installRoot = if (installToSd) sdTarget?.steamGamesBase?.absolutePath else null
+                            // installRoot = the chosen location's steam_games base (SD card or a user
+                            // library, e.g. <folder>/bannerlator/steam_games); null = internal default.
                             downloadHandle = SteamDepotDownloader.installApp(
                                 appId, applicationContext, lastSpeedTier, debugLog, installRoot)
                         },
+                    )
+                }
+
+                if (showLibraryManager) {
+                    SteamLibraryManagerDialog(
+                        onDismiss = { showLibraryManager = false },
+                        // Reload the picker's list so an added / removed / re-defaulted location shows
+                        // up in the open download dialog straight away.
+                        onChanged = { reloadInstallLocations() },
+                    )
+                }
+
+                moveTargetChoices?.let { targets ->
+                    MoveTargetDialog(
+                        gameName = moveGameName,
+                        targets = targets,
+                        onPick = { target ->
+                            moveTargetChoices = null
+                            buildMovePlan(target)
+                        },
+                        onDismiss = { moveTargetChoices = null },
                     )
                 }
 
@@ -748,6 +781,9 @@ class SteamGameDetailActivity : ComponentActivity(), SteamRepository.SteamEventL
         if (rows.isEmpty()) { pics = g.sizeBytes; disk = g.sizeBytes }
         val resolved  = allResolved && anyResolved
         val footprint = if (resolved && disk > 0L) disk else pics
+        // What the install dialog checks a location's free space against (the same uncompressed total
+        // the downloader's own free-space guard uses, DLC opt-outs already dropped).
+        installSizeBytes = if (rows.isEmpty()) g.sizeBytes else install
 
         sizeText = when {
             footprint > 0L && resolved -> "${fmtSize(footprint)} on disk"
@@ -1073,14 +1109,33 @@ class SteamGameDetailActivity : ComponentActivity(), SteamRepository.SteamEventL
         moveGameName = g.name.ifEmpty { "App ${g.appId}" }
         moveProgress = MoveGameStorage.Progress(MoveGameStorage.Phase.VERIFYING) // "working…" spinner
         Thread {
-            val result = runCatching { MoveGameStorage.buildPlan(this, g.appId) }
-            runOnUiThread {
-                moveProgress = null
-                result.onSuccess { movePlan = it }.onFailure {
-                    uninstallResult = it.message ?: "Couldn't work out where to move this game"
-                }
+            // One place to go (internal <-> SD, as before): plan it straight away. Several (extra
+            // library folders exist): let the user pick before the folder walk is spent.
+            val targets = runCatching { MoveGameStorage.moveTargets(this, g.appId) }.getOrDefault(emptyList())
+            if (targets.size > 1) {
+                runOnUiThread { moveProgress = null; moveTargetChoices = targets }
+            } else {
+                planMove(g.appId, targets.firstOrNull())
             }
         }.apply { isDaemon = true; name = "MovePlan" }.start()
+    }
+
+    /** A destination was picked from the chooser: plan the move there (off the UI thread). */
+    private fun buildMovePlan(target: SteamLibraryLocations.Location) {
+        val g = game ?: return
+        moveProgress = MoveGameStorage.Progress(MoveGameStorage.Phase.VERIFYING)
+        Thread { planMove(g.appId, target) }.apply { isDaemon = true; name = "MovePlan" }.start()
+    }
+
+    /** Worker-thread body: build the plan for [target] (null = the only other place) and show the confirm. */
+    private fun planMove(appId: Int, target: SteamLibraryLocations.Location?) {
+        val result = runCatching { MoveGameStorage.buildPlan(this, appId, target = target) }
+        runOnUiThread {
+            moveProgress = null
+            result.onSuccess { movePlan = it }.onFailure {
+                uninstallResult = it.message ?: "Couldn't work out where to move this game"
+            }
+        }
     }
 
     /** Runs a confirmed plan on a worker thread, reporting progress back to the dialog. */
@@ -1166,17 +1221,34 @@ class SteamGameDetailActivity : ComponentActivity(), SteamRepository.SteamEventL
                     }
                 })
         } else {
-            // Detect a removable SD card off the UI thread (StorageRoots does Binder + filesystem
-            // work), then open the download dialog. The SD "Install to…" option is shown only when a
-            // card is actually present; internal stays the default.
+            // Enumerate the install targets off the UI thread (SD detection does Binder + filesystem
+            // work, and each location needs a StatFs), then open the download dialog. The "Install
+            // location" choice is shown only when there is something besides the internal default — a
+            // detected SD card or a library folder the user added; otherwise the dialog is unchanged.
             Thread {
-                val sd = try { SteamSdInstall.detect(this) } catch (_: Throwable) { null }
+                val locs = try { SteamLibraryLocations.locations(this) } catch (_: Throwable) { emptyList() }
+                val def = try { SteamLibraryLocations.defaultLocationId(this, locs) }
+                          catch (_: Throwable) { SteamLibraryLocations.ID_INTERNAL }
                 runOnUiThread {
-                    sdTarget = sd
+                    installLocations = locs
+                    defaultLocationId = def
                     showSpeedPicker = true
                 }
-            }.apply { isDaemon = true; name = "SteamSdDetect" }.start()
+            }.apply { isDaemon = true; name = "SteamLocationsLoad" }.start()
         }
+    }
+
+    /** Re-reads the install targets (after the manager changed them) without reopening the dialog. */
+    private fun reloadInstallLocations() {
+        Thread {
+            val locs = try { SteamLibraryLocations.locations(this) } catch (_: Throwable) { return@Thread }
+            val def = try { SteamLibraryLocations.defaultLocationId(this, locs) }
+                      catch (_: Throwable) { SteamLibraryLocations.ID_INTERNAL }
+            runOnUiThread {
+                installLocations = locs
+                defaultLocationId = def
+            }
+        }.apply { isDaemon = true; name = "SteamLocationsReload" }.start()
     }
 
     /**
@@ -1239,6 +1311,10 @@ class SteamGameDetailActivity : ComponentActivity(), SteamRepository.SteamEventL
                 // work, so it must run here (off the UI thread), not in the caller.
                 val sd = try { SteamSdInstall.detect(this) } catch (_: Throwable) { null }
                 sd?.let { targets.add(File(it.steamGamesBase, safeName)) }
+                // Library folders the user added: <folder>/bannerlator/steam_games/<safeName>.
+                try {
+                    SteamLibraryLocations.libraryBases(this).forEach { targets.add(File(it, safeName)) }
+                } catch (_: Throwable) {}
             }
             fun sweep() = targets.forEach { d ->
                 try { if (d.exists()) d.deleteRecursively() } catch (_: Throwable) {}
@@ -3411,9 +3487,12 @@ private fun InfoChip(label: String) {
 @Composable
 private fun DownloadSpeedPickerDialog(
     selectedIndex: Int,
-    sdTarget: SteamSdInstall.SdTarget?,
+    locations: List<SteamLibraryLocations.Location>,
+    defaultLocationId: String,
+    installBytes: Long,
+    onManageLocations: () -> Unit,
     onDismiss: () -> Unit,
-    onDownload: (speedTier: Int, debugLog: Boolean, installToSd: Boolean) -> Unit,
+    onDownload: (speedTier: Int, debugLog: Boolean, installRoot: String?) -> Unit,
 ) {
     // Tiers mirror GameNative: cores × ratio scales download + decompress concurrency.
     // Higher tiers download faster but use more RAM/CPU during decompression.
@@ -3426,8 +3505,19 @@ private fun DownloadSpeedPickerDialog(
     var selected by remember { mutableIntStateOf(selectedIndex) }
     // Per-download, not persisted — defaults off each time (scoped to this one download).
     var debugLog by remember { mutableStateOf(false) }
-    // SD-card install opt-in — off by default; only offered when a removable card is present.
-    var installToSd by remember { mutableStateOf(false) }
+    // Install location — the user's default (the internal one unless they set another), asked every
+    // time. The chooser is only shown when there is more than the internal default (an SD card is
+    // detected or library folders were added); with just the internal location nothing changes.
+    var selectedLocationId by remember { mutableStateOf(defaultLocationId) }
+    val showLocations = locations.size > 1
+    // A removed library leaves a dangling id; fall back to the first entry (the internal default).
+    val chosenLocation = locations.firstOrNull { it.id == selectedLocationId } ?: locations.firstOrNull()
+    // An unreachable library or one without room for the game can't be downloaded to. Internal is
+    // never blocked here, exactly as before (its guard-less behaviour is unchanged).
+    val canDownload = chosenLocation == null ||
+        chosenLocation.kind == SteamLibraryLocations.Kind.INTERNAL ||
+        (chosenLocation.available && chosenLocation.fits(installBytes))
+    val chosenInstallRoot = chosenLocation?.installRoot
 
     // Per-"?" help — a general one on the header plus one per speed tier. Reuses the shared
     // HelpDialog (a centered, scrollable Compose dialog); it layers on top of whichever layout
@@ -3615,9 +3705,9 @@ private fun DownloadSpeedPickerDialog(
                                 .background(cs.outline.copy(alpha = 0.20f)),
                         )
 
-                        // RIGHT — the two option checkboxes + their contextual warnings. Same
-                        // conditions as portrait: debug warning only when checked; the whole SD
-                        // block only when sdTarget != null, its warning only when checked.
+                        // RIGHT — the debug checkbox + its warning, then the install-location chooser.
+                        // Same conditions as portrait: debug warning only when checked; the whole
+                        // location block only when there is more than the internal default.
                         Column(
                             modifier = Modifier
                                 .weight(1f)
@@ -3666,42 +3756,16 @@ private fun DownloadSpeedPickerDialog(
                                 }
                             }
 
-                            if (sdTarget != null) {
-                                Spacer(Modifier.height(6.dp))
-                                Row(
-                                    verticalAlignment = Alignment.Top,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable { installToSd = !installToSd }
-                                        .padding(vertical = 4.dp),
-                                ) {
-                                    Checkbox(
-                                        checked = installToSd,
-                                        onCheckedChange = { installToSd = it },
-                                    )
-                                    Spacer(Modifier.width(6.dp))
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = "Install to SD card (frees internal space)",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = cs.onSurface,
-                                        )
-                                        Text(
-                                            text = "${sdTarget.label} · ${SteamSdInstall.fmtBytes(sdTarget.freeBytes)} free",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = cs.onSurfaceVariant,
-                                        )
-                                        if (installToSd) {
-                                            Spacer(Modifier.height(6.dp))
-                                            DownloadDialogWarning(
-                                                text = "⚠️ The SD card is slower than internal storage. Some " +
-                                                    "games stall on intro movies or asset loads from the card — " +
-                                                    "if that happens, open the shortcut and use \"Copy game to " +
-                                                    "Drive C\" to move it onto fast internal storage.",
-                                            )
-                                        }
-                                    }
-                                }
+                            if (showLocations) {
+                                Spacer(Modifier.height(10.dp))
+                                InstallLocationPicker(
+                                    locations = locations,
+                                    selectedId = chosenLocation?.id ?: "",
+                                    installBytes = installBytes,
+                                    onSelect = { selectedLocationId = it },
+                                    onManage = onManageLocations,
+                                    warning = { DownloadDialogWarning(text = it) },
+                                )
                             }
                         }
                     }
@@ -3724,8 +3788,9 @@ private fun DownloadSpeedPickerDialog(
                         Spacer(Modifier.width(4.dp))
                         Button(
                             onClick = {
-                                onDownload(options[selected].second, debugLog, installToSd)
+                                onDownload(options[selected].second, debugLog, chosenInstallRoot)
                             },
+                            enabled = canDownload,
                         ) { Text("Download") }
                     }
                 }
@@ -3749,7 +3814,8 @@ private fun DownloadSpeedPickerDialog(
             }
         },
         text = {
-            Column {
+            // Scrollable: with the install-location list the content can outgrow a short portrait screen.
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 options.forEachIndexed { index, (label, tier) ->
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -3820,53 +3886,36 @@ private fun DownloadSpeedPickerDialog(
                     )
                 }
 
-                // SD-card install toggle — only when a removable card is present. Internal is the fast
-                // default; the card frees internal space but is FUSE-backed and slower, so it's an
-                // explicit opt-in with a one-time warning (and the Copy-to-Drive-C escape hatch).
-                if (sdTarget != null) {
-                    Spacer(Modifier.height(8.dp))
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { installToSd = !installToSd }
-                            .padding(vertical = 4.dp),
-                    ) {
-                        Checkbox(
-                            checked = installToSd,
-                            onCheckedChange = { installToSd = it },
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Column(modifier = Modifier.weight(1f)) {
+                // Install location — only when there is more than the internal default (a detected SD
+                // card and/or library folders the user added). Internal is the fast default and stays
+                // pre-selected unless the user made another location the default; the card and shared
+                // storage free internal space but are FUSE-backed and slower, so those carry a warning
+                // (and the Copy-to-Drive-C escape hatch). Asked on every download, never silent.
+                if (showLocations) {
+                    Spacer(Modifier.height(12.dp))
+                    InstallLocationPicker(
+                        locations = locations,
+                        selectedId = chosenLocation?.id ?: "",
+                        installBytes = installBytes,
+                        onSelect = { selectedLocationId = it },
+                        onManage = onManageLocations,
+                        warning = {
                             Text(
-                                text = "Install to SD card (frees internal space)",
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                            Text(
-                                text = "${sdTarget.label} · ${SteamSdInstall.fmtBytes(sdTarget.freeBytes)} free",
+                                text = it,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(start = 4.dp, end = 4.dp),
                             )
-                        }
-                    }
-
-                    if (installToSd) {
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            text = "⚠️ The SD card is slower than internal storage. Some games stall on " +
-                                "intro movies or asset loads from the card — if that happens, open the " +
-                                "shortcut and use \"Copy game to Drive C\" to move it onto fast internal " +
-                                "storage.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.padding(start = 4.dp, end = 4.dp),
-                        )
-                    }
+                        },
+                    )
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = { onDownload(options[selected].second, debugLog, installToSd) }) {
+            TextButton(
+                onClick = { onDownload(options[selected].second, debugLog, chosenInstallRoot) },
+                enabled = canDownload,
+            ) {
                 Text("Download")
             }
         },
