@@ -285,6 +285,46 @@ private fun SteamAccountActionRow(label: String, enabled: Boolean, onClick: () -
     }
 }
 
+/**
+ * Warning shown before a SteamLite / Headless Steam launch when the game was downloaded with a
+ * different account than the one signed in. Two choices only: [onLaunchAnyway] (this launch only,
+ * nothing is remembered) and [onClose] (cancels the launch; also the back / outside-tap result).
+ */
+@Composable
+fun SteamAccountMismatchDialog(
+    mismatch: SteamAccountStore.LaunchMismatch,
+    onLaunchAnyway: () -> Unit,
+    onClose: () -> Unit,
+) {
+    val installer = mismatch.installerName ?: stringResource(R.string.steam_launch_mismatch_other_account)
+    OutlinedAlertDialog(
+        onDismissRequest = onClose,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.SwitchAccount, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(10.dp))
+                Text(stringResource(R.string.steam_launch_mismatch_title))
+            }
+        },
+        text = {
+            Text(
+                text = stringResource(R.string.steam_launch_mismatch_body, installer, mismatch.activeName),
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onLaunchAnyway, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text(stringResource(R.string.steam_launch_mismatch_launch_anyway))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onClose, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text(stringResource(R.string.steam_account_close))
+            }
+        },
+    )
+}
+
 /** The user-facing sentence for a switch outcome (shared by the storefront host and the login screen). */
 internal fun steamSwitchMessage(
     ctx: Context,

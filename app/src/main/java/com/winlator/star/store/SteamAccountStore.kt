@@ -49,6 +49,8 @@ object SteamAccountStore {
     /** Set on the 3.1.6 -> 3.1.7 upgrade: the library DB still holds the single legacy account's data. */
     private const val K_LEGACY_PENDING = "legacy_owner_pending"
     private const val K_OWNED_PREFIX = "owned_"
+    /** `installer_<appId>` = SteamID64 of the account that downloaded the game (absent = unknown). */
+    private const val K_INSTALLER_PREFIX = "installer_"
 
     /** How long a switch waits for the target's logon before reporting "still connecting". */
     private const val SESSION_WAIT_MS = 25_000L
@@ -67,6 +69,13 @@ object SteamAccountStore {
         /** What the account chooser shows as the main line. */
         val label: String get() = displayName.ifBlank { username }
     }
+
+    /**
+     * A SteamLite / Headless Steam launch whose game was downloaded with a different account than
+     * the one signed in now. [installerName] is null when the downloading account is no longer in the
+     * saved list.
+     */
+    data class LaunchMismatch(val installerName: String?, val activeName: String)
 
     enum class SwitchResult {
         /** Target is logged on. */
@@ -420,6 +429,60 @@ object SteamAccountStore {
             } catch (t: Throwable) {
                 Log.w(TAG, "account side files swap failed (${t.javaClass.simpleName})")
             }
+        }
+    }
+
+    // ── Who downloaded a game ─────────────────────────────────────────────────────────────────
+
+    /**
+     * Remember the ACTIVE account as the one that just installed or updated [appId] (called when a
+     * download completes, by both download engines). With nobody signed in the entry is dropped, so
+     * an old value can never be attributed to a download made by an unknown account.
+     */
+    fun recordInstaller(ctx: Context, appId: Int) {
+        if (appId <= 0) return
+        try {
+            val sid = activeSteamId(ctx)
+            val ed = prefs().edit()
+            if (sid != 0L) ed.putLong(K_INSTALLER_PREFIX + appId, sid) else ed.remove(K_INSTALLER_PREFIX + appId)
+            ed.apply()
+        } catch (t: Throwable) {
+            Log.w(TAG, "recordInstaller failed (${t.javaClass.simpleName})")
+        }
+    }
+
+    /** SteamID64 of the account that downloaded [appId]; 0 = unknown (installed before this was recorded, or imported). */
+    fun installerSteamId(ctx: Context, appId: Int): Long {
+        init(ctx)
+        return prefs().getLong(K_INSTALLER_PREFIX + appId, 0L)
+    }
+
+    /** Forget who downloaded [appId] (the game was uninstalled). A no-op until the store is initialised. */
+    fun clearInstaller(appId: Int) {
+        if (appContext == null) return
+        try {
+            prefs().edit().remove(K_INSTALLER_PREFIX + appId).apply()
+        } catch (t: Throwable) {
+            Log.w(TAG, "clearInstaller failed (${t.javaClass.simpleName})")
+        }
+    }
+
+    /**
+     * Non-null when [appId] was downloaded with one known account and a DIFFERENT account is signed
+     * in now. Unknown installer, nobody signed in, or the same account: null (launch as usual).
+     */
+    fun launchAccountMismatch(ctx: Context, appId: Int): LaunchMismatch? {
+        if (appId <= 0) return null
+        return try {
+            val installer = installerSteamId(ctx, appId)
+            val active = activeSteamId(ctx)
+            if (installer == 0L || active == 0L || installer == active) return null
+            val activeName = find(ctx, active)?.label.orEmpty()
+                .ifBlank { SteamPrefs.displayName.ifBlank { SteamPrefs.username } }
+            LaunchMismatch(find(ctx, installer)?.label?.takeIf { it.isNotBlank() }, activeName)
+        } catch (t: Throwable) {
+            Log.w(TAG, "launchAccountMismatch failed (${t.javaClass.simpleName})")
+            null
         }
     }
 

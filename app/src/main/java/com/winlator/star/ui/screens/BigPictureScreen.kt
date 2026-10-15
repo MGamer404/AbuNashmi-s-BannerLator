@@ -145,6 +145,8 @@ import com.winlator.star.store.GoldbergComponent
 import com.winlator.star.store.SteamGameUpdater
 import com.winlator.star.store.GoldbergMode
 import com.winlator.star.store.GoldbergPatcher
+import com.winlator.star.store.SteamAccountMismatchDialog
+import com.winlator.star.store.SteamAccountStore
 import com.winlator.star.store.SteamDatabase
 import com.winlator.star.store.SteamHostComponent
 import com.winlator.star.store.SteamLiteComponent
@@ -212,6 +214,9 @@ fun BigPictureScreen(navController: NavController) {
     // SteamLite launch pre-flight (session → network → cloud saves → update check BEFORE the container opens);
     // every RealSteam launch routes through it. Mirrors ShortcutsScreen.
     var preflightFor by remember { mutableStateOf<Shortcut?>(null) }
+    // "Different Steam account" warning before a SteamLite / Headless Steam launch (the game was
+    // downloaded with another account than the one signed in). Mirrors ShortcutLauncher.accountWarning.
+    var accountWarning by remember { mutableStateOf<AccountWarning?>(null) }
     var componentDownloadFor by remember { mutableStateOf<Shortcut?>(null) }
     var componentDownloadLabel by remember { mutableStateOf("") }
     var componentDownloadProgress by remember { mutableFloatStateOf(0f) }
@@ -243,7 +248,11 @@ fun BigPictureScreen(navController: NavController) {
         } else applyThenLaunch()
     }
     // SteamLite launch: package on demand, then the pre-flight dialog (which starts the container).
-    fun launchWithSteamLite(s: Shortcut) {
+    fun launchWithSteamLite(s: Shortcut, accountChecked: Boolean = false) {
+        if (!accountChecked) {
+            val mismatch = SteamAccountStore.launchAccountMismatch(context, steamAppIdOf(s))
+            if (mismatch != null) { accountWarning = AccountWarning(s, mismatch, appSteam = false); return }
+        }
         if (!SteamLiteComponent.isInstalled(context)) {
             componentDownloadFor = s
             componentDownloadLabel = "SteamLite (Real Steam / VAC)"
@@ -262,7 +271,11 @@ fun BigPictureScreen(navController: NavController) {
         }
     }
     // App Steam launch (Option B): Valve's client set on demand, then the same pre-flight. Mirrors ShortcutsScreen.
-    fun launchWithAppSteam(s: Shortcut) {
+    fun launchWithAppSteam(s: Shortcut, accountChecked: Boolean = false) {
+        if (!accountChecked) {
+            val mismatch = SteamAccountStore.launchAccountMismatch(context, steamAppIdOf(s))
+            if (mismatch != null) { accountWarning = AccountWarning(s, mismatch, appSteam = true); return }
+        }
         if (!SteamHostComponent.isInstalled(context)) {
             componentDownloadFor = s
             componentDownloadLabel = "Headless Steam (Valve Steam client)"
@@ -440,9 +453,9 @@ fun BigPictureScreen(navController: NavController) {
 
     // Re-grab focus after a sheet / dialog closes so D-pad keeps working (the launch-method popup and
     // its download overlay are their own windows too, so wait until they're gone before re-grabbing).
-    LaunchedEffect(activeSheet, editShortcut, launchChoiceFor, componentDownloadFor, preflightFor) {
+    LaunchedEffect(activeSheet, editShortcut, launchChoiceFor, componentDownloadFor, preflightFor, accountWarning) {
         if (activeSheet == null && !editShortcut && launchChoiceFor == null && componentDownloadFor == null
-            && preflightFor == null) grabFocus()
+            && preflightFor == null && accountWarning == null) grabFocus()
     }
 
     // Preload the selected cover so the hero + blurred background are ready.
@@ -1057,6 +1070,19 @@ fun BigPictureScreen(navController: NavController) {
                     }
                 }
             },
+        )
+    }
+
+    // ── "Different Steam account" warning — before the SteamLite / Headless Steam launch goes on ────
+    accountWarning?.let { w ->
+        SteamAccountMismatchDialog(
+            mismatch = w.mismatch,
+            onLaunchAnyway = {
+                accountWarning = null
+                if (w.appSteam) launchWithAppSteam(w.shortcut, accountChecked = true)
+                else launchWithSteamLite(w.shortcut, accountChecked = true)
+            },
+            onClose = { accountWarning = null },
         )
     }
 

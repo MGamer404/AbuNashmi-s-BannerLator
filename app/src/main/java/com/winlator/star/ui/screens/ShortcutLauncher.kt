@@ -32,6 +32,8 @@ import com.winlator.star.store.EaSupport
 import com.winlator.star.store.GoldbergComponent
 import com.winlator.star.store.GoldbergMode
 import com.winlator.star.store.GoldbergPatcher
+import com.winlator.star.store.SteamAccountMismatchDialog
+import com.winlator.star.store.SteamAccountStore
 import com.winlator.star.store.SteamDatabase
 import com.winlator.star.store.SteamGameUpdater
 import com.winlator.star.store.SteamHostComponent
@@ -47,6 +49,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+
+/**
+ * A SteamLite (or Headless Steam when [appSteam]) launch held back by the "different Steam account"
+ * warning: [shortcut] was downloaded with another account than the one signed in ([mismatch]).
+ */
+internal data class AccountWarning(
+    val shortcut: Shortcut,
+    val mismatch: SteamAccountStore.LaunchMismatch,
+    val appSteam: Boolean,
+)
 
 /**
  * The game-launch flow of the Games screen, lifted out of ShortcutsScreen so the Deck home launches
@@ -75,6 +87,10 @@ class ShortcutLauncher internal constructor(
     // the RealSteam game whose "Getting Steam ready" dialog is up (null = none). Every RealSteam
     // launch — the popup pick and a remembered pick — routes through it; Goldberg/Raw never do.
     internal var preflightFor by mutableStateOf<Shortcut?>(null)
+    // "Different Steam account" warning (see SteamAccountStore.launchAccountMismatch): a SteamLite /
+    // Headless Steam launch waits here, before its component download and pre-flight, until the user
+    // picks "Launch anyway" or closes it. Goldberg/Raw never use it.
+    internal var accountWarning by mutableStateOf<AccountWarning?>(null)
     // Download-on-launch progress overlay: the game we're about to launch once its picked component
     // (SteamLite for RealSteam, or Goldberg) finishes downloading, plus a label + 0..1 fraction.
     // null target = nothing downloading.
@@ -182,7 +198,11 @@ class ShortcutLauncher internal constructor(
     // SteamLite (RealSteam) launch: ensure the SteamLite package is present (download on demand if
     // not), then open the pre-flight dialog — the session/cloud/update checks run THERE, in the
     // library, so a dead sign-in or a stale build is reported before the container ever opens.
-    internal fun launchWithSteamLite(s: Shortcut) {
+    internal fun launchWithSteamLite(s: Shortcut, accountChecked: Boolean = false) {
+        if (!accountChecked) {
+            val mismatch = SteamAccountStore.launchAccountMismatch(context, steamAppIdOf(s))
+            if (mismatch != null) { accountWarning = AccountWarning(s, mismatch, appSteam = false); return }
+        }
         if (!SteamLiteComponent.isInstalled(context)) {
             componentDownloadFor = s
             componentDownloadLabel = "SteamLite (Real Steam / VAC)"
@@ -204,7 +224,11 @@ class ShortcutLauncher internal constructor(
     // App Steam launch (Option B): Valve's client set for the app's session host on demand (from
     // Valve's CDN), then the same pre-flight dialog — its client step checks Valve's manifest instead
     // of the SteamLite catalog (PreflightRequest.clientPackage, read off the shortcut's launchMode).
-    internal fun launchWithAppSteam(s: Shortcut) {
+    internal fun launchWithAppSteam(s: Shortcut, accountChecked: Boolean = false) {
+        if (!accountChecked) {
+            val mismatch = SteamAccountStore.launchAccountMismatch(context, steamAppIdOf(s))
+            if (mismatch != null) { accountWarning = AccountWarning(s, mismatch, appSteam = true); return }
+        }
         if (!SteamHostComponent.isInstalled(context)) {
             componentDownloadFor = s
             componentDownloadLabel = "Headless Steam (Valve Steam client)"
@@ -463,6 +487,19 @@ fun ShortcutLaunchDialogs(launcher: ShortcutLauncher, onRemove: (Shortcut) -> Bo
                     }
                 }
             },
+        )
+    }
+
+    // ── "Different Steam account" warning — before the SteamLite / Headless Steam launch goes on ────
+    launcher.accountWarning?.let { w ->
+        SteamAccountMismatchDialog(
+            mismatch = w.mismatch,
+            onLaunchAnyway = {
+                launcher.accountWarning = null
+                if (w.appSteam) launcher.launchWithAppSteam(w.shortcut, accountChecked = true)
+                else launcher.launchWithSteamLite(w.shortcut, accountChecked = true)
+            },
+            onClose = { launcher.accountWarning = null },
         )
     }
 
