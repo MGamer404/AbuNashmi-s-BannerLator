@@ -43,15 +43,13 @@ jobs:
   build:
 
     runs-on: ubuntu-22.04
+    timeout-minutes: 120
 
     strategy:
       fail-fast: false          # one flavor failing must NOT cancel the others
       matrix:
         flavor:
           - { id: standard, task: assembleStandardRelease }
-          - { id: ludashi,  task: assembleLudashiRelease  }
-          - { id: pubg,     task: assemblePubgRelease     }
-          - { id: antutu,   task: assembleAntutuRelease   }
 
     name: build (${{ matrix.flavor.id }})
 
@@ -176,6 +174,7 @@ jobs:
         key: ndk-26.1.10909125-cmake-3.22.1
 
     - name: Install NDK (only if not cached) + export ANDROID_NDK_HOME
+      timeout-minutes: 25
       run: |
         SDK_ROOT="${ANDROID_SDK_ROOT}"
         mkdir -p "$SDK_ROOT"
@@ -187,7 +186,12 @@ jobs:
             mv /tmp/cmdline-tools/cmdline-tools "$SDK_ROOT/cmdline-tools/latest" 2>/dev/null || true
             rm -f /tmp/cmdline-tools.zip
           fi
-          yes | "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --install "ndk;26.1.10909125" "cmake;3.22.1"
+          # A first run once sat here for 26 minutes: bound each attempt and retry.
+          for attempt in 1 2 3; do
+            if yes | timeout 480 "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --install "ndk;26.1.10909125" "cmake;3.22.1"; then break; fi
+            echo "sdkmanager attempt $attempt failed or timed out"
+            [ "$attempt" = 3 ] && exit 1
+          done
         else
           echo "NDK already present (cache hit) — skipping sdkmanager install"
         fi
@@ -508,4 +512,4 @@ jobs:
         name: Bannerlator-${{ inputs.release_number }}-${{ matrix.flavor.id }}
         path: app/build/outputs/apk/${{ matrix.flavor.id }}/release/Bannerlator-${{ inputs.release_number }}-${{ matrix.flavor.id }}.apk
         if-no-files-found: error
-        retention-days: 7
+        retention-days: 30
