@@ -5638,6 +5638,8 @@ public class XServerDisplayActivity extends AppCompatActivity {
                             // A SteamLite launch's genuine client already uploaded on exit — don't race it.
                             if (realSteamPlan != null)
                                 Log.i("BH_SAVE_SYNC", "auto-upload Steam: SteamLite launch — the Steam client syncs cloud saves itself, skip");
+                            else if (isGoldbergLaunchMode())
+                                Log.i("BH_SAVE_SYNC", "auto-upload Steam: Goldberg launch — no Steam Cloud sync, skip");
                             else if (cloudDisclaimerOk && savePrefs.getBoolean("auto_upload_steam_on_exit", true))
                                 autoUploadSteamSavesBlocking();
                         } else {
@@ -6884,11 +6886,22 @@ public class XServerDisplayActivity extends AppCompatActivity {
      * can't be resolved. {@link SteamCloudSaveManager#syncFromCloudNewestWins} never overwrites a newer
      * local save, so an offline save since the last upload is preserved.
      */
+    /** True when this session was launched in Goldberg mode (an emulated Steam session, no Steam Cloud). */
+    private boolean isGoldbergLaunchMode() {
+        return shortcut != null && "Goldberg".equals(shortcut.getExtra("launchMode"));
+    }
+
     private void autoDownloadSteamSavesBlocking() {
         try {
             final Shortcut sc = shortcut;
             if (sc == null) return;
             if (!isGenuineSteamShortcut()) return;
+
+            // Goldberg launch: an emulated Steam session, so never pull saves from the real Steam Cloud.
+            if (isGoldbergLaunchMode()) {
+                Log.i("BH_SAVE_SYNC", "auto-download Steam: Goldberg launch — no Steam Cloud sync, skip");
+                return;
+            }
 
             // SteamLite launch (genuine client in the prefix, armed by maybeStageRealSteam() earlier in
             // setupXEnvironment): the client syncs Steam Cloud itself at launch — writing the same save
