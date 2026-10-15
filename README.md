@@ -64,9 +64,6 @@ Only the standard version is built here (not the Ludashi / PuBG / AnTuTu variant
 - The rating sort needs an internet connection the first time, to fetch ratings.
 - Not every part has been tested on a real device. If something misbehaves, the original BannerLator is the safe fallback.
 
-## Building it yourself
-GitHub Actions builds the APK: **Actions → "CI Build (artifacts only)" → Run workflow**. A normal build takes around 15 minutes on GitHub's public runners.
-
 ## Credits and license
 This is a fork of **[BannerLator](https://github.com/The412Banner/Bannerlator)** by The412Banner, which stands on a long chain of work: **Winlator** (brunodev85) → cmod → Bionic → Star → Ludashi, plus GameNative, lsfg-vk, gbe_fork / Goldberg, DXVK and many others. **All the credit for the app itself belongs to them.** The full credits are in [`docs/UPSTREAM_README.md`](docs/UPSTREAM_README.md) (the original README, kept as-is, including the complete feature list) and [`THIRD-PARTY-LICENSES.md`](THIRD-PARTY-LICENSES.md).
 
