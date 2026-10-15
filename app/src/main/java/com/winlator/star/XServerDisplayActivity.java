@@ -5653,10 +5653,17 @@ public class XServerDisplayActivity extends AppCompatActivity {
                         }
                         // Flush any queued achievement unlocks back to the user's Steam profile. Safe
                         // no-op unless the default-OFF "sync unlocks" toggle is on (guarded inside).
-                        try {
-                            SteamAchievementStore.flushPendingSyncBack(getApplicationContext());
-                        } catch (Throwable t) {
-                            Log.w("BH_STEAM_ACHV", "flushPendingSyncBack on exit errored", t);
+                        // Goldberg is offline mode: unlocks earned this session are already queued locally
+                        // (AchievementWatcher -> queueUnlock) and stay queued until the next SteamLite /
+                        // Headless Steam / other exit flushes them.
+                        if (isGoldbergLaunchMode()) {
+                            Log.i("BH_STEAM_ACHV", "Goldberg launch — achievement sync-back skipped (offline), unlocks stay queued");
+                        } else {
+                            try {
+                                SteamAchievementStore.flushPendingSyncBack(getApplicationContext());
+                            } catch (Throwable t) {
+                                Log.w("BH_STEAM_ACHV", "flushPendingSyncBack on exit errored", t);
+                            }
                         }
                         // SteamLite (Steam client) logs — fold the genuine client's own logs from this
                         // container's prefix into a single shareable steamlite.txt beside wine_debug.log,
