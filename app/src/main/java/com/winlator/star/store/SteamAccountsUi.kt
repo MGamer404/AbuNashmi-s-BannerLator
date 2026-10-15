@@ -1,6 +1,7 @@
 package com.winlator.star.store
 
 import android.content.Context
+import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -23,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.SwitchAccount
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -30,6 +32,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,9 +45,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.winlator.star.R
 import com.winlator.star.ui.screens.OutlinedAlertDialog
@@ -73,6 +81,16 @@ fun SteamAccountsDialog(
     var switchingTo by remember { mutableStateOf<Long?>(null) }
     var confirmRemove by remember { mutableStateOf<SteamAccountStore.Account?>(null) }
     val busy = switchingTo != null
+
+    // A saved name can still be unknown (never fetched, or an old stand-in): ask the signed-in account's
+    // profile once, and re-read the list when it lands (the profile refresh saves the real name first).
+    val selfProfile by SteamFriendsStore.selfProfile.collectAsState()
+    LaunchedEffect(Unit) {
+        if (accounts.any { it.steamId64 == activeSid && !isRealSteamName(it.displayName) }) {
+            SteamFriendsStore.refreshSelfProfile(force = true)
+        }
+    }
+    LaunchedEffect(selfProfile) { accounts = SteamAccountStore.list(ctx) }
 
     OutlinedAlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
@@ -287,18 +305,41 @@ private fun SteamAccountActionRow(label: String, enabled: Boolean, onClick: () -
 
 /**
  * Warning shown before a SteamLite / Headless Steam launch when the game was downloaded with a
- * different account than the one signed in. Two choices only: [onLaunchAnyway] (this launch only,
- * nothing is remembered) and [onClose] (cancels the launch; also the back / outside-tap result).
+ * different account than the one signed in. Choices, top to bottom:
+ *  - "Switch account and launch" ([onSwitchedLaunch]): only when the downloading account is still in the
+ *    saved list. Runs the same [SteamAccountStore.switchTo] as the Change account chooser (same refusals
+ *    and messages) and calls [onSwitchedLaunch] once that account is active. A refusal or failure keeps
+ *    this dialog open with the chooser's message and launches nothing; an expired saved sign-in opens the
+ *    login screen pre-filled (as the chooser does) and closes this dialog without launching.
+ *  - "Launch anyway" ([onLaunchAnyway]): this launch only, nothing is remembered.
+ *  - "Close" ([onClose]): cancels the launch; also the back / outside-tap result (not while switching).
  */
 @Composable
 fun SteamAccountMismatchDialog(
     mismatch: SteamAccountStore.LaunchMismatch,
     onLaunchAnyway: () -> Unit,
+    onSwitchedLaunch: () -> Unit,
     onClose: () -> Unit,
 ) {
+    val ctx = LocalContext.current
+    var switching by remember { mutableStateOf(false) }
+    var failure by remember { mutableStateOf<String?>(null) }
     val installer = mismatch.installerName ?: stringResource(R.string.steam_launch_mismatch_other_account)
+    val highlight = SpanStyle(color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+    // The two names go in as markers first, so each can be styled wherever the sentence places it.
+    val template = stringResource(R.string.steam_launch_mismatch_body, MARK_INSTALLER, MARK_ACTIVE)
+    val body = buildAnnotatedString {
+        for (c in template) {
+            when (c) {
+                MARK_INSTALLER_CHAR -> withStyle(highlight) { append(installer) }
+                MARK_ACTIVE_CHAR -> withStyle(highlight) { append(mismatch.activeName) }
+                else -> append(c)
+            }
+        }
+    }
+
     OutlinedAlertDialog(
-        onDismissRequest = onClose,
+        onDismissRequest = { if (!switching) onClose() },
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Filled.SwitchAccount, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
@@ -307,23 +348,80 @@ fun SteamAccountMismatchDialog(
             }
         },
         text = {
-            Text(
-                text = stringResource(R.string.steam_launch_mismatch_body, installer, mismatch.activeName),
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = onLaunchAnyway, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text(stringResource(R.string.steam_launch_mismatch_launch_anyway))
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Text(text = body)
+                failure?.let {
+                    Spacer(Modifier.height(10.dp))
+                    Text(text = it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                }
             }
         },
-        dismissButton = {
-            TextButton(onClick = onClose, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text(stringResource(R.string.steam_account_close))
+        confirmButton = {
+            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (mismatch.installerName != null) {
+                    Button(
+                        enabled = !switching,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                        onClick = {
+                            failure = null
+                            switching = true
+                            SteamAccountStore.switchTo(ctx, mismatch.installerSteamId) { result, account ->
+                                switching = false
+                                when (result) {
+                                    SteamAccountStore.SwitchResult.SWITCHED,
+                                    SteamAccountStore.SwitchResult.SWITCHED_CONNECTING,
+                                    SteamAccountStore.SwitchResult.ALREADY_ACTIVE -> onSwitchedLaunch()
+                                    SteamAccountStore.SwitchResult.NEEDS_LOGIN -> {
+                                        // Expired / rejected saved sign-in: the login screen pre-filled with
+                                        // that username, and nothing launches (same as the chooser).
+                                        val user = account?.username
+                                        SteamAccountStore.beginAddAccount(ctx) {
+                                            runCatching {
+                                                ctx.startActivity(
+                                                    Intent(ctx, SteamLoginActivity::class.java)
+                                                        .putExtra(SteamLoginActivity.EXTRA_USERNAME, user),
+                                                )
+                                            }
+                                        }
+                                        onClose()
+                                    }
+                                    else -> failure = steamSwitchMessage(ctx, result, account)
+                                }
+                            }
+                        },
+                    ) {
+                        if (switching) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(stringResource(R.string.steam_launch_mismatch_switching))
+                        } else {
+                            Text(stringResource(R.string.steam_launch_mismatch_switch_launch))
+                        }
+                    }
+                }
+                TextButton(
+                    enabled = !switching,
+                    onClick = onLaunchAnyway,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                ) { Text(stringResource(R.string.steam_launch_mismatch_launch_anyway)) }
+                TextButton(
+                    enabled = !switching,
+                    onClick = onClose,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                ) { Text(stringResource(R.string.steam_account_close)) }
             }
         },
     )
 }
+
+private const val MARK_INSTALLER_CHAR = '\u0001'
+private const val MARK_ACTIVE_CHAR = '\u0002'
+private const val MARK_INSTALLER = "\u0001"
+private const val MARK_ACTIVE = "\u0002"
 
 /** The user-facing sentence for a switch outcome (shared by the storefront host and the login screen). */
 internal fun steamSwitchMessage(

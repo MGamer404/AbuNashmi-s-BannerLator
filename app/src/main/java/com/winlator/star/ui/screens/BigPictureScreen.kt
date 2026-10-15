@@ -1075,13 +1075,17 @@ fun BigPictureScreen(navController: NavController) {
 
     // ── "Different Steam account" warning — before the SteamLite / Headless Steam launch goes on ────
     accountWarning?.let { w ->
+        // "Launch anyway" and "Switch account and launch" (once the switch succeeded) both go on with the
+        // launch; the account was already checked.
+        val proceed = {
+            accountWarning = null
+            if (w.appSteam) launchWithAppSteam(w.shortcut, accountChecked = true)
+            else launchWithSteamLite(w.shortcut, accountChecked = true)
+        }
         SteamAccountMismatchDialog(
             mismatch = w.mismatch,
-            onLaunchAnyway = {
-                accountWarning = null
-                if (w.appSteam) launchWithAppSteam(w.shortcut, accountChecked = true)
-                else launchWithSteamLite(w.shortcut, accountChecked = true)
-            },
+            onLaunchAnyway = proceed,
+            onSwitchedLaunch = proceed,
             onClose = { accountWarning = null },
         )
     }

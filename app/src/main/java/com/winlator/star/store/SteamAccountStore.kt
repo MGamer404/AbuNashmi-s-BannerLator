@@ -12,6 +12,17 @@ import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
+ * True when [name] is a real persona name. Blank and the app's own stand-ins ("Friend", "Friend <id>",
+ * "You") are NOT: they appear while a profile has not loaded yet and must never be saved as an account's name.
+ */
+internal fun isRealSteamName(name: String?): Boolean {
+    if (name.isNullOrBlank()) return false
+    val n = name.trim()
+    return !n.equals("Friend", ignoreCase = true) && !n.equals("You", ignoreCase = true) &&
+        !Regex("Friend \\d+").matches(n)
+}
+
+/**
  * Every Steam account the user has signed in to, so the app can swap between them like the real
  * Steam client's "Change account" — without asking for the password again.
  *
@@ -67,15 +78,15 @@ object SteamAccountStore {
     ) {
         val needsLogin: Boolean get() = refreshToken.isEmpty()
         /** What the account chooser shows as the main line. */
-        val label: String get() = displayName.ifBlank { username }
+        val label: String get() = if (isRealSteamName(displayName)) displayName else username
     }
 
     /**
      * A SteamLite / Headless Steam launch whose game was downloaded with a different account than
-     * the one signed in now. [installerName] is null when the downloading account is no longer in the
-     * saved list.
+     * the one signed in now. [installerName] is null when the downloading account ([installerSteamId])
+     * is no longer in the saved list, in which case the launch cannot switch to it.
      */
-    data class LaunchMismatch(val installerName: String?, val activeName: String)
+    data class LaunchMismatch(val installerSteamId: Long, val installerName: String?, val activeName: String)
 
     enum class SwitchResult {
         /** Target is logged on. */
@@ -180,7 +191,8 @@ object SteamAccountStore {
                     username = o.optString("user", ""),
                     refreshToken = o.optString("token", ""),
                     accountId = o.optInt("aid", 0),
-                    displayName = o.optString("name", ""),
+                    // An older build could save a stand-in ("Friend") here: read it as "unknown".
+                    displayName = o.optString("name", "").takeIf { isRealSteamName(it) }.orEmpty(),
                     avatarUrl = o.optString("avatar", ""),
                     lastUsed = o.optLong("last", 0L),
                 )
@@ -222,7 +234,7 @@ object SteamAccountStore {
         val token = SteamPrefs.refreshToken
         val sid = activeSid()
         val aid = SteamPrefs.accountId.takeIf { it != 0 } ?: (sid and 0xFFFFFFFFL).toInt()
-        val name = SteamPrefs.displayName
+        val name = SteamPrefs.displayName.takeIf { isRealSteamName(it) }.orEmpty()
         val now = System.currentTimeMillis()
         val idx = indexOfLocked(list, sid, user)
         if (idx < 0) {
@@ -272,13 +284,18 @@ object SteamAccountStore {
         if (steamId64 == 0L) return
         try {
             init(ctx)
+            val realName = displayName?.takeIf { isRealSteamName(it) }
+            // The signed-in account's own name also lives in the active prefs view (JavaSteam never writes it).
+            if (realName != null && SteamPrefs.isLoggedIn && activeSid() == steamId64 && SteamPrefs.displayName != realName) {
+                SteamPrefs.displayName = realName
+            }
             synchronized(lock) {
                 val list = readLocked().toMutableList()
                 val idx = list.indexOfFirst { it.steamId64 == steamId64 }
                 if (idx < 0) return
                 val old = list[idx]
                 val updated = old.copy(
-                    displayName = displayName?.takeIf { it.isNotBlank() } ?: old.displayName,
+                    displayName = realName ?: old.displayName,
                     avatarUrl = avatarUrl?.takeIf { it.isNotBlank() } ?: old.avatarUrl,
                 )
                 if (updated == old) return
@@ -477,9 +494,9 @@ object SteamAccountStore {
             val installer = installerSteamId(ctx, appId)
             val active = activeSteamId(ctx)
             if (installer == 0L || active == 0L || installer == active) return null
-            val activeName = find(ctx, active)?.label.orEmpty()
-                .ifBlank { SteamPrefs.displayName.ifBlank { SteamPrefs.username } }
-            LaunchMismatch(find(ctx, installer)?.label?.takeIf { it.isNotBlank() }, activeName)
+            val activeName = find(ctx, active)?.label
+                ?: SteamPrefs.displayName.takeIf { isRealSteamName(it) } ?: SteamPrefs.username
+            LaunchMismatch(installer, find(ctx, installer)?.label, activeName)
         } catch (t: Throwable) {
             Log.w(TAG, "launchAccountMismatch failed (${t.javaClass.simpleName})")
             null

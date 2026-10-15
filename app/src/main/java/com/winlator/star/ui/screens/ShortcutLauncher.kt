@@ -492,13 +492,17 @@ fun ShortcutLaunchDialogs(launcher: ShortcutLauncher, onRemove: (Shortcut) -> Bo
 
     // ── "Different Steam account" warning — before the SteamLite / Headless Steam launch goes on ────
     launcher.accountWarning?.let { w ->
+        // "Launch anyway" and "Switch account and launch" (once the switch succeeded) both go on with the
+        // launch; the account was already checked.
+        val proceed = {
+            launcher.accountWarning = null
+            if (w.appSteam) launcher.launchWithAppSteam(w.shortcut, accountChecked = true)
+            else launcher.launchWithSteamLite(w.shortcut, accountChecked = true)
+        }
         SteamAccountMismatchDialog(
             mismatch = w.mismatch,
-            onLaunchAnyway = {
-                launcher.accountWarning = null
-                if (w.appSteam) launcher.launchWithAppSteam(w.shortcut, accountChecked = true)
-                else launcher.launchWithSteamLite(w.shortcut, accountChecked = true)
-            },
+            onLaunchAnyway = proceed,
+            onSwitchedLaunch = proceed,
             onClose = { launcher.accountWarning = null },
         )
     }

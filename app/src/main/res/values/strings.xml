@@ -1348,7 +1348,9 @@
     <!-- /Steam: change account / saved accounts -->
     <!-- Steam: launch with a different account than the one that downloaded the game -->
     <string name="steam_launch_mismatch_title">Different Steam account</string>
-    <string name="steam_launch_mismatch_body">This game was downloaded with %1$s, but you are signed in as %2$s.\n\nSteamLite and Headless Steam sign in with the account you are using now, so the game may not start or may be unowned or limited, and cloud saves, achievements and online play would use the wrong account.\n\nSwitch to %1$s from Change account, or launch anyway.</string>
+    <string name="steam_launch_mismatch_body">This game was downloaded with %1$s, but you are signed in as %2$s.</string>
+    <string name="steam_launch_mismatch_switch_launch">Switch account and launch</string>
+    <string name="steam_launch_mismatch_switching">Switching…</string>
     <string name="steam_launch_mismatch_other_account">another account</string>
     <string name="steam_launch_mismatch_launch_anyway">Launch anyway</string>
     <!-- /Steam: launch with a different account than the one that downloaded the game -->
