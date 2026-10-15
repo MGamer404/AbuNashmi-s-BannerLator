@@ -2182,6 +2182,17 @@ public final class SteamRepository {
                         // vacmacmodulecache); Brawlhalla (291550) has neither. There is no literal "vac"
                         // key. Rule: category_8 OR any extended/vac* key → secured.
                         db.setVacSecure(appId, detectVacSecure(common, root));
+                        // Valve's own folder name under steamapps/common (PICS config/installdir) — what
+                        // every Steam client and the appmanifest's "installdir" use. Recorded so a game
+                        // installed into a steamapps library lands where other clients look for it.
+                        // Same prefs file the SteamPrefs object reads; written only when it changed.
+                        try {
+                            String picsInstallDir = kvStr(root.get("config").get("installdir")).trim();
+                            String picsKey = SteamPrefs.K_PICS_INSTALLDIR_PREFIX + appId;
+                            if (!picsInstallDir.isEmpty() && !picsInstallDir.equals(pGet(picsKey, ""))) {
+                                pPut(picsKey, picsInstallDir);
+                            }
+                        } catch (Throwable ignored) {}
                         // Broadened DLC CATALOGUE for the detail-page DLC TAB: EVERY DLC the game
                         // lists in extended/listofdlc, split owned/unowned. included_dlc above stays
                         // the depot-bundled owned subset that drives the download picker/size — this

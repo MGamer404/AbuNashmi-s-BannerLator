@@ -84,7 +84,14 @@ internal fun SteamLibraryManagerDialog(onDismiss: () -> Unit, onChanged: () -> U
                 val r = withContext(Dispatchers.IO) { SteamLibraryLocations.add(ctx, path) }
                 when (r) {
                     is SteamLibraryLocations.AddResult.Added -> {
-                        say(ctx.getString(R.string.steam_lib_added, r.library.label), false)
+                        // Games another Steam client already installed in this folder's steamapps are
+                        // picked up right away (reads manifests + the games DB: disk work, so IO).
+                        val found = withContext(Dispatchers.IO) { SteamLibraryImport.importInstalled(ctx) }
+                        say(
+                            if (found > 0) ctx.getString(R.string.steam_lib_added_found, r.library.label, found)
+                            else ctx.getString(R.string.steam_lib_added, r.library.label),
+                            false,
+                        )
                         onChanged()
                         tick++
                     }
@@ -363,11 +370,16 @@ internal fun InstallLocationPicker(
     }
 }
 
-/** The second line under a location's name: what it is for the internal default, else its folder. */
+/**
+ * The second line under a location's name: what it is for the internal default, the folder games
+ * actually install to for a library (its `steamapps/common`), else the card's root.
+ */
 @Composable
-internal fun locationDescription(loc: SteamLibraryLocations.Location): String =
-    if (loc.kind == SteamLibraryLocations.Kind.INTERNAL) stringResource(R.string.steam_lib_internal_desc)
-    else loc.rootPath
+internal fun locationDescription(loc: SteamLibraryLocations.Location): String = when (loc.kind) {
+    SteamLibraryLocations.Kind.INTERNAL -> stringResource(R.string.steam_lib_internal_desc)
+    SteamLibraryLocations.Kind.LIBRARY -> loc.base.absolutePath
+    SteamLibraryLocations.Kind.SD -> loc.rootPath
+}
 
 /** "A, B, C +2" — the first three game names and how many more there are. */
 private fun gameSummary(games: List<String>): String =

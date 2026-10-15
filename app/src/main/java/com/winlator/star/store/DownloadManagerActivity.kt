@@ -306,7 +306,10 @@ class DownloadManagerActivity : ComponentActivity() {
             installDir = entry.installPath,
             mark = {
                 if (entry.store == Store.STEAM) {
-                    entry.id.toIntOrNull()?.let { SteamRepository.getInstance().database.markUninstalled(it) }
+                    entry.id.toIntOrNull()?.let {
+                        SteamAppManifest.removeFor(entry.installPath, it)
+                        SteamRepository.getInstance().database.markUninstalled(it)
+                    }
                 }
             },
         ) { ok ->
