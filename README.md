@@ -11,6 +11,9 @@
 
 This project is **not affiliated with** the original BannerLator developer, Valve/Steam, or anyone else it builds on.
 
+### ☕ Support the original developer
+If you enjoy this app, please support the person who actually built it. **[The412Banner's Ko-fi](https://ko-fi.com/the412banner)** is the **original BannerLator developer's** page, **not mine**. This fork's author takes no donations and has nothing to do with that page; it's linked here only because the original developer deserves the credit and the support.
+
 ---
 
 ## What this fork adds
