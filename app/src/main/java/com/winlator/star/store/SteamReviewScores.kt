@@ -54,8 +54,8 @@ internal object SteamReviewScores {
 
     private const val TAG = StorefrontLog.LIBRARY
 
-    /** A stored score older than this is fetched again. */
-    const val STALE_SEC = 7L * 24 * 60 * 60
+    /** A stored score older than this (30 days) is fetched again. */
+    const val STALE_SEC = 30L * 24 * 60 * 60
 
     /** Below this many reviews Steam shows no rating, so neither do we. */
     const val MIN_REVIEWS = 10
