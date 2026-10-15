@@ -42,7 +42,7 @@ A sort button next to the search bar: **A–Z** (the default) or **Steam user ra
 - Goldberg is **more reliable to launch**. Shortcuts created from the Steam **Library** tab or the **Downloads** screen now remember which Steam game they belong to; before, they didn't, and Goldberg was silently skipped, which could end in a black screen.
 - It now tells you with a message when Goldberg couldn't be applied, instead of failing silently.
 - Every Goldberg launch writes a small report, `goldberg_diag.txt`, into `Documents/bannerlator/<game name>/` on your phone, which helps when something goes wrong.
-- **Goldberg launches are fully offline.** No Steam Cloud save sync, before or after the game. Achievements you earn are saved on the phone and sent to Steam the next time you use **SteamLite** or **Headless Steam** (only if the "sync unlocks to my Steam profile" option is on). Those two modes still sync as before.
+- **Goldberg launches are offline by default.** No Steam Cloud save sync, before or after the game. Achievements you earn are saved on the phone and sent to Steam the next time you use **SteamLite** or **Headless Steam** (only if the "sync unlocks to my Steam profile" option is on). Those two modes still sync as before. If you'd rather have Goldberg sync too, switch on **Save Manager → "sync with Steam Cloud during Goldberg launches"** (off by default).
 
 ### 🔕 No update nags
 The built-in "update available" check is turned off, because it would otherwise point at the original project and could replace this version. To update, download a newer APK from the [Releases](../../releases) page.
