@@ -517,7 +517,12 @@ fun SteamLibraryTab(
         ratingsLeft = SteamReviewScores.pending(ordered).size
         if (ratingsLeft == 0) return@LaunchedEffect
         try {
-            SteamReviewScores.backfill(ordered) {
+            SteamReviewScores.backfill(
+                ordered,
+                // After every saved batch: just the counter (cheap). The row reload below is
+                // throttled by the backfill itself (about every 1.5 s) so a big library doesn't thrash.
+                onChunk = { ratingsLeft = SteamReviewScores.pending(ordered).size },
+            ) {
                 latestState.reloadQuiet()
                 ratingsLeft = SteamReviewScores.pending(ordered).size
             }
