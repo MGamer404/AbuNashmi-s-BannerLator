@@ -61,7 +61,6 @@ Only the standard version is built here (not the Ludashi / PuBG / AnTuTu variant
 
 ## Known limits
 - Games installed in your own library folders don't appear inside the **Linux Steam client** mode.
-- The rating sort needs an internet connection the first time, to fetch ratings.
 - Not every part has been tested on a real device. If something misbehaves, the original BannerLator is the safe fallback.
 
 ## Credits and license
