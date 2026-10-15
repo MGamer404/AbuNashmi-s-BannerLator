@@ -1,0 +1,108 @@
+name: Build linuxfs (Linux runtime rootfs)
+
+# Assembles the Linux runtime the gamescope sessions run in: an Arch Linux ARM aarch64 rootfs
+# with gamescope, Xwayland, Mesa (Turnip cross-built with the KGSL backend, and Zink), a file
+# manager and our session scripts. No Valve software is in it — the Steam client is fetched from
+# Valve on the device at first use.
+#
+# Artifact only. Publishing it to the contents catalog is a separate, explicit step.
+
+on:
+  # workflow_dispatch only works once this file is on the default branch, so while the runtime
+  # lives on its own branch the job is driven by pushes that touch it.
+  push:
+    branches:
+      - 'feat/linux-gamescope-runtime'
+    paths:
+      - 'tools/linuxfs/**'
+      - '.github/workflows/build-linuxfs.yml'
+  workflow_dispatch:
+    inputs:
+      label:
+        description: 'Label for the artifact name (e.g. r1)'
+        required: true
+        default: 'r1'
+
+permissions:
+  contents: read
+
+jobs:
+  linuxfs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            curl tar zstd binutils xz-utils patch \
+            python3 python3-pip python3-mako python3-yaml \
+            proot qemu-user-static \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+            gcc-i686-linux-gnu gcc-x86-64-linux-gnu \
+            libc6-dev-i386-cross libc6-dev-amd64-cross \
+            ninja-build pkg-config glslang-tools bison flex cmake \
+            libwayland-dev libwayland-bin wayland-protocols libexpat1-dev
+          # Ubuntu ships meson 1.3; Mesa 26.2 needs >= 1.4, so take it from pip.
+          pip3 install --break-system-packages --upgrade 'meson>=1.5'
+          meson --version && ninja --version && aarch64-linux-gnu-gcc --version | head -1
+
+      - name: Build the rootfs
+        run: |
+          mkdir -p out
+          tools/linuxfs/build-linuxfs.sh "${RUNNER_TEMP}/linuxfs-work" "${GITHUB_WORKSPACE}/out/linuxfs.tar.zst"
+
+      - name: Report what came out
+        run: |
+          set -e
+          ls -la out/linuxfs.tar.zst
+          echo "sha256: $(sha256sum out/linuxfs.tar.zst | cut -d' ' -f1)"
+          echo "size:   $(du -h out/linuxfs.tar.zst | cut -f1)"
+          # A rootfs missing any of these cannot start a session; fail here rather than on device.
+          for f in usr/bin/gamescope usr/bin/Xwayland usr/lib/libvulkan_freedreno.so \
+                   usr/local/lib/libblsession.so usr/local/bin/bannerlator-session \
+                   usr/local/bin/bannerlator-steam-install usr/lib/libgtk-x11-2.0.so.0; do
+            tar --use-compress-program=unzstd -tf out/linuxfs.tar.zst "./$f" >/dev/null \
+              || { echo "MISSING from rootfs: $f" >&2; exit 1; }
+            echo "  ok  $f"
+          done
+          {
+            echo "### linuxfs ${{ inputs.label || github.run_number }}"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| size | $(du -h out/linuxfs.tar.zst | cut -f1) |"
+            echo "| sha256 | \`$(sha256sum out/linuxfs.tar.zst | cut -d' ' -f1)\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linuxfs-${{ inputs.label || github.run_number }}
+          path: out/linuxfs.tar.zst
+
+      # The Vulkan driver on its own as well as inside the rootfs: pulling one file beats unpacking
+      # a whole rootfs to get at it. This is the default the runtime ships with; a NEWER driver
+      # reaches an installed runtime as an imported "-Linux" zip from Banners-Turnip instead.
+      - name: Upload the Vulkan driver
+        uses: actions/upload-artifact@v4
+        with:
+          name: turnip-${{ inputs.label || github.run_number }}
+          path: ${{ runner.temp }}/linuxfs-work/turnip/libvulkan_freedreno.so
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+      # The guest System V IPC shims, on their own: they are a few kilobytes, and dropping them onto
+      # a device for a test should not mean fetching the whole rootfs.
+      - name: Show the guest shims
+        run: |
+          ls -l out/guest-shims/
+          file out/guest-shims/* || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: guest-shims-${{ inputs.label || github.run_number }}
+          path: out/guest-shims/
+          retention-days: 30

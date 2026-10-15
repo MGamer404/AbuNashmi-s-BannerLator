@@ -1,0 +1,21 @@
+{
+  "id": "2026-10-11T14-21-21-9dfb65",
+  "created": "2026-10-11T14:21:21.669Z",
+  "ip_hash": "rfCa85ObR6",
+  "fields": {
+    "gpu": "Mali-G925-Immortalis MC12",
+    "android": "Android 16 (HyperOS 3)",
+    "ram": "12 GB",
+    "store": "Steam",
+    "exe": "Mewgenics.exe",
+    "symptom": "Graphical glitches (corruption, flicker, missing textures)",
+    "when": "Fails at the publisher/loading logo",
+    "proton": "Proton-10.0-4-arm64ec",
+    "box64": "FEXCore",
+    "resolution": "1280x800 / 1280x720",
+    "framegen": "No",
+    "repro": "1. Bannerlator 3.1.6, container-1: Display backend X11, Graphics driver System, Proton-10.0-4-arm64ec, 1280x800\n2. Env: GALLIUM_DRIVER=zink, MESA_GL_VERSION_OVERRIDE=4.5\n3. Games card -> Mewgenics -> LAUNCH WITH -> Raw .exe -> Launch\n4. After 1-3 min RAM drops from 4.5 GB free to 1.8-2.2 GB (game IS loaded) but the image is corrupted from the start: large diagonal slabs, smooth green/white/tan gradients with hard diagonal edges and big black triangles. Looks like a framebuffer stride/tiling mismatch.\n5. Wine's 2D/GDI stays perfectly sharp (e.g. the Fatal Error dialog) - only the GL surface is corrupted.",
+    "tried": "Renderer: Zink (Mali Vulkan) AND softpipe (pure CPU rasterizer) -> SAME corruption, identical shape (rules out the renderer/driver).\nGraphics driver: System and Wrapper-leegao -> same.\nFast OpenGL: on and off (OpenGL card -> Fast -> Off) -> same.\nDisplay backend: X11 corrupted; Wayland fails earlier with 'Could not create window: No matching GL pixel format available' (Error 65542), compositor log shows '0 GPU frames from games'.\nPost-processing: Scaling=None, Sharpen(CAS)/HDR/Debanding off -> same.\nFullscreen Mode Off/Fit -> same.\nAlso injected a self cross-compiled Mesa (libgallium-26.3.0-devel.so: -Dplatforms=x11,wayland -Dglx=dri -Dgallium-drivers=zink,virgl,softpipe, plus libwayland-client.so.0 soname aliases + libexpat/libsync/libc++_shared) via repacked .wcp -> injection works (app shows Installed, container loads), corruption unchanged.\nCross-check on a different app: Winlator 11.1 with Vortek + WineD3D -> black screen and the game never loads (only ~1.4 GB used), while Bannerlator+Zink does load it (2.3-2.7 GB) but renders corrupted.\n\nCompositor log (Bannerlator's own, /sdcard/Download/Wayland-logs/):\ngpu compositor renders on Mali-G925-Immortalis MC12 with the system Vulkan driver\ndmabuf formats: AR24 linear, XR24 linear, AB24 linear, XB24 linear\ndmabuf the compositor's driver (Mali-G925-Immortalis MC12) reports no importable qcom_compressed layout: game swapchains stay linear\nstats last 10 s: 21 frames on screen (2.1 fps) | 0 GPU frames from games\n\nHypothesis: on this Mali device the hand-off between the GL surface and the Vulkan swapchain / linear buffer (see leegao 'WSI Woes on Mali') is not handling stride/tiling correctly. Note Mali has no Turnip (Adreno-only; PanVK does not support CSF/Immortalis), and the Fast OpenGL GLX route is documented as needing Turnip."
+  },
+  "logs": []
+}

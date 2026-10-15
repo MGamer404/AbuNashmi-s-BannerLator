@@ -1,0 +1,70 @@
+# Attach a Wayland Proton layer (.wcp) built by a proton-wine CI run to an existing release,
+# server-side, so a layer-only update can be swapped into a live pre-release without rebuilding
+# the APKs and without uploading from a phone. The file must match the sha256 of the build that
+# was proven on a device; anything else fails before touching the release.
+name: Attach Wayland layer to a release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag to attach to (e.g. 3.1.2-wayland-pre7)'
+        required: true
+      pw_run_id:
+        description: 'proton-wine CI run id that built the wcp'
+        required: true
+      pw_artifact:
+        description: 'Artifact name in that run'
+        required: true
+        default: 'proton-arm64ec-sdk28'
+      asset_name:
+        description: 'File name on the release (e.g. proton-11.0-2.1-arm64ec-wayland-v9.wcp)'
+        required: true
+      expected_sha256:
+        description: 'sha256 the wcp must have (the device-proven build)'
+        required: true
+      remove_asset:
+        description: 'Older asset to delete after the upload (optional)'
+        required: false
+        default: ''
+      readme_path:
+        description: 'Repo file to re-attach alongside (optional)'
+        required: false
+        default: 'docs/releases/README-Wayland-test-kit.txt'
+
+permissions:
+  contents: write
+
+jobs:
+  attach:
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Fetch, verify and attach
+      env:
+        GH_TOKEN: ${{ github.token }}
+        TAG: ${{ inputs.release_tag }}
+        RUN: ${{ inputs.pw_run_id }}
+        ART: ${{ inputs.pw_artifact }}
+        NAME: ${{ inputs.asset_name }}
+        SHA: ${{ inputs.expected_sha256 }}
+        REMOVE: ${{ inputs.remove_asset }}
+        README: ${{ inputs.readme_path }}
+      run: |
+        set -euo pipefail
+        gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json tagName >/dev/null
+        gh run download "$RUN" -R The412Banner/proton-wine -n "$ART" -D pw
+        ls -laR pw
+        WCP=$(find pw -name '*.wcp' | head -1)
+        [ -n "$WCP" ] || { echo "no .wcp in artifact $ART of run $RUN"; exit 1; }
+        cp "$WCP" "$NAME"
+        echo "$SHA  $NAME" | sha256sum -c -
+        gh release upload "$TAG" "$NAME" --clobber -R "$GITHUB_REPOSITORY"
+        if [ -n "$README" ] && [ -f "$README" ]; then
+          gh release upload "$TAG" "$README" --clobber -R "$GITHUB_REPOSITORY"
+        fi
+        if [ -n "$REMOVE" ] && [ "$REMOVE" != "$NAME" ]; then
+          gh release delete-asset "$TAG" "$REMOVE" -y -R "$GITHUB_REPOSITORY" || true
+        fi
+        gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[] | "\(.name) \(.size)"'

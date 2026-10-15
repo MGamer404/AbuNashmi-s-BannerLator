@@ -1,0 +1,31 @@
+{
+  "id": "2026-09-13T21-26-49-0ccf80",
+  "created": "2026-09-13T21:26:49.881Z",
+  "ip_hash": "A9UxaRVBcC",
+  "fields": {
+    "reporter_name": "",
+    "device_model": "blackview xplore 2",
+    "soc": "dimensity 8350",
+    "gpu": "mali g615 mc6",
+    "android": "dokeos 4.2 / android 15",
+    "ram": "16 gb",
+    "app_version": "3.1.1",
+    "install_source": "In-app updater",
+    "game_name": "spellforce platinum",
+    "steam_appid": "",
+    "store": "",
+    "exe": "spellforce.exe",
+    "symptom": "Other",
+    "when": "",
+    "graphics_driver": "wrapper gamenative",
+    "dx_wrapper": "DXVK",
+    "dxvk": "2.3.1",
+    "proton": "proton10_arm64",
+    "box64": "compatiblity",
+    "resolution": "1024x768",
+    "framegen": "no",
+    "repro": "mouse is working, but cant click everywhere. touch has the same issue. with a x86_64 version of wine,  i have other issues. keyboard: some slecial keys like esc dont work, after chossing a option in the game, like free game mode, the game is crashing. mouse is working fine.\nmaybe a missing setting?",
+    "tried": "checked for some settings, tryed other versions of wine."
+  },
+  "logs": []
+}

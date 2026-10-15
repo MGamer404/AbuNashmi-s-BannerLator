@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Network security policy for the Steam depot downloader.
+
+  Steam's CDN directory hands out some content hosts as plain HTTP (e.g.
+  alibaba.cdn.steampipe.steamcontent.com:80). Android's default policy blocks cleartext, so every
+  such host produces a java.net.UnknownServiceException ("CLEARTEXT communication not permitted")
+  — non-fatal (DepotDownloader retries on an HTTPS host) but hundreds of noisy, wasteful errors
+  per download. Depot chunks are content-hash-verified end to end (this is exactly how SteamCMD /
+  DepotDownloader operate), so HTTP is safe by design for this traffic.
+
+  We therefore permit cleartext ONLY to Steam content domains, and keep the app-wide default at
+  cleartext-NOT-permitted. This is intentionally NOT a global usesCleartextTraffic="true".
+-->
+<network-security-config>
+    <!-- App-wide default: no cleartext anywhere unless a domain-config below opts in. -->
+    <base-config cleartextTrafficPermitted="false" />
+
+    <!-- Steam content-delivery domains only. includeSubdomains covers the CDN hosts handed out as
+         *.cdn.steampipe.steamcontent.com and *.steamcontent.com. -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">steamcontent.com</domain>
+        <domain includeSubdomains="true">steampipe.steamcontent.com</domain>
+    </domain-config>
+</network-security-config>

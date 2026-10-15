@@ -1,0 +1,160 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mali Report 2026-10-11T14-21-21-9dfb65</title>
+<style>
+:root{color-scheme:light dark}
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:820px;margin:0 auto;padding:24px;line-height:1.5;background:#faf7f5;color:#1a1512}
+@media(prefers-color-scheme:dark){body{background:#1a1512;color:#efe7e2}}
+h1{font-size:1.3rem}.meta{opacity:.7;font-size:.85rem;margin-bottom:1.2rem}
+table{border-collapse:collapse;width:100%;margin:1rem 0}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid #8883;vertical-align:top}
+th{width:38%;font-weight:600}
+a{color:#e07b39}code{background:#8882;padding:1px 5px;border-radius:4px}
+h2{font-size:1.15rem;margin-top:2rem}
+#thread .tnote{opacity:.7;font-size:.85rem;margin:.3rem 0 1rem}
+.devtag{font:600 10px/1 system-ui;background:#e07b39;color:#fff;padding:2px 6px;border-radius:4px;vertical-align:middle;letter-spacing:.04em}
+.optag{font:600 10px/1 system-ui;background:#2f7de0;color:#fff;padding:2px 6px;border-radius:4px;vertical-align:middle;letter-spacing:.04em}
+.opnote{font-size:.85rem;color:#2f7de0;border:1px solid #2f7de044;background:#2f7de010;border-radius:8px;padding:8px 11px;margin-bottom:2px}
+.tmeta{opacity:.6;font-size:.9rem;margin:.6rem 0}
+.msg{border:1px solid #8883;border-radius:10px;padding:10px 13px;margin:10px 0}
+.msg.dev{border-color:#e07b3966;background:#e07b3912}
+.msg.op{border-color:#2f7de066;background:#2f7de012}
+.mh{font-size:.85rem;font-weight:600;margin-bottom:5px}
+.mt{opacity:.5;font-weight:400;margin-left:6px}
+.mb{font-size:.96rem;overflow-wrap:anywhere}
+.reply{margin-top:16px;display:flex;flex-direction:column;gap:8px}
+.reply input,.reply textarea{width:100%;background:#8881;border:1px solid #8884;border-radius:8px;color:inherit;font:inherit;padding:9px 11px}
+.reply textarea{min-height:74px;resize:vertical}
+.ra{display:flex;align-items:center;gap:12px}
+.reply button{background:#e07b39;color:#fff;border:0;border-radius:8px;padding:9px 18px;font:600 14px system-ui;cursor:pointer}
+.reply button:disabled{opacity:.5;cursor:not-allowed}
+.rm{font-size:.85rem}.rm.ok{color:#2fa37a}.rm.err{color:#d9534f}
+.closed{margin-top:14px;padding:11px 13px;border:1px solid #8884;border-radius:8px;opacity:.85;font-size:.9rem}
+.hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+</style></head><body>
+<h1>Mali Game Report</h1>
+<div class="meta">ID <code>2026-10-11T14-21-21-9dfb65</code> · submitted 2026-10-11T14:21:21.669Z · <a href="https://the412banner.github.io/Bannerlator/mali-reports/reports.html">← all reports</a></div>
+<table>
+
+
+
+<tr><th>GPU (Mali)</th><td>Mali-G925-Immortalis MC12</td></tr>
+<tr><th>Android version</th><td>Android 16 (HyperOS 3)</td></tr>
+<tr><th>RAM</th><td>12 GB</td></tr>
+
+
+
+
+<tr><th>Store / source</th><td>Steam</td></tr>
+<tr><th>Launched EXE</th><td>Mewgenics.exe</td></tr>
+<tr><th>Symptom</th><td>Graphical glitches (corruption, flicker, missing textures)</td></tr>
+<tr><th>When it happens</th><td>Fails at the publisher/loading logo</td></tr>
+
+
+
+<tr><th>Proton / Wine layer</th><td>Proton-10.0-4-arm64ec</td></tr>
+<tr><th>Box64 / FEX preset</th><td>FEXCore</td></tr>
+<tr><th>Resolution</th><td>1280x800 / 1280x720</td></tr>
+<tr><th>Frame gen</th><td>No</td></tr>
+<tr><th>Reproduction steps</th><td>1. Bannerlator 3.1.6, container-1: Display backend X11, Graphics driver System, Proton-10.0-4-arm64ec, 1280x800
+2. Env: GALLIUM_DRIVER=zink, MESA_GL_VERSION_OVERRIDE=4.5
+3. Games card -&gt; Mewgenics -&gt; LAUNCH WITH -&gt; Raw .exe -&gt; Launch
+4. After 1-3 min RAM drops from 4.5 GB free to 1.8-2.2 GB (game IS loaded) but the image is corrupted from the start: large diagonal slabs, smooth green/white/tan gradients with hard diagonal edges and big black triangles. Looks like a framebuffer stride/tiling mismatch.
+5. Wine's 2D/GDI stays perfectly sharp (e.g. the Fatal Error dialog) - only the GL surface is corrupted.</td></tr>
+<tr><th>Already tried</th><td>Renderer: Zink (Mali Vulkan) AND softpipe (pure CPU rasterizer) -&gt; SAME corruption, identical shape (rules out the renderer/driver).
+Graphics driver: System and Wrapper-leegao -&gt; same.
+Fast OpenGL: on and off (OpenGL card -&gt; Fast -&gt; Off) -&gt; same.
+Display backend: X11 corrupted; Wayland fails earlier with 'Could not create window: No matching GL pixel format available' (Error 65542), compositor log shows '0 GPU frames from games'.
+Post-processing: Scaling=None, Sharpen(CAS)/HDR/Debanding off -&gt; same.
+Fullscreen Mode Off/Fit -&gt; same.
+Also injected a self cross-compiled Mesa (libgallium-26.3.0-devel.so: -Dplatforms=x11,wayland -Dglx=dri -Dgallium-drivers=zink,virgl,softpipe, plus libwayland-client.so.0 soname aliases + libexpat/libsync/libc++_shared) via repacked .wcp -&gt; injection works (app shows Installed, container loads), corruption unchanged.
+Cross-check on a different app: Winlator 11.1 with Vortek + WineD3D -&gt; black screen and the game never loads (only ~1.4 GB used), while Bannerlator+Zink does load it (2.3-2.7 GB) but renders corrupted.
+
+Compositor log (Bannerlator's own, /sdcard/Download/Wayland-logs/):
+gpu compositor renders on Mali-G925-Immortalis MC12 with the system Vulkan driver
+dmabuf formats: AR24 linear, XR24 linear, AB24 linear, XB24 linear
+dmabuf the compositor's driver (Mali-G925-Immortalis MC12) reports no importable qcom_compressed layout: game swapchains stay linear
+stats last 10 s: 21 frames on screen (2.1 fps) | 0 GPU frames from games
+
+Hypothesis: on this Mali device the hand-off between the GL surface and the Vulkan swapchain / linear buffer (see leegao 'WSI Woes on Mali') is not handling stride/tiling correctly. Note Mali has no Turnip (Adreno-only; PanVK does not support CSF/Immortalis), and the Fast OpenGL GLX route is documented as needing Turnip.</td></tr>
+</table>
+<h2>Attached logs</h2><ul><li><em>none attached</em></li></ul>
+
+<section id="thread">
+<h2>Discussion</h2>
+<p class="tnote">Anyone can reply — developers are <span class="devtag">DEV</span>, the original reporter is <span class="optag">OP</span>. Everything you post here is <b>public</b>; don't include anything private.</p>
+<div id="tstat" class="tmeta">Loading discussion…</div>
+<div id="msgs"></div>
+<form id="rf" class="reply" style="display:none" autocomplete="off">
+  <span class="hp"><input name="website" tabindex="-1"></span>
+  <div id="opnote" class="opnote" style="display:none">✓ You're recognised as the <b>original poster</b> on this device — your reply will be marked <span class="optag">OP</span>.</div>
+  <input id="rn" maxlength="40" placeholder="Name (optional)">
+  <textarea id="rt" maxlength="4000" placeholder="Write a reply…" required></textarea>
+  <div class="ra"><button type="submit" id="rb">Post reply</button><span id="rm" class="rm"></span></div>
+</form>
+<div id="rclosed" class="closed" style="display:none">🔒 This thread was closed by the developers. No new replies.</div>
+</section>
+<script id="tcfg" type="application/json">{"worker":"https://bannerlator-mali-reports.the412banner.workers.dev","id":"2026-10-11T14-21-21-9dfb65"}</script>
+<script>
+(function(){
+  var cfg = JSON.parse(document.getElementById('tcfg').textContent);
+  var W = cfg.worker, ID = cfg.id;
+  var msgs = document.getElementById('msgs'), stat = document.getElementById('tstat');
+  var rf = document.getElementById('rf'), rclosed = document.getElementById('rclosed');
+  // Recognise the original poster via their per-report secret token,
+  // taken from the ?k= link or previously saved on this device. No login.
+  var qs = new URLSearchParams(location.search);
+  var LSK = 'mali_op_' + ID;
+  var opToken = qs.get('k') || '';
+  if (opToken) { try { localStorage.setItem(LSK, opToken); } catch(e){} }
+  else { try { opToken = localStorage.getItem(LSK) || ''; } catch(e){} }
+  if (opToken) {
+    var _on = document.getElementById('opnote'); if(_on) _on.style.display = 'block';
+    var _rn = document.getElementById('rn'); if(_rn){ _rn.style.display = 'none'; _rn.value = ''; }
+  }
+  function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+  function fmt(t){ try{ return new Date(t).toLocaleString(); }catch(e){ return t; } }
+  function render(list){
+    if(!list || !list.length){ msgs.innerHTML = '<p class="tmeta">No replies yet — be the first.</p>'; return; }
+    var h = '';
+    for(var i=0;i<list.length;i++){
+      var m = list[i], role = m.role;
+      var tag = role==='dev' ? ' <span class="devtag">DEV</span>' : (role==='op' ? ' <span class="optag">OP</span>' : '');
+      var nm  = role==='dev' ? (m.name||'dev') : (role==='op' ? (m.name||'Original poster') : (m.name||'Anonymous'));
+      var who = esc(nm) + tag;
+      h += '<div class="msg' + (role==='dev'?' dev':(role==='op'?' op':'')) + '"><div class="mh">' + who +
+           ' <span class="mt">' + esc(fmt(m.ts)) + '</span></div><div class="mb">' +
+           esc(m.text).replace(/\n/g,'<br>') + '</div></div>';
+    }
+    msgs.innerHTML = h;
+  }
+  function load(){
+    fetch(W + '/thread?id=' + encodeURIComponent(ID)).then(function(r){return r.json();}).then(function(o){
+      if(!o || !o.ok){ stat.textContent = 'Could not load the discussion.'; return; }
+      stat.style.display = 'none';
+      render(o.messages);
+      if(o.closed){ rclosed.style.display = 'block'; rf.style.display = 'none'; }
+      else { rf.style.display = 'flex'; }
+    }).catch(function(){ stat.textContent = 'Could not load the discussion.'; });
+  }
+  rf.addEventListener('submit', function(e){
+    e.preventDefault();
+    var rm = document.getElementById('rm'); rm.textContent = ''; rm.className = 'rm';
+    var text = document.getElementById('rt').value.trim();
+    if(!text) return;
+    var name = document.getElementById('rn').value.trim();
+    var hp = rf.querySelector('[name=website]').value;
+    var b = document.getElementById('rb'); b.disabled = true;
+    fetch(W + '/reply', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ id:ID, text:text, name:name, website:hp, token:opToken }) })
+      .then(function(r){return r.json();}).then(function(o){
+        b.disabled = false;
+        if(!o || !o.ok){ rm.textContent = (o && (o.detail||o.error)) || 'Failed to post'; rm.className='rm err'; return; }
+        document.getElementById('rt').value = ''; rm.textContent = 'Posted ✓'; rm.className = 'rm ok';
+        load();
+      }).catch(function(){ b.disabled = false; rm.textContent = 'Network error'; rm.className='rm err'; });
+  });
+  load();
+})();
+</script>
+</body></html>

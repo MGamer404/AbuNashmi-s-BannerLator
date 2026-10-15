@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:gravity="center_horizontal"
+    android:padding="8dp"
+    android:background="@drawable/shortcuts_list_item">
+
+    <ImageView
+        android:id="@+id/ImageView"
+        android:layout_margin="8dp"
+        android:layout_width="56dp"
+        android:layout_height="56dp"
+        android:contentDescription="@string/shortcuticon" />
+
+    <TextView
+        android:id="@+id/TVTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:scrollHorizontally="false"
+        android:singleLine="false"
+        android:lines="2"
+        android:maxLines="2"
+        android:ellipsize="end"
+        android:layout_marginTop="4dp"
+        android:textSize="14sp"
+        android:textColor="@android:color/white" />
+
+    <TextView
+        android:id="@+id/TVSubtitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:scrollHorizontally="false"
+        android:singleLine="false"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:layout_marginTop="2dp"
+        android:textSize="11sp"
+        android:textColor="@android:color/darker_gray"
+        />
+</LinearLayout>

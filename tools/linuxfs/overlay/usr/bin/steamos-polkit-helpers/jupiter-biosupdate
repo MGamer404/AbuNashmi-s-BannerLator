@@ -1,0 +1,5 @@
+#!/bin/sh
+# There is no Deck BIOS here.
+# The client calls this in Deck mode, and a clean exit means "nothing to do".
+# Staged from the apk. (From The412Banner/SteamDeck.)
+exit 0

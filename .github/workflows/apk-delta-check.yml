@@ -1,0 +1,89 @@
+name: APK delta check
+
+# Manual check of scripts/apk_delta.py on two published releases: makes the patch from
+# from_tag to to_tag, applies it back with both the Python tool and the app's own
+# core/ApkPatcher.kt (compiled for the JVM), and fails unless both rebuilds are byte-exact.
+# Then publishes that patch to Bannerlator-updates under a throwaway check-<run> tag the way
+# release.yml does, downloads it back without a token (as the app does), and deletes it.
+# Builds and publishes nothing; the patch is kept as a 3-day artifact.
+
+on:
+  workflow_dispatch:
+    inputs:
+      from_tag:
+        description: 'Old release tag (what the user has installed)'
+        required: true
+        default: '3.1.5'
+      to_tag:
+        description: 'New release tag'
+        required: true
+        default: '3.1.6-pre3'
+      flavor:
+        description: 'Flavor'
+        required: true
+        default: 'pubg'
+        type: choice
+        options: [standard, ludashi, pubg, antutu]
+  # A new workflow can only be dispatched once it is on main, so the branch that adds it
+  # runs it on push with the defaults below.
+  push:
+    branches: [feat/apk-delta-updates, feat/apk-patches-repo]
+    paths: [scripts/apk_delta.py, scripts/publish_patches.sh, .github/workflows/apk-delta-check.yml, tools/apkpatcher-check/**,
+            app/src/main/java/com/winlator/star/core/ApkPatcher.kt]
+
+jobs:
+  check:
+    runs-on: ubuntu-22.04
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      FROM: ${{ inputs.from_tag || '3.1.5' }}
+      TO: ${{ inputs.to_tag || '3.1.6-pre3' }}
+      F: ${{ inputs.flavor || 'pubg' }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        sparse-checkout: |
+          scripts
+          tools/apkpatcher-check
+          app/src/main/java/com/winlator/star/core/ApkPatcher.kt
+        sparse-checkout-cone-mode: false
+
+    - name: Make, apply and compare
+      run: |
+        set -euo pipefail
+        gh release download "$FROM" -R "$GITHUB_REPOSITORY" -p "Bannerlator-*-${F}.apk" -D old
+        gh release download "$TO" -R "$GITHUB_REPOSITORY" -p "Bannerlator-*-${F}.apk" -D new
+        OLD=$(ls old/*.apk); NEW=$(ls new/*.apk)
+        mkdir out
+        /usr/bin/time -f "make %es %MKB" python3 -I scripts/apk_delta.py make "$OLD" "$NEW" out/patch.bldp
+        /usr/bin/time -f "apply %es %MKB" python3 -I scripts/apk_delta.py apply "$OLD" out/patch.bldp rebuilt.apk
+        cmp rebuilt.apk "$NEW"
+        # The app's applier on the same patch (org.tukaani:xz 1.7, the app's own dependency).
+        curl -fsSL -o xz.jar https://repo1.maven.org/maven2/org/tukaani/xz/1.7/xz-1.7.jar
+        kotlinc -version 2>&1
+        kotlinc -cp xz.jar app/src/main/java/com/winlator/star/core/ApkPatcher.kt tools/apkpatcher-check/Main.kt \
+          -include-runtime -d check.jar 2>&1 | grep -v '^warning' || true
+        /usr/bin/time -f "kotlin apply %es %MKB" java -cp check.jar:xz.jar MainKt "$OLD" out/patch.bldp rebuilt-kt.apk
+        cmp rebuilt-kt.apk "$NEW"
+        { echo "### ${FROM} → ${TO} (${F})"; echo;
+          echo "full APK $(stat -c %s "$NEW") bytes, patch $(stat -c %s out/patch.bldp) bytes, Python and Kotlin rebuilds byte-exact"; } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Publish to Bannerlator-updates and download back
+      env:
+        GH_TOKEN: ${{ secrets.UPDATES_TOKEN }}
+        CHECK_TAG: check-${{ github.run_id }}
+      run: |
+        set -euo pipefail
+        mkdir pub && cp out/patch.bldp "pub/Bannerlator-${TO}-${F}-from-${FROM}.bldp"
+        BASE=$(scripts/publish_patches.sh publish "$CHECK_TAG" pub)
+        echo "published under $BASE"
+        trap 'gh release delete "$CHECK_TAG" -R The412Banner/Bannerlator-updates --yes --cleanup-tag' EXIT
+        curl -fsSL -o back.bldp "$BASE/Bannerlator-${TO}-${F}-from-${FROM}.bldp"
+        cmp back.bldp out/patch.bldp
+        echo "public download of the published patch is byte-exact" | tee -a "$GITHUB_STEP_SUMMARY"
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: patch-${{ env.FROM }}-to-${{ env.TO }}-${{ env.F }}
+        path: out/patch.bldp
+        retention-days: 3
