@@ -553,6 +553,35 @@ public final class SteamDatabase extends SQLiteOpenHelper {
         getWritableDatabase().update("steam_games", cv, "app_id = ?", new String[]{String.valueOf(appId)});
     }
 
+    /**
+     * [setReviewScore] for many apps in ONE transaction (the batched review backfill writes a
+     * hundred rows per request; a transaction per row would be dozens of times slower). The four
+     * arrays are parallel and must be the same length. All-or-nothing: on any error nothing is
+     * written and the exception propagates so the caller can leave those apps unsettled.
+     */
+    public void setReviewScores(int[] appIds, int[] percents, int[] totals, String[] descs) {
+        if (appIds.length != percents.length || appIds.length != totals.length
+                || appIds.length != descs.length) {
+            throw new IllegalArgumentException("setReviewScores: array length mismatch");
+        }
+        SQLiteDatabase db = getWritableDatabase();
+        long now = System.currentTimeMillis() / 1000L;
+        db.beginTransaction();
+        try {
+            for (int i = 0; i < appIds.length; i++) {
+                ContentValues cv = new ContentValues();
+                cv.put("review_percent", percents[i]);
+                cv.put("review_total",   totals[i]);
+                cv.put("review_desc",    descs[i] != null ? descs[i] : "");
+                cv.put("review_updated", now);
+                db.update("steam_games", cv, "app_id = ?", new String[]{String.valueOf(appIds[i])});
+            }
+            db.setTransactionSuccessful();
+        } finally {
+            db.endTransaction();
+        }
+    }
+
     /** True when the last library sync marked this app VAC-secured; false when not, or unknown. */
     public boolean isVacSecure(int appId) {
         try (Cursor c = getReadableDatabase().rawQuery(
