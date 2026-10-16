@@ -53,7 +53,7 @@ A sort button next to the search bar: **A–Z** (the default) or **Steam user ra
 
 1. Download the APK from the **[Releases](../../releases)** page.
 2. Needs **Android 8.0+** on a **64-bit ARM** phone.
-3. It uses the **same app, package and signing key, and the same version number (100)** as the original's 3.1.7-pre2, so this APK and the original's pre-release can be installed over each other without losing your data. It also installs as a normal update on top of 3.1.6. Going back to 3.1.6 needs an uninstall first, which wipes your data. **Back up anything important first.** Don't uninstall to "fix" an install problem — that wipes your data.
+3. It uses the **same app, package and signing key, and the same version number (100)** as the original's 3.1.7-pre2, so this APK and the original's pre-release can be installed over each other without losing your data. **Back up anything important first.** Don't uninstall to "fix" an install problem — that wipes your data.
 
 Only the standard version is built here (not the Ludashi / PuBG / AnTuTu variants).
 
