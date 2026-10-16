@@ -1201,6 +1201,8 @@ class SteamGameDetailActivity : ComponentActivity(), SteamRepository.SteamEventL
                         SteamAppManifest.removeFor(installDir, appId)
                         SteamRepository.getInstance().database.markUninstalled(appId)
                     },
+                    // Another game (a demo / server sharing this installdir) still uses the folder: keep it.
+                    keepFolder = { SteamInstallPaths.folderSharedWithOtherGame(this, File(installDir), appId) },
                 ) { ok ->
                     uninstallingName = null
                     uninstallResult = if (ok) "${g.name} uninstalled" else "Couldn't fully remove ${g.name}"
@@ -1298,6 +1300,9 @@ class SteamGameDetailActivity : ComponentActivity(), SteamRepository.SteamEventL
 
         // (2, 3) Drop the app's resume state synchronously: the DB download row, the game's installed
         // flag/dir, and the Download-Manager registry row.
+        // A folder another Steam client owns keeps its files and manifest after this cancel; without this the
+        // library import would mark the game installed again on the next visit. Cleared by a fresh install.
+        SteamLibraryImport.ignore(this, appId)
         db.deleteDownload(appId)
         db.markUninstalled(appId)   // is_installed=0, install_dir="" (idempotent; invalidates game cache)
         try { DownloadRegistry.remove("${Store.STEAM}:$appId") } catch (_: Throwable) {}
@@ -1308,7 +1313,7 @@ class SteamGameDetailActivity : ComponentActivity(), SteamRepository.SteamEventL
         Thread {
             val targets = LinkedHashSet<File>()
             rowDir?.let { targets.add(File(it)) }
-            val safeName = gName.replace(Regex("[/\\\\:*?\"<>|]"), "_").trim()
+            val safeName = SteamInstallPaths.safeGameFolderName(gName, appId)
             if (safeName.isNotEmpty()) {
                 // Internal default: imagefs/steam_games/<safeName>.
                 targets.add(File(File(filesDir, "imagefs/steam_games"), safeName))
@@ -1333,7 +1338,11 @@ class SteamGameDetailActivity : ComponentActivity(), SteamRepository.SteamEventL
             // Ownership is decided once, up front, so the second sweep treats a folder the engine
             // re-creates mid-cancel exactly like the first. The app's own trees (steam_games, SD) and any
             // folder this app created are wiped whole, as always — with the manifest it wrote for them.
-            val keepFiles = targets.filter { !SteamInstallPaths.mayDeleteWholeFolder(it) }.toSet()
+            // A folder another game also uses (a demo or server sharing its base game's installdir) is kept too.
+            val keepFiles = targets.filter {
+                !SteamInstallPaths.mayDeleteWholeFolder(it) ||
+                    SteamInstallPaths.folderSharedWithOtherGame(this, it, appId)
+            }.toSet()
             fun sweep() = targets.forEach { d ->
                 try {
                     if (!d.exists()) return@forEach
@@ -3050,8 +3059,9 @@ private fun GoldbergSection(
     onDownloadClick: () -> Unit,
     onModeSelected: (GoldbergMode) -> Unit,
 ) {
+    // No "Off" entry: launching the game with SteamLite or Headless Steam puts its original files back
+    // automatically (GoldbergPatcher.restoreOriginalForRealSteamAsync), so Goldberg never needs switching off by hand.
     val options = listOf(
-        GoldbergMode.OFF to "Off",
         GoldbergMode.REGULAR to "Regular",
         GoldbergMode.EXPERIMENTAL to "Experimental",
         GoldbergMode.COLDCLIENT to "Cold Client Loader",
@@ -3125,7 +3135,8 @@ private fun GoldbergSection(
         Spacer(Modifier.height(if (showDownloadButton) 12.dp else 2.dp))
         Text(
             text = "Regular works for most games; try Experimental, then " +
-                "Cold Client Loader if a game still won't start.",
+                "Cold Client Loader if a game still won't start. Launching the game with SteamLite or " +
+                "Headless Steam restores its original files automatically.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

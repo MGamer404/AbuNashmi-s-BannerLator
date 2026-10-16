@@ -545,6 +545,8 @@ public class XServerDisplayActivity extends AppCompatActivity {
     // empty Wine desktop (black screen) after quitting the game. Mirrors the installer auto-exit above.
     // Gated to shortcut launches only and to the per-game/-container "autoCloseOnExit" setting.
     private boolean autoCloseOnExitEnabled = false;
+    /** True between onCreate and onDestroy, so the open game screen is counted exactly once. */
+    private boolean accountGameSessionCounted = false;
     private String autoCloseExeName;          // lowercased basename of the launched game exe
     private boolean gameProcSeen = false;
     private int gameGoneTicks = 0;
@@ -1918,6 +1920,9 @@ public class XServerDisplayActivity extends AppCompatActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // A game screen is open: Steam account switching is refused until it closes (see onDestroy).
+        com.winlator.star.store.SteamAccountStore.INSTANCE.gameSessionOpened();
+        accountGameSessionCounted = true;
         // A cold start straight into the game (home-screen pinned shortcut, ACTION_VIEW, adb) never ran
         // MainActivity, so the theme/prefs singleton was uninitialised → default theme in the in-game UI.
         try { com.winlator.star.ui.theme.AppThemeState.INSTANCE.init(this); } catch (Throwable ignored) {}
@@ -2649,6 +2654,8 @@ public class XServerDisplayActivity extends AppCompatActivity {
         if (shortcutPath != null && !shortcutPath.isEmpty()) {
             shortcut = new Shortcut(container, new File(shortcutPath));
         }
+        // Fix the Goldberg cloud-sync decision now, for the whole session (see skipCloudForGoldberg()).
+        skipCloudForGoldberg();
 
         // Display backend: the game's override, else the container's. Resolved here so every launch
         // path (shortcut list, Games tab, Big Picture, pinned shortcuts, container Run) honours it,
@@ -5533,14 +5540,22 @@ public class XServerDisplayActivity extends AppCompatActivity {
                         }
                         // Flush any queued achievement unlocks back to the user's Steam profile. Safe
                         // no-op unless the default-OFF "sync unlocks" toggle is on (guarded inside).
-                        // Goldberg is an offline mode: unlocks earned this session are already queued locally
-                        // (AchievementWatcher -> queueUnlock) and stay queued until the next non-Goldberg exit
-                        // flushes them.
-                        if (skipCloudForGoldberg()) {
-                            Log.i("BH_STEAM_ACHV", "Goldberg launch — achievement sync-back skipped (Goldberg cloud sync is off), unlocks stay queued");
+                        // Goldberg is an offline mode: unlocks earned there are queued locally per game
+                        // (AchievementWatcher -> queueUnlock). They are pushed only for THIS game, and only
+                        // when it ran through SteamLite / Headless Steam (or Goldberg with the cloud option
+                        // on); every other game's queue is left alone.
+                        int syncBackAppId = 0;
+                        if (appSteamPlan != null) syncBackAppId = appSteamPlan.appId;
+                        else if (realSteamPlan != null) syncBackAppId = realSteamPlan.appId;
+                        else if (isGoldbergLaunchMode() && !skipCloudForGoldberg()) {
+                            SteamAppRef syncRef = resolveSteamAppRef();
+                            if (syncRef != null) syncBackAppId = syncRef.appId;
+                        }
+                        if (syncBackAppId <= 0) {
+                            Log.i("BH_STEAM_ACHV", "achievement sync-back skipped (not a SteamLite / Headless Steam launch, or Goldberg cloud sync is off), unlocks stay queued");
                         } else {
                             try {
-                                SteamAchievementStore.flushPendingSyncBack(getApplicationContext());
+                                SteamAchievementStore.flushPendingSyncBack(getApplicationContext(), syncBackAppId);
                             } catch (Throwable t) {
                                 Log.w("BH_STEAM_ACHV", "flushPendingSyncBack on exit errored", t);
                             }
@@ -6726,11 +6741,18 @@ public class XServerDisplayActivity extends AppCompatActivity {
      * Goldberg is an emulated (offline) Steam session, so by default a Goldberg launch does no Steam Cloud
      * save pull/push and no achievement upload. Save Manager "sync with Steam Cloud during Goldberg
      * launches" ({@code goldberg_cloud_sync}, off by default) turns that sync back on.
+     * Decided once, at the first call during launch, so flipping the switch mid-game can't make the exit
+     * upload run for a session that never pulled from the cloud.
      */
     private boolean skipCloudForGoldberg() {
-        return isGoldbergLaunchMode()
-                && !getSharedPreferences("save_manager_prefs", MODE_PRIVATE).getBoolean("goldberg_cloud_sync", false);
+        if (goldbergCloudSkip == null) {
+            goldbergCloudSkip = isGoldbergLaunchMode()
+                    && !getSharedPreferences("save_manager_prefs", MODE_PRIVATE).getBoolean("goldberg_cloud_sync", false);
+        }
+        return goldbergCloudSkip;
     }
+
+    private Boolean goldbergCloudSkip = null;
 
     /**
      * On game exit, push a genuine Steam-library game's saves UP to Steam Cloud (local → cloud) — the
@@ -6914,8 +6936,19 @@ public class XServerDisplayActivity extends AppCompatActivity {
                 try {
                     SteamPrefs.INSTANCE.init(appCtx); // idempotent + cheap; XServer path may not have inited it
                     if (SteamPrefs.INSTANCE.getGoldbergMode(appId) != GoldbergMode.OFF) {
+                        // A Goldberg launch with the cloud option off is an offline launch: it must not wait on
+                        // Steam. Seed and schema come from the offline cache only; when nothing is cached yet, the
+                        // list is fetched in the background so the NEXT launch has it.
+                        final boolean allowFetch = !skipCloudForGoldberg();
+                        if (!allowFetch && SteamAchievementStore.INSTANCE.cached(appCtx, appId).isEmpty()) {
+                            Thread prefetch = new Thread(() -> {
+                                try { SteamAchievementStore.INSTANCE.fetch(appCtx, appId); } catch (Throwable ignored) {}
+                            }, "BH-AchvPrefetch");
+                            prefetch.setDaemon(true);
+                            prefetch.start();
+                        }
                         java.io.File gseFile = AchievementWatcher.gseAchievementsFile(containerRoot, appId);
-                        SteamAchievementStore.seedGse(appCtx, appId, gseFile);
+                        SteamAchievementStore.seedGse(appCtx, appId, gseFile, allowFetch);
 
                         // Also ensure the gbe_fork achievement SCHEMA (definitions) exists beside each
                         // swapped steam_api dll (installs patched by an older build never got it).
@@ -6927,7 +6960,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
                             for (GoldbergPatcher.PatchTarget target : GoldbergPatcher.analyze(installRoot)) {
                                 dirs.add(target.getDir());
                             }
-                            GoldbergPatcher.ensureAchievementSchema(appCtx, appId, dirs, GoldbergPatcher.SCHEMA_TIMEOUT_MS);
+                            GoldbergPatcher.ensureAchievementSchema(appCtx, appId, dirs, GoldbergPatcher.SCHEMA_TIMEOUT_MS, allowFetch);
                         }
                     } else {
                         Log.i("BH_STEAM_ACHV", "achievement seed: Goldberg OFF for appId=" + appId + " — no seed");
@@ -7261,6 +7294,10 @@ public class XServerDisplayActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        if (accountGameSessionCounted) {
+            accountGameSessionCounted = false;
+            com.winlator.star.store.SteamAccountStore.INSTANCE.gameSessionClosed();
+        }
         // The last word on the handheld's companion screen, whatever took this session down (Exit, the
         // game's own watcher, a recents swipe, the system). Every other dismissal is about telling the
         // user something sooner; this one is the guarantee that nothing is left on the handheld

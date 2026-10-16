@@ -328,8 +328,11 @@ object SteamDepotDownloader {
         debugLog: Boolean = false,
         installRoot: String? = null,
         verify: Boolean = false,
-    ): DownloadControl =
-        buildControl(appId, ctx, speedTier, debugLog, isResume = false, installRoot = installRoot, verify = verify)
+    ): DownloadControl {
+        // The user is installing this game on purpose again: library import may pick it up once it is done.
+        SteamLibraryImport.clearIgnore(ctx, appId)
+        return buildControl(appId, ctx, speedTier, debugLog, isResume = false, installRoot = installRoot, verify = verify)
+    }
 
     /**
      * Resume a previously paused install. Keeps the existing DB row (bytes intact).
@@ -505,7 +508,7 @@ object SteamDepotDownloader {
         } catch (_: Throwable) {}
 
         // Sanitise game name for directory usage
-        val safeName = row.name.replace(Regex("[/\\\\:*?\"<>|]"), "_").trim()
+        val safeName = SteamInstallPaths.safeGameFolderName(row.name, appId)
         // Where this app's files go. installApp always installs a game to where it ALREADY lives when
         // it lives somewhere, and only a brand-new install picks a fresh location:
         //   • a resume returns to the directory the in-progress download already chose (persisted on
@@ -606,6 +609,11 @@ object SteamDepotDownloader {
             SteamInstallPaths.steamappsOfInstallDir(installDir)?.let { steamapps ->
                 SteamAppManifest.ensureLibrary(steamapps)
                 SteamInstallPaths.claimIfNew(installDir)
+                // A folder another client installed (no marker of ours): flag its manifest "update required"
+                // until this install finishes, so a cancel or failure can't leave a mix under a "healthy" manifest.
+                if (!File(installDir, SteamInstallPaths.OWNED_MARKER).exists()) {
+                    SteamAppManifest.markUpdateRequired(installDir, appId)
+                }
             }
         }
 
@@ -1033,6 +1041,7 @@ object SteamDepotDownloader {
                 // the Library section. Only clear on SUCCESS — paused/failed/cancelled keep their
                 // row (finishPaused/fail/finishCancelled) so Resume/retry still works.
                 db.deleteDownload(appId)
+                SteamAccountStore.recordInstaller(ctx, appId)   // who downloaded it, for the launch-time account check
                 // Stamp the build we just installed so the RealSteam update-on-launch gate
                 // (SteamGameUpdater) can cheaply detect this game is current next time — it compares
                 // this marker against the live steam_branches build id. Resolved independently of the

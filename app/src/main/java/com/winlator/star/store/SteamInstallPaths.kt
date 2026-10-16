@@ -204,10 +204,66 @@ object SteamInstallPaths {
         }
     }
 
+    /**
+     * True when ANOTHER game than [appId] also uses the folder [installDir]: some other installed game's
+     * recorded folder is this one, or (inside a steamapps library) another `appmanifest_*.acf` names this
+     * folder as its `installdir` (a demo, a dedicated server or a tool that shares its base game's folder).
+     * Deleting or moving that folder away would break the other game, so callers keep it. Blocking (database
+     * and file reads): call off the main thread. Never throws; false when it can't tell.
+     */
+    @JvmStatic
+    fun folderSharedWithOtherGame(ctx: android.content.Context, installDir: File, appId: Int): Boolean {
+        return try {
+            val path = installDir.absolutePath.trimEnd('/')
+            val rows = SteamDatabase.getInstance(ctx).getInstalledGames()
+            for (r in rows) {
+                if (r.appId == appId) continue
+                val d = r.installDir ?: continue
+                if (d.trimEnd('/').equals(path, ignoreCase = true)) return true
+            }
+            val steamapps = steamappsOfInstallDir(installDir) ?: return false
+            val manifests = steamapps.listFiles { f -> f.isFile && f.name.startsWith("appmanifest_") && f.name.endsWith(".acf") }
+                ?: return false
+            for (m in manifests) {
+                val info = SteamAppManifest.readInfo(m) ?: continue
+                if (info.appId == appId || info.appId == 0) continue
+                if (info.installDir.equals(installDir.name, ignoreCase = true)) return true
+            }
+            false
+        } catch (t: Throwable) {
+            Log.w(TAG, "folderSharedWithOtherGame(${installDir.absolutePath}, $appId) failed: ${t.message}")
+            false
+        }
+    }
+
+    /**
+     * True when [dir] is a folder that HOLDS games (`steamapps`, `steamapps/common` or the legacy
+     * `steam_games` root) rather than one game's own folder. Such a folder is never deleted as if it were a
+     * game: an empty game name must not be able to make a whole library look like a single install.
+     */
+    @JvmStatic
+    fun isLibraryContainer(dir: File): Boolean {
+        val n = dir.name
+        return n.isEmpty() || n.equals(COMMON, ignoreCase = true) || n.equals(STEAMAPPS, ignoreCase = true) ||
+            n.equals(LEGACY_ROOT, ignoreCase = true)
+    }
+
+    /**
+     * A usable folder name for a game: [name] with the characters no filesystem here accepts replaced by `_`,
+     * and `app_<appId>` when nothing usable is left (a blank name, "." or ".."), so the install folder can
+     * never turn out to be the library's own folder.
+     */
+    @JvmStatic
+    fun safeGameFolderName(name: String, appId: Int): String {
+        val s = name.replace(Regex("[/\\\\:*?\"<>|]"), "_").trim()
+        return if (s.isEmpty() || s == "." || s == "..") "app_$appId" else s
+    }
+
     /** True when deleting the whole [installDir] can only remove what this app put there. */
     @JvmStatic
     fun mayDeleteWholeFolder(installDir: File): Boolean =
-        steamappsOfInstallDir(installDir) == null || File(installDir, OWNED_MARKER).exists()
+        !isLibraryContainer(installDir) &&
+            (steamappsOfInstallDir(installDir) == null || File(installDir, OWNED_MARKER).exists())
 
     /**
      * Removes only this app's own bookkeeping (download journal, resume state, build stamp) from

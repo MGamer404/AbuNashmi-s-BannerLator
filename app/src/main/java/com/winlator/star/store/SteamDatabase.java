@@ -52,11 +52,7 @@ public final class SteamDatabase extends SQLiteOpenHelper {
     // v11: steam_games.vac_secure (ADDITIVE column) — VAC marker from PICS app-info, filled on the next
     //      library sync (processAppKv); 0 until then (= "no secure launch needed" → the RealSteam
     //      launch's short fallback window). Per-shortcut override lives in the shortcut extras.
-    // v12: steam_games.review_percent / review_total / review_desc / review_updated (ADDITIVE columns) —
-    //      Steam USER-review summary (percent positive, review count, Steam's label, fetch time in epoch
-    //      seconds) cached by SteamReviewScores for the Library tab's rating sort + card line. Defaults
-    //      (-1 / 0 / '' / 0) mean "not fetched"; upsertGame never writes them, so a library sync can't wipe them.
-    private static final int    DB_VERSION = 12;
+    private static final int    DB_VERSION = 11;
 
     // -------------------------------------------------------------------------
     // DDL
@@ -87,15 +83,7 @@ public final class SteamDatabase extends SQLiteOpenHelper {
             // 1 when the app's PICS app-info marks it VAC-secured (common/category/category_8 "Valve
             // Anti-Cheat enabled" or any extended/vac* key such as vacmodulefilename); 0 otherwise.
             // Drives the RealSteam launch's WN_STEAM_VAC policy (secure-launch wait window).
-            "  vac_secure INTEGER NOT NULL DEFAULT 0," +
-            // Steam user-review summary from store.steampowered.com/appreviews (SteamReviewScores).
-            // review_percent: 0-100 percent positive, -1 = no rating (not fetched yet, or too few
-            // reviews). review_total: positive + negative votes. review_desc: Steam's label ("Very
-            // Positive"), '' when unknown. review_updated: epoch seconds of the last fetch, 0 = never.
-            "  review_percent INTEGER NOT NULL DEFAULT -1," +
-            "  review_total INTEGER NOT NULL DEFAULT 0," +
-            "  review_desc TEXT NOT NULL DEFAULT ''," +
-            "  review_updated INTEGER NOT NULL DEFAULT 0" +
+            "  vac_secure INTEGER NOT NULL DEFAULT 0" +
             ")";
 
     private static final String SQL_LICENSES =
@@ -311,15 +299,6 @@ public final class SteamDatabase extends SQLiteOpenHelper {
         if (oldVersion < 11) {
             addColumnIfMissing(db, "steam_games", "vac_secure", "INTEGER NOT NULL DEFAULT 0");
         }
-        // v11 → v12: ADDITIVE — the four review_* columns (see DB_VERSION comment). ALTER TABLE ADD
-        // COLUMN with constant defaults rewrites no rows, so existing library rows (install state,
-        // sizes, DLC) are untouched and no re-sync is needed; every row reads back as "not fetched".
-        if (oldVersion < 12) {
-            addColumnIfMissing(db, "steam_games", "review_percent", "INTEGER NOT NULL DEFAULT -1");
-            addColumnIfMissing(db, "steam_games", "review_total",   "INTEGER NOT NULL DEFAULT 0");
-            addColumnIfMissing(db, "steam_games", "review_desc",    "TEXT NOT NULL DEFAULT ''");
-            addColumnIfMissing(db, "steam_games", "review_updated", "INTEGER NOT NULL DEFAULT 0");
-        }
     }
 
     /**
@@ -370,15 +349,10 @@ public final class SteamDatabase extends SQLiteOpenHelper {
         public final String  developer;
         public final int     metacriticScore; // 0 = not rated
         public final String  genres;          // comma-separated genre names
-        public final int     reviewPercent;   // Steam user reviews, 0-100 percent positive; -1 = no rating
-        public final int     reviewTotal;     // positive + negative votes behind reviewPercent
-        public final String  reviewDesc;      // Steam's label ("Very Positive"); "" = unknown
-        public final long    reviewUpdated;   // epoch seconds of the last fetch; 0 = never fetched
 
         GameRow(int appId, String name, String installDir, String iconHash,
                 long sizeBytes, String depotIds, String type, boolean isInstalled,
-                String developer, int metacriticScore, String genres,
-                int reviewPercent, int reviewTotal, String reviewDesc, long reviewUpdated) {
+                String developer, int metacriticScore, String genres) {
             this.appId           = appId;
             this.name            = name;
             this.installDir      = installDir;
@@ -390,10 +364,6 @@ public final class SteamDatabase extends SQLiteOpenHelper {
             this.developer       = developer;
             this.metacriticScore = metacriticScore;
             this.genres          = genres;
-            this.reviewPercent   = reviewPercent;
-            this.reviewTotal     = reviewTotal;
-            this.reviewDesc      = reviewDesc != null ? reviewDesc : "";
-            this.reviewUpdated   = reviewUpdated;
         }
     }
 
@@ -528,50 +498,6 @@ public final class SteamDatabase extends SQLiteOpenHelper {
         ContentValues cv = new ContentValues();
         cv.put("vac_secure", vac ? 1 : 0);
         getWritableDatabase().update("steam_games", cv, "app_id = ?", new String[]{String.valueOf(appId)});
-    }
-
-    /**
-     * Cache the Steam user-review summary for an app (SteamReviewScores) and stamp the fetch time.
-     * [percent] is 0-100, or -1 for "no rating" (a fetched app with too few reviews still gets a stamp
-     * so it is not re-requested on every launch). Separate from upsertGame so that signature (and all
-     * its callers) stay unchanged — a library sync never touches these columns.
-     */
-    public void setReviewScore(int appId, int percent, int total, String desc) {
-        ContentValues cv = new ContentValues();
-        cv.put("review_percent", percent);
-        cv.put("review_total",   total);
-        cv.put("review_desc",    desc != null ? desc : "");
-        cv.put("review_updated", System.currentTimeMillis() / 1000L);
-        getWritableDatabase().update("steam_games", cv, "app_id = ?", new String[]{String.valueOf(appId)});
-    }
-
-    /**
-     * [setReviewScore] for many apps in ONE transaction (the batched review backfill writes a
-     * hundred rows per request; a transaction per row would be dozens of times slower). The four
-     * arrays are parallel and must be the same length. All-or-nothing: on any error nothing is
-     * written and the exception propagates so the caller can leave those apps unsettled.
-     */
-    public void setReviewScores(int[] appIds, int[] percents, int[] totals, String[] descs) {
-        if (appIds.length != percents.length || appIds.length != totals.length
-                || appIds.length != descs.length) {
-            throw new IllegalArgumentException("setReviewScores: array length mismatch");
-        }
-        SQLiteDatabase db = getWritableDatabase();
-        long now = System.currentTimeMillis() / 1000L;
-        db.beginTransaction();
-        try {
-            for (int i = 0; i < appIds.length; i++) {
-                ContentValues cv = new ContentValues();
-                cv.put("review_percent", percents[i]);
-                cv.put("review_total",   totals[i]);
-                cv.put("review_desc",    descs[i] != null ? descs[i] : "");
-                cv.put("review_updated", now);
-                db.update("steam_games", cv, "app_id = ?", new String[]{String.valueOf(appIds[i])});
-            }
-            db.setTransactionSuccessful();
-        } finally {
-            db.endTransaction();
-        }
     }
 
     /** True when the last library sync marked this app VAC-secured; false when not, or unknown. */
@@ -778,6 +704,7 @@ public final class SteamDatabase extends SQLiteOpenHelper {
         cv.put("is_installed", 0);
         cv.put("install_dir",  "");
         db.update("steam_games", cv, "app_id = ?", new String[]{String.valueOf(appId)});
+        SteamAccountStore.INSTANCE.clearInstaller(appId);   // forget which account downloaded it
         // Invalidate in-memory cache so the library list reflects the new state immediately
         SteamRepository.getInstance().invalidateGameCache();
     }
@@ -819,8 +746,7 @@ public final class SteamDatabase extends SQLiteOpenHelper {
     private List<GameRow> queryGames(String where, String[] args) {
         List<GameRow> result = new ArrayList<>();
         String sql = "SELECT app_id,name,install_dir,icon_hash,size_bytes,depot_ids,type," +
-                     "is_installed,developer,metacritic_score,genres," +
-                     "review_percent,review_total,review_desc,review_updated" +
+                     "is_installed,developer,metacritic_score,genres" +
                      " FROM steam_games" +
                      (where != null ? " WHERE " + where : "") +
                      " ORDER BY name COLLATE NOCASE";
@@ -837,11 +763,7 @@ public final class SteamDatabase extends SQLiteOpenHelper {
                         c.getInt(7) != 0,
                         c.getString(8),
                         c.getInt(9),
-                        c.getString(10),
-                        c.getInt(11),
-                        c.getInt(12),
-                        c.getString(13),
-                        c.getLong(14)));
+                        c.getString(10)));
             }
         }
         return result;

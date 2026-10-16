@@ -196,7 +196,7 @@ internal object BlDepotInstaller {
         // A user library's installRoot is its steamapps/common: SteamInstallPaths.freshInstallDir names the
         // game folder after an existing appmanifest's installdir, else Valve's PICS installdir, else the
         // sanitized name — and a folder that already exists is built on, never reset.
-        val safeName = row.name.replace(Regex("[/\\\\:*?\"<>|]"), "_").trim()
+        val safeName = SteamInstallPaths.safeGameFolderName(row.name, appId)
         val internalBase = File(ctx.filesDir, "imagefs/steam_games")
         val resumeDir = if (isResume) db.getDownload(appId)?.installDir?.takeIf { it.isNotBlank() } else null
         val existingDir = row.installDir.takeIf { it.isNotBlank() }
@@ -284,6 +284,11 @@ internal object BlDepotInstaller {
             SteamInstallPaths.steamappsOfInstallDir(installDir)?.let { steamapps ->
                 SteamAppManifest.ensureLibrary(steamapps)
                 SteamInstallPaths.claimIfNew(installDir)
+                // A folder another client installed (no marker of ours): flag its manifest "update required"
+                // until this install finishes, so a cancel or failure can't leave a mix under a "healthy" manifest.
+                if (!File(installDir, SteamInstallPaths.OWNED_MARKER).exists()) {
+                    SteamAppManifest.markUpdateRequired(installDir, appId)
+                }
             }
         }
 
@@ -512,6 +517,7 @@ internal object BlDepotInstaller {
                     // the Library section below. Only clear on SUCCESS — paused/failed/cancelled keep
                     // their row (finishPaused/fail/finishCancelled) so Resume/retry still works.
                     db.deleteDownload(appId)
+                    SteamAccountStore.recordInstaller(ctx, appId)   // who downloaded it, for the launch-time account check
                     try { SteamGameUpdater.recordInstalledBuild(ctx, appId, installDir, selectedBranch) } catch (_: Throwable) {}
                     // A game in a steamapps library gets (or has merged into) its appmanifest_<appid>.acf
                     // with the depots just validated at their manifest ids, so every other Steam client

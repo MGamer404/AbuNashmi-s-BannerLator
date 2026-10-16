@@ -32,6 +32,8 @@ import com.winlator.star.store.EaSupport
 import com.winlator.star.store.GoldbergComponent
 import com.winlator.star.store.GoldbergMode
 import com.winlator.star.store.GoldbergPatcher
+import com.winlator.star.store.SteamAccountLaunchDialog
+import com.winlator.star.store.SteamAccountStore
 import com.winlator.star.store.SteamDatabase
 import com.winlator.star.store.SteamGameUpdater
 import com.winlator.star.store.SteamHostComponent
@@ -47,6 +49,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+
+/**
+ * A SteamLite (or Headless Steam when [appSteam]) launch held back by the Steam account check: [shortcut]
+ * belongs to another saved account than the one signed in, or to none of them ([check]).
+ */
+internal data class AccountWarning(
+    val shortcut: Shortcut,
+    val check: SteamAccountStore.LaunchCheck.Warn,
+    val appSteam: Boolean,
+)
 
 /**
  * The game-launch flow of the Games screen, lifted out of ShortcutsScreen so the Deck home launches
@@ -75,6 +87,11 @@ class ShortcutLauncher internal constructor(
     // the RealSteam game whose "Getting Steam ready" dialog is up (null = none). Every RealSteam
     // launch — the popup pick and a remembered pick — routes through it; Goldberg/Raw never do.
     internal var preflightFor by mutableStateOf<Shortcut?>(null)
+    // Steam account check (see SteamAccountStore.launchAccountCheck): a SteamLite / Headless Steam launch
+    // whose game belongs to a different saved account waits here, before its component download and
+    // pre-flight, until the user switches, picks "Launch anyway" or closes it; a game no saved account
+    // owns is refused. Goldberg/Raw never use it.
+    internal var accountWarning by mutableStateOf<AccountWarning?>(null)
     // Download-on-launch progress overlay: the game we're about to launch once its picked component
     // (SteamLite for RealSteam, or Goldberg) finishes downloading, plus a label + 0..1 fraction.
     // null target = nothing downloading.
@@ -151,7 +168,8 @@ class ShortcutLauncher internal constructor(
     // Goldberg (offline emulator) launch: persist the sub-mode, download the component on demand,
     // patch the install (resolved off-main from the Room steam_games row) and launch. Shared by the
     // popup's Goldberg pick and the pre-flight's "Launch with Goldberg" fallback.
-    internal fun launchWithGoldberg(s: Shortcut, gm: GoldbergMode) {
+    // gm == null means "the tier saved for this game", looked up with the app id resolved from the shortcut.
+    internal fun launchWithGoldberg(s: Shortcut, gm: GoldbergMode?) {
         SteamPrefs.init(context)
         // GoldbergPatcher.applyForShortcutAsync resolves appId / install dir / exe from the shortcut
         // (extras, then the games DB and the exe path), stamps launchMode=Goldberg on it (so the
@@ -182,44 +200,61 @@ class ShortcutLauncher internal constructor(
     // SteamLite (RealSteam) launch: ensure the SteamLite package is present (download on demand if
     // not), then open the pre-flight dialog — the session/cloud/update checks run THERE, in the
     // library, so a dead sign-in or a stale build is reported before the container ever opens.
-    internal fun launchWithSteamLite(s: Shortcut) {
-        if (!SteamLiteComponent.isInstalled(context)) {
-            componentDownloadFor = s
-            componentDownloadLabel = "SteamLite (Real Steam / VAC)"
-            componentDownloadProgress = 0f
-            SteamLiteComponent.downloadAsync(
-                context,
-                { f -> componentDownloadProgress = f },
-                { ok, msg ->
-                    componentDownloadFor = null
-                    if (ok) preflightFor = s
-                    else Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                },
-            )
-        } else {
-            preflightFor = s
+    internal fun launchWithSteamLite(s: Shortcut, accountChecked: Boolean = false) {
+        if (!accountChecked) {
+            val check = SteamAccountStore.launchAccountCheck(context, steamAppIdOf(s))
+            if (check is SteamAccountStore.LaunchCheck.Warn) { accountWarning = AccountWarning(s, check, appSteam = false); return }
+        }
+        // The real Steam client must not meet Goldberg's emulated steam_api: put the game's original files
+        // back first if an earlier Goldberg launch left its files in the game folder (no-op otherwise).
+        GoldbergPatcher.restoreOriginalForRealSteamAsync(context, s) { restoreOk, restoreMsg ->
+            if (!restoreOk && restoreMsg.isNotEmpty()) Toast.makeText(context, restoreMsg, Toast.LENGTH_LONG).show()
+            if (!SteamLiteComponent.isInstalled(context)) {
+                componentDownloadFor = s
+                componentDownloadLabel = "SteamLite (Real Steam / VAC)"
+                componentDownloadProgress = 0f
+                SteamLiteComponent.downloadAsync(
+                    context,
+                    { f -> componentDownloadProgress = f },
+                    { ok, msg ->
+                        componentDownloadFor = null
+                        if (ok) preflightFor = s
+                        else Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                    },
+                )
+            } else {
+                preflightFor = s
+            }
         }
     }
 
     // App Steam launch (Option B): Valve's client set for the app's session host on demand (from
     // Valve's CDN), then the same pre-flight dialog — its client step checks Valve's manifest instead
     // of the SteamLite catalog (PreflightRequest.clientPackage, read off the shortcut's launchMode).
-    internal fun launchWithAppSteam(s: Shortcut) {
-        if (!SteamHostComponent.isInstalled(context)) {
-            componentDownloadFor = s
-            componentDownloadLabel = "Headless Steam (Valve Steam client)"
-            componentDownloadProgress = 0f
-            SteamHostComponent.downloadAsync(
-                context,
-                { f -> componentDownloadProgress = f },
-                { ok, msg ->
-                    componentDownloadFor = null
-                    if (ok) preflightFor = s
-                    else Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                },
-            )
-        } else {
-            preflightFor = s
+    internal fun launchWithAppSteam(s: Shortcut, accountChecked: Boolean = false) {
+        if (!accountChecked) {
+            val check = SteamAccountStore.launchAccountCheck(context, steamAppIdOf(s))
+            if (check is SteamAccountStore.LaunchCheck.Warn) { accountWarning = AccountWarning(s, check, appSteam = true); return }
+        }
+        // Same as SteamLite: this runs against the real Steam client, so undo an earlier Goldberg patch first.
+        GoldbergPatcher.restoreOriginalForRealSteamAsync(context, s) { restoreOk, restoreMsg ->
+            if (!restoreOk && restoreMsg.isNotEmpty()) Toast.makeText(context, restoreMsg, Toast.LENGTH_LONG).show()
+            if (!SteamHostComponent.isInstalled(context)) {
+                componentDownloadFor = s
+                componentDownloadLabel = "Headless Steam (Valve Steam client)"
+                componentDownloadProgress = 0f
+                SteamHostComponent.downloadAsync(
+                    context,
+                    { f -> componentDownloadProgress = f },
+                    { ok, msg ->
+                        componentDownloadFor = null
+                        if (ok) preflightFor = s
+                        else Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                    },
+                )
+            } else {
+                preflightFor = s
+            }
         }
     }
 
@@ -283,9 +318,7 @@ class ShortcutLauncher internal constructor(
             // A remembered Goldberg pick re-applies the (idempotent) patch each launch: a Verify / Update,
             // a game update or a moved install can have put the original steam_api dll back.
             remembered && shortcut.getExtra("launchMode", "") == "Goldberg" && isSteamOriginShortcut(shortcut) -> {
-                SteamPrefs.init(context)
-                val gm = SteamPrefs.getGoldbergMode(steamAppIdOf(shortcut)).let { if (it == GoldbergMode.OFF) GoldbergMode.REGULAR else it }
-                launchWithGoldberg(shortcut, gm)
+                launchWithGoldberg(shortcut, null)
             }
             remembered -> launchShortcutNow(activity, shortcut)
             else -> launchChoiceFor = shortcut
@@ -304,11 +337,7 @@ class ShortcutLauncher internal constructor(
                 launchWithSteamLite(s)
             }
             SteamSessionManager.RelaunchMode.APPSTEAM -> launchWithAppSteam(s)
-            SteamSessionManager.RelaunchMode.GOLDBERG -> {
-                SteamPrefs.init(context)
-                val gm = SteamPrefs.getGoldbergMode(steamAppIdOf(s)).let { if (it == GoldbergMode.OFF) GoldbergMode.REGULAR else it }
-                launchWithGoldberg(s, gm)
-            }
+            SteamSessionManager.RelaunchMode.GOLDBERG -> launchWithGoldberg(s, null)
         }
     }
 }
@@ -466,6 +495,23 @@ fun ShortcutLaunchDialogs(launcher: ShortcutLauncher, onRemove: (Shortcut) -> Bo
         )
     }
 
+    // ── Steam account check — before the SteamLite / Headless Steam launch goes on ──────────────────
+    launcher.accountWarning?.let { w ->
+        // "Launch anyway" and "Switch account and launch" (once the switch succeeded) both go on with the
+        // launch; the account was already checked.
+        val proceed = {
+            launcher.accountWarning = null
+            if (w.appSteam) launcher.launchWithAppSteam(w.shortcut, accountChecked = true)
+            else launcher.launchWithSteamLite(w.shortcut, accountChecked = true)
+        }
+        SteamAccountLaunchDialog(
+            check = w.check,
+            onLaunchAnyway = proceed,
+            onSwitchedLaunch = proceed,
+            onClose = { launcher.accountWarning = null },
+        )
+    }
+
     // ── SteamLite pre-flight ("Getting Steam ready") — runs BEFORE XServerDisplayActivity ──────────
     launcher.preflightFor?.let { s ->
         val appId = steamAppIdOf(s)
@@ -491,8 +537,7 @@ fun ShortcutLaunchDialogs(launcher: ShortcutLauncher, onRemove: (Shortcut) -> Bo
             },
             onGoldberg = {
                 launcher.preflightFor = null
-                SteamPrefs.init(context)
-                launcher.launchWithGoldberg(s, SteamPrefs.getGoldbergMode(appId).let { if (it == GoldbergMode.OFF) GoldbergMode.REGULAR else it })
+                launcher.launchWithGoldberg(s, null)
             },
             onUpdate = { launcher.preflightFor = null; launcher.runSteamMaintenance(s, verify = false) },
         )

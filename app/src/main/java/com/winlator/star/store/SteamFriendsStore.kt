@@ -384,6 +384,7 @@ object SteamFriendsStore {
                         selfId, selfName.takeIf { it.isNotBlank() } ?: cur?.personaName ?: "You", null,
                         classifyCode(selfState, 0, null).first, "", 0, null, cur?.avatarHash,
                     )
+                    noteSelfName(selfId, _self.value?.personaName)
                 }
                 loadHistoriesFor(selfId)
             } catch (t: Throwable) {
@@ -611,6 +612,7 @@ object SteamFriendsStore {
             } catch (_: Throwable) {}
             if (selfName == null) selfName = try { repo.displayName.takeIf { it.isNotBlank() } } catch (_: Throwable) { null }
             _self.value = SteamFriend(selfId, selfName ?: "You", null, Presence.ONLINE, "", 0, null, selfHash)
+            noteSelfName(selfId, selfName)
         }
         if (!syncedThisSession) {
             syncedThisSession = true
@@ -672,6 +674,7 @@ object SteamFriendsStore {
                     val cur = _self.value
                     if (cur != null) {
                         val name = p.playerName.takeIf { it.isNotBlank() } ?: cur.personaName
+                        noteSelfName(selfId, name)
                         val hash = if (p.hasAvatar) p.avatarHash else cur.avatarHash
                         if (name != cur.personaName || hash != cur.avatarHash) _self.value = cur.copy(personaName = name, avatarHash = hash)
                     }
@@ -839,6 +842,16 @@ object SteamFriendsStore {
 
     // ── Persistence (chat history survives backgrounding / process death) ────────────
 
+    /**
+     * The signed-in account's real persona name just arrived (either engine): keep its saved-accounts
+     * entry current. Stand-ins ("You", "Friend") are ignored by [SteamAccountStore.updateIdentity].
+     */
+    private fun noteSelfName(selfId: Long, name: String?) {
+        val ctx = appContext ?: return
+        if (selfId == 0L || name.isNullOrBlank()) return
+        SteamAccountStore.updateIdentity(ctx, selfId, name, null)
+    }
+
     /** Wire an application context so chat history can be saved to disk. Idempotent. */
     fun init(context: android.content.Context) {
         if (appContext == null) {
@@ -1004,6 +1017,7 @@ object SteamFriendsStore {
                         selfId, selfName?.takeIf { it.isNotBlank() } ?: "You", null,
                         Presence.ONLINE, "", 0, null, selfHash,
                     )
+                    noteSelfName(selfId, selfName)
                 }
                 // Appear online so Steam pushes live friend PersonaStateCallbacks, then pull a fresh
                 // snapshot for everyone (fills persona name / avatar / rich game state).
@@ -1600,13 +1614,14 @@ object SteamFriendsStore {
                 // Guard against an account switch completing while we were away.
                 if (selfProfileAccount != selfId) return@launch
                 if (fresh != null) {
-                    _selfProfile.value = fresh
-                    selfProfileFetchedAt = System.currentTimeMillis()
+                    // Saved before the profile is published, so a screen reacting to it reads the new name.
                     appContext?.let {
-                        SteamSelfProfileCache.save(it, selfId, fresh)
                         // The account chooser shows this account's name + avatar.
                         SteamAccountStore.updateIdentity(it, selfId, fresh.personaName, fresh.avatarUrl)
                     }
+                    _selfProfile.value = fresh
+                    selfProfileFetchedAt = System.currentTimeMillis()
+                    appContext?.let { SteamSelfProfileCache.save(it, selfId, fresh) }
                 } else {
                     // Keep whatever is on screen. A null here means "no live session", which is a
                     // reason to show stale data, not to erase it.
@@ -1621,6 +1636,13 @@ object SteamFriendsStore {
                 _selfProfileLoading.value = false
             }
         }
+    }
+
+    /** The signed-in account's own persona name (the roster never lists it, so [friendMap] has no entry), or null. */
+    private fun ownPersonaName(steamId: Long): String? {
+        if (steamId != (try { repo.steamId64 } catch (_: Throwable) { 0L })) return null
+        return _self.value?.personaName?.takeIf { isRealSteamName(it) }
+            ?: try { repo.displayName.takeIf { isRealSteamName(it) } } catch (_: Throwable) { null }
     }
 
     /**
@@ -1846,6 +1868,7 @@ object SteamFriendsStore {
                 val profile = FriendProfile(
                     steamId = steamId,
                     personaName = base?.personaName?.takeIf { it.isNotBlank() }
+                        ?: ownPersonaName(steamId)
                         ?: base?.displayName ?: "Friend",
                     realName = realName,
                     avatarUrl = base?.avatarUrl,

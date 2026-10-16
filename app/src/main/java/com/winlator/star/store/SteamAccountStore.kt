@@ -12,6 +12,17 @@ import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
+ * True when [name] is a real persona name. Blank and the app's own stand-ins ("Friend", "Friend <id>",
+ * "You") are NOT: they appear while a profile has not loaded yet and must never be saved as an account's name.
+ */
+internal fun isRealSteamName(name: String?): Boolean {
+    if (name.isNullOrBlank()) return false
+    val n = name.trim()
+    return !n.equals("Friend", ignoreCase = true) && !n.equals("You", ignoreCase = true) &&
+        !Regex("Friend \\d+").matches(n)
+}
+
+/**
  * Every Steam account the user has signed in to, so the app can swap between them like the real
  * Steam client's "Change account" — without asking for the password again.
  *
@@ -49,6 +60,8 @@ object SteamAccountStore {
     /** Set on the 3.1.6 -> 3.1.7 upgrade: the library DB still holds the single legacy account's data. */
     private const val K_LEGACY_PENDING = "legacy_owner_pending"
     private const val K_OWNED_PREFIX = "owned_"
+    /** `installer_<appId>` = SteamID64 of the account the game belongs to: its downloader, or the owner found at launch (absent = unknown). */
+    private const val K_INSTALLER_PREFIX = "installer_"
 
     /** How long a switch waits for the target's logon before reporting "still connecting". */
     private const val SESSION_WAIT_MS = 25_000L
@@ -65,7 +78,28 @@ object SteamAccountStore {
     ) {
         val needsLogin: Boolean get() = refreshToken.isEmpty()
         /** What the account chooser shows as the main line. */
-        val label: String get() = displayName.ifBlank { username }
+        val label: String get() = if (isRealSteamName(displayName)) displayName else username
+
+        /** Never prints the login token or the username (a data class would otherwise print every field). */
+        override fun toString(): String = "Account(steamId64=$steamId64, needsLogin=$needsLogin)"
+    }
+
+    /** What [launchAccountCheck] decided for a SteamLite / Headless Steam launch. */
+    sealed class LaunchCheck {
+        /** Launch as usual. */
+        object Proceed : LaunchCheck()
+
+        /** The launch must not go on silently: the caller shows a dialog. */
+        sealed class Warn : LaunchCheck()
+
+        /**
+         * The game belongs to a saved account ([ownerSteamId], named [ownerName]) other than the one
+         * signed in ([activeName]); the launch can switch to it.
+         */
+        data class Mismatch(val ownerSteamId: Long, val ownerName: String, val activeName: String) : Warn()
+
+        /** Every saved account's game list is known and none of them owns the game. */
+        object NoOwner : Warn()
     }
 
     enum class SwitchResult {
@@ -171,7 +205,8 @@ object SteamAccountStore {
                     username = o.optString("user", ""),
                     refreshToken = o.optString("token", ""),
                     accountId = o.optInt("aid", 0),
-                    displayName = o.optString("name", ""),
+                    // An older build could save a stand-in ("Friend") here: read it as "unknown".
+                    displayName = o.optString("name", "").takeIf { isRealSteamName(it) }.orEmpty(),
                     avatarUrl = o.optString("avatar", ""),
                     lastUsed = o.optLong("last", 0L),
                 )
@@ -213,7 +248,7 @@ object SteamAccountStore {
         val token = SteamPrefs.refreshToken
         val sid = activeSid()
         val aid = SteamPrefs.accountId.takeIf { it != 0 } ?: (sid and 0xFFFFFFFFL).toInt()
-        val name = SteamPrefs.displayName
+        val name = SteamPrefs.displayName.takeIf { isRealSteamName(it) }.orEmpty()
         val now = System.currentTimeMillis()
         val idx = indexOfLocked(list, sid, user)
         if (idx < 0) {
@@ -263,13 +298,18 @@ object SteamAccountStore {
         if (steamId64 == 0L) return
         try {
             init(ctx)
+            val realName = displayName?.takeIf { isRealSteamName(it) }
+            // The signed-in account's own name also lives in the active prefs view (JavaSteam never writes it).
+            if (realName != null && SteamPrefs.isLoggedIn && activeSid() == steamId64 && SteamPrefs.displayName != realName) {
+                SteamPrefs.displayName = realName
+            }
             synchronized(lock) {
                 val list = readLocked().toMutableList()
                 val idx = list.indexOfFirst { it.steamId64 == steamId64 }
                 if (idx < 0) return
                 val old = list[idx]
                 val updated = old.copy(
-                    displayName = displayName?.takeIf { it.isNotBlank() } ?: old.displayName,
+                    displayName = realName ?: old.displayName,
                     avatarUrl = avatarUrl?.takeIf { it.isNotBlank() } ?: old.avatarUrl,
                 )
                 if (updated == old) return
@@ -332,6 +372,11 @@ object SteamAccountStore {
                 // the library rows until its own sync lands (see visibleAppIds).
                 if (a.steamId64 != owner) ed.remove(K_OWNED_PREFIX + a.steamId64)
             }
+            // Games recorded as belonging to a removed account no longer have that account to switch to.
+            val removedIds = removed.map { it.steamId64 }.filter { it != 0L }.toSet()
+            for ((key, value) in sp.all) {
+                if (key.startsWith(K_INSTALLER_PREFIX) && value is Long && value in removedIds) ed.remove(key)
+            }
             ed.apply()
             ownedCache = null
         }
@@ -380,11 +425,25 @@ object SteamAccountStore {
     }
 
     private fun loadOwnedLocked(sp: SharedPreferences, sid: Long): Set<Int>? {
+        val set = parseOwnedLocked(sp, sid) ?: return null
+        ownedCache = sid to set
+        return set
+    }
+
+    private fun parseOwnedLocked(sp: SharedPreferences, sid: Long): Set<Int>? {
         val csv = sp.getString(K_OWNED_PREFIX + sid, null) ?: return null
         val set = HashSet<Int>()
         for (part in csv.split(',')) part.trim().toIntOrNull()?.let { set.add(it) }
-        ownedCache = sid to set
         return set
+    }
+
+    /**
+     * The appIds [sid] owned at its last library sync, or null when it has no snapshot (it has not
+     * synced since snapshots were recorded). Does not disturb the active account's cache.
+     */
+    private fun ownedSnapshotLocked(sp: SharedPreferences, sid: Long): Set<Int>? {
+        val cached = ownedCache
+        return if (cached != null && cached.first == sid) cached.second else parseOwnedLocked(sp, sid)
     }
 
     /** 3.1.6 upgrade: snapshot the legacy account's license rows once, before another account syncs. */
@@ -421,6 +480,80 @@ object SteamAccountStore {
                 Log.w(TAG, "account side files swap failed (${t.javaClass.simpleName})")
             }
         }
+    }
+
+    // ── Which account a game belongs to ───────────────────────────────────────────────────────
+
+    /**
+     * Remember the ACTIVE account as the one that just installed or updated [appId] (called when a
+     * download completes, by both download engines). With nobody signed in the entry is dropped, so
+     * an old value can never be attributed to a download made by an unknown account.
+     */
+    fun recordInstaller(ctx: Context, appId: Int) {
+        if (appId <= 0) return
+        try {
+            val sid = activeSteamId(ctx)
+            val ed = prefs().edit()
+            if (sid != 0L) ed.putLong(K_INSTALLER_PREFIX + appId, sid) else ed.remove(K_INSTALLER_PREFIX + appId)
+            ed.apply()
+        } catch (t: Throwable) {
+            Log.w(TAG, "recordInstaller failed (${t.javaClass.simpleName})")
+        }
+    }
+
+    /** Forget who downloaded [appId] (the game was uninstalled). A no-op until the store is initialised. */
+    fun clearInstaller(appId: Int) {
+        if (appContext == null) return
+        try {
+            prefs().edit().remove(K_INSTALLER_PREFIX + appId).apply()
+        } catch (t: Throwable) {
+            Log.w(TAG, "clearInstaller failed (${t.javaClass.simpleName})")
+        }
+    }
+
+    /**
+     * Whether a SteamLite / Headless Steam launch of [appId] may go on with the account signed in now.
+     * Prefs reads only, so it is cheap enough for the main thread. Never throws.
+     *
+     * The account a game belongs to is the one recorded as its installer, provided it is still saved.
+     * Otherwise (no record, or its account was removed) the saved accounts' owned-game snapshots decide:
+     * the signed-in account first, then the most recently used others. The first owner found is recorded
+     * as the game's account. When none owns it the answer is [LaunchCheck.NoOwner], but only if every
+     * saved account has a snapshot: a missing one (not synced yet) makes it unknown and the launch
+     * proceeds. Nobody signed in, or no [appId]: [LaunchCheck.Proceed].
+     */
+    fun launchAccountCheck(ctx: Context, appId: Int): LaunchCheck {
+        if (appId <= 0) return LaunchCheck.Proceed
+        return try {
+            val active = activeSteamId(ctx)
+            if (active == 0L) return LaunchCheck.Proceed
+            synchronized(lock) { launchAccountCheckLocked(appId, active) }
+        } catch (t: Throwable) {
+            Log.w(TAG, "launchAccountCheck failed (${t.javaClass.simpleName})")
+            LaunchCheck.Proceed
+        }
+    }
+
+    private fun launchAccountCheckLocked(appId: Int, active: Long): LaunchCheck {
+        val sp = prefs()
+        val saved = readLocked().sortedByDescending { it.lastUsed }
+        val recorded = sp.getLong(K_INSTALLER_PREFIX + appId, 0L)
+        var owner = if (recorded != 0L && saved.any { it.steamId64 == recorded }) recorded else 0L
+        if (owner == 0L) {
+            val snapshots = saved.map { it.steamId64 to ownedSnapshotLocked(sp, it.steamId64) }
+            val owning = snapshots.firstOrNull { it.first == active && it.second?.contains(appId) == true }
+                ?: snapshots.firstOrNull { it.second?.contains(appId) == true }
+            if (owning == null) {
+                return if (snapshots.all { it.second != null }) LaunchCheck.NoOwner else LaunchCheck.Proceed
+            }
+            owner = owning.first
+            sp.edit().putLong(K_INSTALLER_PREFIX + appId, owner).apply()
+        }
+        if (owner == active) return LaunchCheck.Proceed
+        val ownerName = saved.first { it.steamId64 == owner }.label
+        val activeName = saved.firstOrNull { it.steamId64 == active }?.label
+            ?: SteamPrefs.displayName.takeIf { isRealSteamName(it) } ?: SteamPrefs.username
+        return LaunchCheck.Mismatch(owner, ownerName, activeName)
     }
 
     // ── Switching ─────────────────────────────────────────────────────────────────────────────
@@ -501,12 +634,20 @@ object SteamAccountStore {
                 SteamRepository.SwitchOutcome.PENDING -> SwitchResult.SWITCHED_CONNECTING
                 SteamRepository.SwitchOutcome.SIGNED_IN_ELSEWHERE -> SwitchResult.SIGNED_IN_ELSEWHERE
                 SteamRepository.SwitchOutcome.TOKEN_REJECTED -> {
-                    // Dead token: sign the (now empty) session out WITHOUT forgetting anyone, keep the
-                    // entry flagged so the chooser says "sign-in expired", and let the caller open the
-                    // login screen pre-filled. The other accounts' tokens are never touched.
+                    // Read Steam's answer before the session is ended (ending it resets the status).
+                    val definite = rejectionIsDefinite(repo.lastSessionStatus)
                     repo.endSessionKeepSaved()
-                    markNeedsLogin(app, target.steamId64)
-                    SwitchResult.NEEDS_LOGIN
+                    if (definite) {
+                        // Dead token: sign the (now empty) session out WITHOUT forgetting anyone, keep the
+                        // entry flagged so the chooser says "sign-in expired", and let the caller open the
+                        // login screen pre-filled. The other accounts' tokens are never touched.
+                        markNeedsLogin(app, target.steamId64)
+                        SwitchResult.NEEDS_LOGIN
+                    } else {
+                        // Throttled, rate limited or an ambiguous denial (quick switching triggers these):
+                        // the saved login is not proven bad, so it is kept and the switch can be retried.
+                        SwitchResult.FAILED
+                    }
                 }
                 else -> SwitchResult.FAILED
             }
@@ -514,6 +655,34 @@ object SteamAccountStore {
         } finally {
             if (!started) repo.cancelAccountSwitch()
         }
+    }
+
+    /**
+     * True when Steam's last logon answer says the saved login itself is bad (wrong, expired or revoked).
+     * Throttling, rate limits and a plain "access denied" are NOT definite: the same login may well work
+     * a moment later, so it must not be erased.
+     */
+    private fun rejectionIsDefinite(status: String?): Boolean {
+        val s = status ?: return false
+        return s.contains("InvalidPassword") || s.contains("Expired") || s.contains("Revoked")
+    }
+
+    /**
+     * Game screens ([com.winlator.star.XServerDisplayActivity]) currently open in this process. A game
+     * session blocks an account switch whatever its launch mode (Headless Steam, Goldberg and Raw games
+     * don't always announce themselves as in-game), and it covers the exit-time cloud-save and
+     * achievement upload, which runs while the screen is still open.
+     */
+    private val gameSessions = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /** A game screen opened. Pair with [gameSessionClosed]. */
+    fun gameSessionOpened() {
+        gameSessions.incrementAndGet()
+    }
+
+    /** A game screen closed (never goes below zero). */
+    fun gameSessionClosed() {
+        gameSessions.updateAndGet { if (it > 0) it - 1 else 0 }
     }
 
     /**
@@ -525,7 +694,7 @@ object SteamAccountStore {
     fun sessionSwapBlocker(ctx: Context): SwitchResult? {
         val repo = SteamRepository.getInstance()
         repo.initialize(ctx.applicationContext)
-        if (repo.isSuspendedForRealSteam || repo.inGameAppId != 0) return SwitchResult.GAME_RUNNING
+        if (gameSessions.get() > 0 || repo.isSuspendedForRealSteam || repo.inGameAppId != 0) return SwitchResult.GAME_RUNNING
         if (downloadsBusy(repo)) return SwitchResult.DOWNLOAD_ACTIVE
         return null
     }

@@ -27,7 +27,7 @@ import kotlin.math.roundToInt
  *
  * ## Two sources
  *  - PRIMARY: the batch endpoint `IStoreBrowseService/GetItems/v1` with `include_reviews`, up to
- *    [BATCH_SIZE] apps per request (about 0.7 s for 100), so a 9,000-game library takes minutes, not
+ *    [BATCH_SIZE] apps per request (about 0.7 s for 100), so even a very large library takes minutes, not
  *    hours. It is a GET with the JSON in the URL, hence the 100 cap (300 ids is an HTTP 414).
  *    Its numbers come from `summary_filtered` — what the Steam store page itself shows — and can
  *    differ slightly from the per-game `appreviews` API, which counts some off-topic review activity
@@ -38,9 +38,9 @@ import kotlin.math.roundToInt
  *
  * ## Behaviour
  *  - [backfill] walks the games that have no fresh score, strictly one request at a time, with a
- *    pause after each ([BATCH_GAP_MS] / [REQUEST_GAP_MS]), and caches every answer in `steam_games`
- *    (review_* columns) so it survives restarts and works offline afterwards. A batch is written in
- *    ONE transaction. Entries older than [STALE_SEC] are refreshed.
+ *    pause after each ([BATCH_GAP_MS] / [REQUEST_GAP_MS]), and caches every answer in
+ *    [SteamReviewStore] (its own `steam_reviews.db`) so it survives restarts and works offline
+ *    afterwards. A batch is written in ONE transaction. Entries older than [STALE_SEC] are refreshed.
  *  - HTTP 429 / 5xx / transport errors back off exponentially and retry the same request; after
  *    [MAX_CONSECUTIVE_FAILURES] in a row the run stops and stays quiet for [COOLDOWN_MS].
  *  - A game with fewer than [MIN_REVIEWS] reviews (Steam itself shows no rating below ten), a game
@@ -380,25 +380,19 @@ internal object SteamReviewScores {
         return if (s.isEmpty() || s.first().isDigit() || s.startsWith("No ", ignoreCase = true)) "" else s
     }
 
-    private fun storeBatch(appIds: List<Int>, byApp: Map<Int, ReviewSummary>): Boolean = try {
-        val n = appIds.size
-        val percents = IntArray(n)
-        val totals = IntArray(n)
-        val descs = Array(n) { "" }
-        for (k in 0 until n) {
-            val s = byApp[appIds[k]] ?: UNRATED
-            percents[k] = s.percent
-            totals[k] = s.total
-            descs[k] = s.desc
+    private fun storeBatch(appIds: List<Int>, byApp: Map<Int, ReviewSummary>): Boolean {
+        val ctx = SteamRepository.getInstance().appContextOrNull()
+        if (ctx == null) {
+            StorefrontLog.w(TAG, "review scores: no app context, could not save a batch of ${appIds.size}")
+            return false
         }
-        val repo = SteamRepository.getInstance()
-        repo.database.setReviewScores(appIds.toIntArray(), percents, totals, descs)
-        // The cached row list is what the Library tab reloads from; drop it so the next read sees this.
-        repo.invalidateGameCache()
-        true
-    } catch (e: Exception) {
-        StorefrontLog.w(TAG, "review scores: could not save a batch of ${appIds.size}", e)
-        false
+        val now = System.currentTimeMillis() / 1000L
+        val rows = HashMap<Int, SteamReviewStore.Review>(appIds.size * 2)
+        for (id in appIds) {
+            val s = byApp[id] ?: UNRATED
+            rows[id] = SteamReviewStore.Review(s.percent, s.total, s.desc, now)
+        }
+        return SteamReviewStore.putAll(ctx, rows)
     }
 
     // ── Network + parse: per-game fallback ────────────────────────────────────────────────────
@@ -439,14 +433,13 @@ internal object SteamReviewScores {
         return ReviewSummary(percent, total, cleanLabel(q.optString("review_score_desc", "")))
     }
 
-    private fun store(appId: Int, s: ReviewSummary): Boolean = try {
-        val repo = SteamRepository.getInstance()
-        repo.database.setReviewScore(appId, s.percent, s.total, s.desc)
-        // The cached row list is what the Library tab reloads from; drop it so the next read sees this.
-        repo.invalidateGameCache()
-        true
-    } catch (e: Exception) {
-        StorefrontLog.w(TAG, "review scores: could not save app $appId", e)
-        false
+    private fun store(appId: Int, s: ReviewSummary): Boolean {
+        val ctx = SteamRepository.getInstance().appContextOrNull()
+        if (ctx == null) {
+            StorefrontLog.w(TAG, "review scores: no app context, could not save app $appId")
+            return false
+        }
+        val now = System.currentTimeMillis() / 1000L
+        return SteamReviewStore.putAll(ctx, mapOf(appId to SteamReviewStore.Review(s.percent, s.total, s.desc, now)))
     }
 }

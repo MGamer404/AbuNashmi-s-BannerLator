@@ -27,6 +27,42 @@ object SteamLibraryImport {
 
     private val running = AtomicBoolean(false)
 
+    private const val IGNORE_PREFS = "steam_library_import_ignore"
+    private const val IGNORE_KEY = "app_ids"
+
+    /**
+     * Stops the import from marking [appId] installed again. Called when the user cancels and deletes a
+     * download of a game whose folder another Steam client owns: the folder and its manifest stay on disk, and
+     * without this the next Library visit would resurrect the game. Cleared by [clearIgnore] when the user
+     * installs it again on purpose. Never throws.
+     */
+    @JvmStatic
+    fun ignore(ctx: Context, appId: Int) = editIgnored(ctx) { it.add(appId.toString()) }
+
+    /** Lets the import see [appId] again (a fresh install of it was started). Never throws. */
+    @JvmStatic
+    fun clearIgnore(ctx: Context, appId: Int) = editIgnored(ctx) { it.remove(appId.toString()) }
+
+    private fun ignoredIds(ctx: Context): Set<String> = try {
+        ctx.applicationContext.getSharedPreferences(IGNORE_PREFS, Context.MODE_PRIVATE)
+            .getStringSet(IGNORE_KEY, emptySet()) ?: emptySet()
+    } catch (_: Throwable) {
+        emptySet()
+    }
+
+    private fun editIgnored(ctx: Context, change: (MutableSet<String>) -> Unit) {
+        try {
+            val sp = ctx.applicationContext.getSharedPreferences(IGNORE_PREFS, Context.MODE_PRIVATE)
+            // A StringSet returned by getStringSet must be copied before it is changed.
+            val set = HashSet(sp.getStringSet(IGNORE_KEY, emptySet()) ?: emptySet())
+            val before = set.size
+            change(set)
+            if (set.size != before) sp.edit().putStringSet(IGNORE_KEY, set).apply()
+        } catch (t: Throwable) {
+            Log.w(TAG, "import-ignore list update failed: ${t.message}")
+        }
+    }
+
     /**
      * Scans every configured library and marks the games found installed. Returns how many games were
      * newly marked. Blocking (file and database reads) — call it off the main thread. A concurrent call
@@ -62,6 +98,12 @@ object SteamLibraryImport {
         val installedIds = HashSet<Int>()
         for (row in db.getInstalledGames()) installedIds.add(row.appId)
         val knownIds = HashSet<Int>(db.getAllAppIds())
+        // Games the downloader owns right now (running, queued or paused) are not "installed" yet, and games
+        // the user cancelled on a folder another client owns must not come back (see [ignore]).
+        val busyIds = HashSet<Int>()
+        for (row in db.getActiveDownloads()) busyIds.add(row.appId)
+        busyIds.addAll(SteamDepotDownloader.activeDownloads.keys)
+        for (s in ignoredIds(app)) s.toIntOrNull()?.let { busyIds.add(it) }
 
         var imported = 0
         for (lib in libs) {
@@ -72,6 +114,7 @@ object SteamLibraryImport {
             for (manifest in manifests) {
                 val appId = MANIFEST_NAME.matchEntire(manifest.name)?.groupValues?.get(1)?.toIntOrNull() ?: continue
                 if (appId in installedIds || appId !in knownIds) continue
+                if (appId in busyIds || DownloadQueue.isQueued(appId)) continue
                 try {
                     if (importOne(app, db, steamapps, manifest, appId)) {
                         installedIds.add(appId)

@@ -95,7 +95,8 @@ object SteamLibraryLocations {
     data class Entry(val location: Location, val isDefault: Boolean, val games: List<String>)
 
     sealed class AddResult {
-        data class Added(val library: Library) : AddResult()
+        /** [lowSpace]: the folder has less than the install margin free (still added; new installs may not fit). */
+        data class Added(val library: Library, val lowSpace: Boolean = false) : AddResult()
         data class Rejected(val reason: String) : AddResult()
     }
 
@@ -217,13 +218,14 @@ object SteamLibraryLocations {
      * Display names of the games installed under [bases] (folder really present) or still downloading
      * into them. Cheap: two small DB reads and one `isDirectory` per installed game.
      */
-    fun gamesIn(ctx: Context, bases: List<File>): List<String> {
+    fun gamesIn(ctx: Context, bases: List<File>, requirePresent: Boolean = true): List<String> {
         val names = LinkedHashMap<Int, String>()
         try {
             val db = SteamDatabase.getInstance(ctx)
             for (row in db.getInstalledGames()) {
                 val dir = row.installDir
-                if (!dir.isNullOrBlank() && bases.any { isUnder(dir, it) } && File(dir).isDirectory) {
+                // requirePresent=false: go by the app's own records, so a pulled card (folder missing) doesn't hide its games.
+                if (!dir.isNullOrBlank() && bases.any { isUnder(dir, it) } && (!requirePresent || File(dir).isDirectory)) {
                     names[row.appId] = row.name.orEmpty().ifBlank { "App ${row.appId}" }
                 }
             }
@@ -268,10 +270,10 @@ object SteamLibraryLocations {
             return reject(R.string.steam_lib_err_duplicate)
         }
 
+        // A nearly full folder is still allowed (it may only be for launching or importing games already
+        // there); it just comes with a warning. Measured on the picked folder BEFORE anything is created in it.
+        val lowSpace = SteamSdInstall.freeBytes(dir) < SteamSdInstall.FREE_SPACE_MARGIN
         if (!SteamAppManifest.ensureLibrary(steamapps) || !canWriteInto(common)) return reject(R.string.steam_lib_err_write)
-        if (SteamSdInstall.freeBytes(common) < SteamSdInstall.FREE_SPACE_MARGIN) {
-            return reject(R.string.steam_lib_err_space, SteamSdInstall.fmtBytes(SteamSdInstall.FREE_SPACE_MARGIN))
-        }
 
         val baseLabel = dir.name.ifBlank { abs }
         val usedLabels = libs.map { it.label }.toSet()
@@ -281,7 +283,7 @@ object SteamLibraryLocations {
         val lib = Library(ID_LIB_PREFIX + UUID.randomUUID().toString().take(8), label, abs)
         saveLibraries(ctx, libs + lib)
         Log.i(TAG, "added library '${lib.label}' at $abs")
-        return AddResult.Added(lib)
+        return AddResult.Added(lib, lowSpace)
     }
 
     /**
@@ -292,7 +294,8 @@ object SteamLibraryLocations {
     fun remove(ctx: Context, id: String): RemoveResult {
         val libs = libraries(ctx)
         val lib = libs.firstOrNull { it.id == id } ?: return RemoveResult.NotFound
-        val games = gamesIn(ctx, listOf(commonOf(lib.path), legacyBaseOf(lib.path)))
+        // By the app's records, not by what is on disk: a pulled card must not make its games look gone.
+        val games = gamesIn(ctx, listOf(commonOf(lib.path), legacyBaseOf(lib.path)), requirePresent = false)
         if (games.isNotEmpty()) return RemoveResult.Blocked(lib, games)
         saveLibraries(ctx, libs.filter { it.id != id })
         if (SteamPrefs.getDefaultInstallLocation(ctx) == id) SteamPrefs.setDefaultInstallLocation(ctx, "")

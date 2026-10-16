@@ -383,12 +383,17 @@ object SteamAchievementStore {
      * Non-throwing; logs to "BH_STEAM_ACHV".
      */
     @JvmStatic
-    fun seedGse(ctx: Context, appId: Int, gseAchievementsFile: File) {
+    fun seedGse(ctx: Context, appId: Int, gseAchievementsFile: File) =
+        seedGse(ctx, appId, gseAchievementsFile, true)
+
+    /** [allowFetch] false = use the offline cache only and never wait on Steam (see [seedGse]). */
+    @JvmStatic
+    fun seedGse(ctx: Context, appId: Int, gseAchievementsFile: File, allowFetch: Boolean) {
         try {
             // 1) Real earned state — prefer the offline cache (the detail page usually populated it),
             //    else a bounded best-effort online fetch. Empty from BOTH ⇒ we know nothing real ⇒ skip.
             var real = cached(ctx, appId)
-            if (real.isEmpty()) real = fetch(ctx, appId)
+            if (real.isEmpty() && allowFetch) real = fetch(ctx, appId)
             if (real.isEmpty()) {
                 Log.i(TAG, "seedGse($appId): no real achievement state available — skip (GSE untouched)")
                 return
@@ -510,11 +515,16 @@ object SteamAchievementStore {
      * returns the count written. Call on a worker thread ([fetch] can block on a CM round-trip).
      */
     @JvmStatic
-    fun writeGbeAchievementSchema(ctx: Context, appId: Int, steamSettingsDir: File): Int {
+    fun writeGbeAchievementSchema(ctx: Context, appId: Int, steamSettingsDir: File): Int =
+        writeGbeAchievementSchema(ctx, appId, steamSettingsDir, true)
+
+    /** [allowFetch] false = use the offline cache only and never wait on Steam (see [writeGbeAchievementSchema]). */
+    @JvmStatic
+    fun writeGbeAchievementSchema(ctx: Context, appId: Int, steamSettingsDir: File, allowFetch: Boolean): Int {
         return try {
             // Ensure the achievements cache is populated: offline DB first, bounded online fallback.
             // (fetch() upserts into the same steam_achievements table cached()/getAchievements() read.)
-            if (cached(ctx, appId).isEmpty() && fetch(ctx, appId).isEmpty()) {
+            if (cached(ctx, appId).isEmpty() && (!allowFetch || fetch(ctx, appId).isEmpty())) {
                 Log.i(TAG, "writeGbeAchievementSchema($appId): no achievement defs available — no-op")
                 return 0
             }
@@ -608,7 +618,14 @@ object SteamAchievementStore {
      * live-account test with sync-back enabled confirms it. It is fully guarded and cannot crash.
      */
     @JvmStatic
-    fun flushPendingSyncBack(ctx: Context) {
+    fun flushPendingSyncBack(ctx: Context) = flushPendingSyncBack(ctx, 0)
+
+    /**
+     * As [flushPendingSyncBack], but with [onlyAppId] > 0 only that game's queued unlocks are pushed; every
+     * other game's stay queued. 0 = every game (the original behaviour).
+     */
+    @JvmStatic
+    fun flushPendingSyncBack(ctx: Context, onlyAppId: Int) {
         try {
             // THE SAFETY GATE. Default OFF → return immediately; the queue is untouched, no network,
             // no write to the real profile. Test builds cannot mutate a live account without opt-in.
@@ -619,7 +636,9 @@ object SteamAchievementStore {
 
             val lines = synchronized(pendingLock) {
                 if (!file.exists()) return
-                file.readLines().map { it.trim() }.filter { it.isNotEmpty() }
+                file.readLines().map { it.trim() }.filter {
+                    it.isNotEmpty() && (onlyAppId <= 0 || it.startsWith("$onlyAppId:"))
+                }
             }
             if (lines.isEmpty()) return
 

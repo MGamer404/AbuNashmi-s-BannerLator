@@ -89,6 +89,8 @@ object SteamAppManifest {
     @JvmStatic
     fun installFolderName(steamapps: File, appId: Int, safeName: String): String {
         existingInstallDir(steamapps, appId)?.let { return it }
+        // The installdir values a sync just learned are written in batches: write any still pending first.
+        try { SteamRepository.getInstance().flushPicsInstallDirs() } catch (_: Throwable) {}
         val pics = sanitizeFolderName(try { SteamPrefs.getPicsInstallDir(appId) } catch (_: Throwable) { "" })
         if (pics.isNotEmpty()) return pics
         Log.i(TAG, "no PICS installdir known for app $appId — using '$safeName'")
@@ -202,12 +204,16 @@ object SteamAppManifest {
                 app.ensureLeaf("name", name)
                 app.ensureLeaf("installdir", installDir.name)
                 app.ensureLeaf("LastOwner", owner.toString())
-                app.ensureLeaf("BytesToDownload", "0")
-                app.ensureLeaf("BytesDownloaded", "0")
                 app.setLeaf("StateFlags", "4")
                 app.setLeaf("LastUpdated", now)
                 app.setLeaf("SizeOnDisk", size.toString())
                 if (build > 0L) app.setLeaf("buildid", build.toString())
+                // A finished install must LOOK finished: another client may have left "update pending" values
+                // behind (or this app flagged it update-required before starting), so clear them.
+                app.setLeaf("BytesToDownload", "0")
+                app.setLeaf("BytesDownloaded", "0")
+                app.setLeaf("UpdateResult", "0")
+                app.setLeaf("TargetBuildID", if (build > 0L) build.toString() else "0")
                 mergeDepots(app, installed, sizeOf)
                 doc = parsed
             } else {
@@ -222,7 +228,9 @@ object SteamAppManifest {
                 app.setLeaf("LastPlayed", "0")
                 app.setLeaf("SizeOnDisk", size.toString())
                 app.setLeaf("StagingSize", "0")
-                app.setLeaf("buildid", build.toString())
+                // An unknown build is left out rather than written as 0 (a 0 would look like a stale build
+                // to a real Steam client and could queue an update).
+                if (build > 0L) app.setLeaf("buildid", build.toString())
                 app.setLeaf("LastOwner", owner.toString())
                 app.setLeaf("UpdateResult", "0")
                 app.setLeaf("BytesToDownload", "0")
@@ -249,6 +257,33 @@ object SteamAppManifest {
                 if (ok) "written" else "could not be written")
         } catch (t: Throwable) {
             Log.w(TAG, "recordInstall($appId, ${installDir.absolutePath}) failed: ${t.message}")
+        }
+    }
+
+    /**
+     * Before this app writes into a game folder another client installed: flags that client's manifest as
+     * "installed, update required" (StateFlags 6), so a cancelled or failed run can never leave a half-updated
+     * folder under a manifest that still says "fully installed". [recordInstall] sets it back to 4 when the
+     * install finishes. Only touches a manifest that names exactly this folder and is currently marked
+     * installed; never creates one. Never throws.
+     */
+    @JvmStatic
+    fun markUpdateRequired(installDir: File, appId: Int) {
+        try {
+            val steamapps = SteamInstallPaths.steamappsOfInstallDir(installDir) ?: return
+            val file = manifestFile(steamapps, appId)
+            if (!file.isFile) return
+            val parsed = parseFile(file) ?: return
+            val app = parsed.child("AppState") ?: return
+            val dir = app.str("installdir")?.trim().orEmpty()
+            if (!dir.equals(installDir.name, ignoreCase = true)) return
+            val flags = app.str("StateFlags")?.trim()?.toLongOrNull() ?: return
+            if ((flags and 4L) == 0L || (flags and 2L) != 0L) return   // not installed, or already flagged
+            app.setLeaf("StateFlags", (flags or 2L).toString())
+            val ok = writeAtomic(file, serialize(parsed))
+            Log.i(TAG, "${file.name}: flagged update-required before building on '${installDir.name}' (${if (ok) "written" else "write failed"})")
+        } catch (t: Throwable) {
+            Log.w(TAG, "markUpdateRequired(${installDir.absolutePath}, $appId) failed: ${t.message}")
         }
     }
 

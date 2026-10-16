@@ -321,9 +321,12 @@ fun rememberSteamLibrary(): SteamLibraryState {
         )
     }
 
+    val appCtx = LocalContext.current.applicationContext
+
     fun loadRows(quiet: Boolean) {
         val repo = runCatching { SteamRepository.getInstance() }.getOrNull() ?: return
         val rows = runCatching { repo.getCachedGameRows() }.getOrDefault(emptyList())
+        val reviews = SteamReviewStore.all(appCtx)
         // The FULL launchable set — games (plus allowlisted appIds) AND demos. The type chip narrows
         // what is DISPLAYED; it must never narrow what is OWNED. Everything past this point,
         // ownedAppIds especially, is computed from this list.
@@ -331,7 +334,7 @@ fun rememberSteamLibrary(): SteamLibraryState {
         // Demos have always arrived here with type == "demo" (the engine parses common.type from
         // appinfo); the old filter simply discarded them on this line.
         games = rows
-            .map { SteamGame.fromGameRow(it) }
+            .map { SteamReviewStore.withReview(SteamGame.fromGameRow(it), reviews) }
             .filter { LibraryTypeFilter.ALL.accepts(it) }
             .sortedBy { it.name.lowercase() }
         isLoading = false
@@ -348,8 +351,6 @@ fun rememberSteamLibrary(): SteamLibraryState {
 
     val load: () -> Unit = { loadRows(quiet = false) }
     val loadQuiet: () -> Unit = { loadRows(quiet = true) }
-
-    val appCtx = LocalContext.current.applicationContext
 
     DisposableEffect(Unit) {
         val repo = runCatching { SteamRepository.getInstance() }.getOrNull()
@@ -586,6 +587,8 @@ fun SteamLibraryTab(
                 SteamAppManifest.removeFor(game.installDir, game.appId)
                 runCatching { SteamRepository.getInstance().database.markUninstalled(game.appId) }
             },
+            // Another game (a demo / server sharing this installdir) still uses the folder: keep it.
+            keepFolder = { SteamInstallPaths.folderSharedWithOtherGame(ctx.applicationContext, java.io.File(game.installDir), game.appId) },
         ) { ok ->
             uninstallingName = null
             if (ok) StorefrontLog.i(StorefrontLog.LIBRARY, "uninstalled app ${game.appId} (${game.name})")

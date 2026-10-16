@@ -1346,6 +1346,15 @@
     <string name="steam_account_busy">Already switching accounts…</string>
     <string name="steam_account_failed">Couldn\'t switch accounts. Please try again.</string>
     <!-- /Steam: change account / saved accounts -->
+    <!-- Steam: launch with a different account than the one the game belongs to -->
+    <string name="steam_launch_mismatch_title">Different Steam account</string>
+    <string name="steam_launch_mismatch_body">This game belongs to %1$s, but you are signed in as %2$s.</string>
+    <string name="steam_launch_mismatch_switch_launch">Switch account and launch</string>
+    <string name="steam_launch_mismatch_switching">Switching…</string>
+    <string name="steam_launch_mismatch_launch_anyway">Launch anyway</string>
+    <string name="steam_launch_no_owner_title">No account owns this game</string>
+    <string name="steam_launch_no_owner_body">None of your saved Steam accounts owns this game, so it can\'t be launched with SteamLite or Headless Steam. Sign in with an account that owns it (Add account).</string>
+    <!-- /Steam: launch with a different account than the one the game belongs to -->
     <string name="disable_xinput_for_shortcut">Disable Xinput (For Exclusive M/KB Control)</string>
     <string name="num_controllers">Number of Controllers</string>
     <string name="fullscreen_stretched">Enable Fullscreen (Stretched)</string>
@@ -2711,7 +2720,7 @@ trying for speed, <b>notemplates</b> if you get driver crashes.
     <string name="steam_lib_err_name">That folder\'s path contains \"steam_games\", which would confuse game detection. Pick or rename another folder.</string>
     <string name="steam_lib_err_duplicate">That location is already in the list.</string>
     <string name="steam_lib_err_write">Couldn\'t write to that folder. Check that it isn\'t read-only and that the app has storage access.</string>
-    <string name="steam_lib_err_space">Less than %1$s is free there.</string>
+    <string name="steam_lib_low_space">Little free space is left there, so new installs may not fit. Launching and importing games already in it still works.</string>
     <string name="steam_lib_install_location">INSTALL LOCATION</string>
     <string name="steam_lib_install_size">This game needs about %1$s on disk.</string>
     <string name="steam_lib_no_room">⛔ Not enough free space here: this game needs about %1$s and only %2$s is free. Pick another location.</string>

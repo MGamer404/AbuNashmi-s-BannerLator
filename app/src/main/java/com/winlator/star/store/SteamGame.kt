@@ -82,10 +82,6 @@ data class SteamGame(
                 developer      = row.developer,
                 metacriticScore = row.metacriticScore,
                 genres         = row.genres,
-                reviewPercent  = row.reviewPercent,
-                reviewTotal    = row.reviewTotal,
-                reviewDesc     = row.reviewDesc,
-                reviewUpdated  = row.reviewUpdated,
             )
         }
     }

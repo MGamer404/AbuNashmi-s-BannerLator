@@ -328,7 +328,11 @@ object MoveGameStorage {
             //       a broken game, so it is logged rather than surfaced as a failed move. ────────
             onProgress(Progress(Phase.CLEANING, plan.sizeBytes, plan.sizeBytes))
             SteamForegroundService.setStatusText("Moving $shortName — freeing the old copy")
-            if (!plan.source.deleteRecursively()) {
+            // Another game (a demo / server sharing this installdir) may still use the old folder: keep it.
+            if (SteamInstallPaths.isLibraryContainer(plan.source) ||
+                SteamInstallPaths.folderSharedWithOtherGame(ctx, plan.source, plan.appId)) {
+                Log.i(TAG, "old copy kept: ${plan.source.absolutePath} is a games folder or another game uses it")
+            } else if (!plan.source.deleteRecursively()) {
                 Log.w(TAG, "old copy not fully deleted: ${plan.source.absolutePath}")
             }
             Log.i(TAG, "moved appId=${plan.appId} ${plan.source.absolutePath} -> ${plan.dest.absolutePath}")
