@@ -254,25 +254,21 @@ fun BigPictureScreen(navController: NavController) {
             val check = SteamAccountStore.launchAccountCheck(context, steamAppIdOf(s))
             if (check is SteamAccountStore.LaunchCheck.Warn) { accountWarning = AccountWarning(s, check, appSteam = false); return }
         }
-        // Put the game's original files back first if an earlier Goldberg launch patched it (no-op otherwise).
-        GoldbergPatcher.restoreOriginalForRealSteamAsync(context, s) { restoreOk, restoreMsg ->
-            if (!restoreOk && restoreMsg.isNotEmpty()) Toast.makeText(context, restoreMsg, Toast.LENGTH_LONG).show()
-            if (!SteamLiteComponent.isInstalled(context)) {
-                componentDownloadFor = s
-                componentDownloadLabel = "SteamLite (Real Steam / VAC)"
-                componentDownloadProgress = 0f
-                SteamLiteComponent.downloadAsync(
-                    context,
-                    { f -> componentDownloadProgress = f },
-                    { ok, msg ->
-                        componentDownloadFor = null
-                        if (ok) preflightFor = s
-                        else Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                    },
-                )
-            } else {
-                preflightFor = s
-            }
+        if (!SteamLiteComponent.isInstalled(context)) {
+            componentDownloadFor = s
+            componentDownloadLabel = "SteamLite (Real Steam / VAC)"
+            componentDownloadProgress = 0f
+            SteamLiteComponent.downloadAsync(
+                context,
+                { f -> componentDownloadProgress = f },
+                { ok, msg ->
+                    componentDownloadFor = null
+                    if (ok) preflightFor = s
+                    else Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                },
+            )
+        } else {
+            preflightFor = s
         }
     }
     // App Steam launch (Option B): Valve's client set on demand, then the same pre-flight. Mirrors ShortcutsScreen.
@@ -281,25 +277,21 @@ fun BigPictureScreen(navController: NavController) {
             val check = SteamAccountStore.launchAccountCheck(context, steamAppIdOf(s))
             if (check is SteamAccountStore.LaunchCheck.Warn) { accountWarning = AccountWarning(s, check, appSteam = true); return }
         }
-        // Same as SteamLite: undo an earlier Goldberg patch before the real Steam client is used.
-        GoldbergPatcher.restoreOriginalForRealSteamAsync(context, s) { restoreOk, restoreMsg ->
-            if (!restoreOk && restoreMsg.isNotEmpty()) Toast.makeText(context, restoreMsg, Toast.LENGTH_LONG).show()
-            if (!SteamHostComponent.isInstalled(context)) {
-                componentDownloadFor = s
-                componentDownloadLabel = "Headless Steam (Valve Steam client)"
-                componentDownloadProgress = 0f
-                SteamHostComponent.downloadAsync(
-                    context,
-                    { f -> componentDownloadProgress = f },
-                    { ok, msg ->
-                        componentDownloadFor = null
-                        if (ok) preflightFor = s
-                        else Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                    },
-                )
-            } else {
-                preflightFor = s
-            }
+        if (!SteamHostComponent.isInstalled(context)) {
+            componentDownloadFor = s
+            componentDownloadLabel = "Headless Steam (Valve Steam client)"
+            componentDownloadProgress = 0f
+            SteamHostComponent.downloadAsync(
+                context,
+                { f -> componentDownloadProgress = f },
+                { ok, msg ->
+                    componentDownloadFor = null
+                    if (ok) preflightFor = s
+                    else Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                },
+            )
+        } else {
+            preflightFor = s
         }
     }
     // RealSteam manual maintenance (the launch popup's Verify / Update buttons — SteamLite roadmap #3),

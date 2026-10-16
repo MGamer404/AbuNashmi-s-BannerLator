@@ -685,10 +685,6 @@ object GoldbergPatcher {
     private fun sharedPrep(
         context: Context, targets: List<PatchTarget>, appId: Int, rep: Report, fetchSchema: Boolean = true,
     ): Boolean {
-        // Goldberg is an offline mode: unless the user switched "sync with Steam Cloud during Goldberg
-        // launches" on, the schema comes from the offline cache only and a patch never waits on Steam.
-        val allowFetch = context.applicationContext.getSharedPreferences("save_manager_prefs", Context.MODE_PRIVATE)
-            .getBoolean("goldberg_cloud_sync", false)
         for (t in targets) {
             // 1. Permanent pristine backup.
             if (!t.bakFile.exists()) {
@@ -725,7 +721,7 @@ object GoldbergPatcher {
         // 4. Achievement DEFINITIONS (schema), once. Not for Off: those files are removed right after, so
         //    the fetch (up to SCHEMA_TIMEOUT_MS) would be wasted.
         if (fetchSchema) {
-            ensureAchievementSchema(context, appId, targets.map { it.dir }, SCHEMA_TIMEOUT_MS, allowFetch, rep)
+            ensureAchievementSchema(context, appId, targets.map { it.dir }, SCHEMA_TIMEOUT_MS, rep)
         }
         return true
     }
@@ -739,15 +735,10 @@ object GoldbergPatcher {
      */
     @JvmStatic
     fun ensureAchievementSchema(context: Context, appId: Int, dirs: List<File>, timeoutMs: Long): Int =
-        ensureAchievementSchema(context, appId, dirs, timeoutMs, true, null)
-
-    /** [allowFetch] false = offline launch: write the schema from the cache only and never wait on Steam. */
-    @JvmStatic
-    fun ensureAchievementSchema(context: Context, appId: Int, dirs: List<File>, timeoutMs: Long, allowFetch: Boolean): Int =
-        ensureAchievementSchema(context, appId, dirs, timeoutMs, allowFetch, null)
+        ensureAchievementSchema(context, appId, dirs, timeoutMs, null)
 
     private fun ensureAchievementSchema(
-        context: Context, appId: Int, dirs: List<File>, timeoutMs: Long, allowFetch: Boolean, rep: Report?,
+        context: Context, appId: Int, dirs: List<File>, timeoutMs: Long, rep: Report?,
     ): Int {
         try {
             val settingsDirs = ArrayList<File>()
@@ -762,10 +753,6 @@ object GoldbergPatcher {
             val prefs = context.applicationContext.getSharedPreferences("goldberg_state", Context.MODE_PRIVATE)
             val key = "schema_try_$appId"
             val hasCache = SteamAchievementStore.cached(context, appId).isNotEmpty()
-            if (!hasCache && !allowFetch) {
-                schemaNote(rep, false, "schema: no cached achievement definitions and Steam sync is off for this launch — skipped")
-                return 0
-            }
             if (!hasCache) {
                 val last = prefs.getLong(key, 0L)
                 if (System.currentTimeMillis() - last < SCHEMA_RETRY_MS) {
@@ -778,7 +765,7 @@ object GoldbergPatcher {
             val written = IntArray(1)
             val worker = Thread({
                 try {
-                    written[0] = SteamAchievementStore.writeGbeAchievementSchema(context, appId, first, allowFetch)
+                    written[0] = SteamAchievementStore.writeGbeAchievementSchema(context, appId, first)
                 } catch (t: Throwable) {
                     Log.w(TAG, "schema worker failed", t)
                 }
@@ -918,57 +905,44 @@ object GoldbergPatcher {
     /**
      * SteamLite and Headless Steam run the game against the REAL Steam client, so a game that was patched
      * for Goldberg earlier must get its original steam_api files back first (otherwise the game keeps
-     * talking to the emulator). Resolves the game from [shortcut], and only when its folder still carries
-     * Goldberg's changes ([looksPatched]) puts the originals back and removes what Goldberg added, then
-     * saves the tier as Off. Reports on the main thread: ok=true (empty message) when there was nothing to
-     * do or the restore worked, ok=false with a message when the restore failed. Never throws.
+     * talking to the emulator). Only when the folder at [installDir] still carries Goldberg's changes
+     * ([looksPatched]) are the originals put back and what Goldberg added removed; the tier is then saved as
+     * Off (and remembered for the next Goldberg launch). Returns null when there was nothing to do or the
+     * restore worked, else a message for the user. Blocking: call it off the main thread. Never throws.
      */
     @JvmStatic
-    fun restoreOriginalForRealSteamAsync(context: Context, shortcut: Shortcut, cb: Callback) {
+    fun restoreOriginalForRealSteam(context: Context, appId: Int, installDir: String, gameName: String): String? {
         val appContext = context.applicationContext
-        val main = Handler(Looper.getMainLooper())
-        Thread({
-            var ok = true
-            var msg = ""
-            try {
-                val target = resolveTarget(appContext, shortcut)
-                // A game whose saved tier is Off was never patched (or was already restored): skip the
-                // folder walk. An unresolved app id can't be checked, so it is still scanned.
-                if (target.appId > 0) SteamPrefs.init(appContext)
-                val neverPatched = target.appId > 0 && SteamPrefs.getGoldbergMode(target.appId) == GoldbergMode.OFF
-                val root = if (!neverPatched && target.installDir.isNotEmpty()) File(target.installDir) else null
-                if (root != null && root.isDirectory) {
-                    val targets = analyze(root)
-                    if (targets.isNotEmpty() && looksPatched(targets)) {
-                        val rep = Report()
-                        rep.add("real-Steam launch: '${shortcut.name}' still carries Goldberg files; restoring the original files")
-                        refreshStaleBackups(targets, rep)
-                        val restored = restoreDlls(targets, rep)
-                        removeAddedFiles(targets, root, shortcut.name)
-                        rep.add("restore result: original dlls restored=$restored")
-                        if (restored) {
-                            if (target.appId > 0) {
-                                SteamPrefs.init(appContext)
-                                // Remember the tier that was in use, so the next Goldberg launch brings it back.
-                                rememberTier(appContext, target.appId, SteamPrefs.getGoldbergMode(target.appId))
-                                SteamPrefs.setGoldbergMode(target.appId, GoldbergMode.OFF)
-                            }
-                        } else {
-                            ok = false
-                            msg = "Couldn't restore this game's original Steam files — it may still run with " +
-                                "Goldberg instead of the real Steam client."
-                        }
-                        if (target.appId > 0) GoldbergDiag.recordApply(appContext, target.appId, rep.lines)
-                        Log.i(TAG, "restoreOriginalForRealSteam '${shortcut.name}': restored=$restored")
-                    }
-                }
-            } catch (t: Throwable) {
-                Log.w(TAG, "restoreOriginalForRealSteam failed", t)
+        try {
+            // A game whose saved tier is Off was never patched (or was already restored): skip the
+            // folder walk. An unresolved app id can't be checked, so it is still scanned.
+            if (appId > 0) SteamPrefs.init(appContext)
+            if (appId > 0 && SteamPrefs.getGoldbergMode(appId) == GoldbergMode.OFF) return null
+            val root = if (installDir.isNotEmpty()) File(installDir) else return null
+            if (!root.isDirectory) return null
+            val targets = analyze(root)
+            if (targets.isEmpty() || !looksPatched(targets)) return null
+
+            val rep = Report()
+            rep.add("real-Steam launch: '$gameName' still carries Goldberg files; restoring the original files")
+            refreshStaleBackups(targets, rep)
+            val restored = restoreDlls(targets, rep)
+            removeAddedFiles(targets, root, gameName)
+            rep.add("restore result: original dlls restored=$restored")
+            if (restored && appId > 0) {
+                // Remember the tier that was in use, so the next Goldberg launch brings it back.
+                rememberTier(appContext, appId, SteamPrefs.getGoldbergMode(appId))
+                SteamPrefs.setGoldbergMode(appId, GoldbergMode.OFF)
             }
-            val fOk = ok
-            val fMsg = msg
-            main.post { cb.onResult(fOk, fMsg) }
-        }, "goldberg-restore-real-steam").start()
+            if (appId > 0) GoldbergDiag.recordApply(appContext, appId, rep.lines)
+            Log.i(TAG, "restoreOriginalForRealSteam '$gameName': restored=$restored")
+            return if (restored) null else
+                "Couldn't restore this game's original Steam files — it may still run with " +
+                    "Goldberg instead of the real Steam client."
+        } catch (t: Throwable) {
+            Log.w(TAG, "restoreOriginalForRealSteam failed", t)
+            return null
+        }
     }
 
     private const val LAST_TIER_PREFIX = "last_tier_"

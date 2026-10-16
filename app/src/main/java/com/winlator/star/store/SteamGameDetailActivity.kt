@@ -3060,7 +3060,7 @@ private fun GoldbergSection(
     onModeSelected: (GoldbergMode) -> Unit,
 ) {
     // No "Off" entry: launching the game with SteamLite or Headless Steam puts its original files back
-    // automatically (GoldbergPatcher.restoreOriginalForRealSteamAsync), so Goldberg never needs switching off by hand.
+    // automatically (GoldbergPatcher.restoreOriginalForRealSteam), so Goldberg never needs switching off by hand.
     val options = listOf(
         GoldbergMode.REGULAR to "Regular",
         GoldbergMode.EXPERIMENTAL to "Experimental",

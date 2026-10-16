@@ -5896,6 +5896,21 @@ public class XServerDisplayActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * SteamLite and Headless Steam use the real Steam client, so a game an earlier Goldberg launch patched must
+     * get its original files back before it starts. A no-op for a game that was never patched. On the launch
+     * worker thread; a failure is shown to the user and the launch goes on.
+     */
+    private void restoreGoldbergForRealSteam(SteamAppRef ref) {
+        try {
+            String problem = GoldbergPatcher.restoreOriginalForRealSteam(
+                    getApplicationContext(), ref.appId, ref.installDir, shortcut != null ? shortcut.name : "");
+            if (problem != null) AppUtils.showToast(this, problem);
+        } catch (Throwable t) {
+            Log.w("BH_GOLDBERG", "restore before a real-Steam launch failed", t);
+        }
+    }
+
     private void maybeStageRealSteam() {
         try {
             if (shortcut == null || container == null) return;
@@ -5914,6 +5929,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
                         + "falling back to normal launch");
                 return;
             }
+            restoreGoldbergForRealSteam(ref);
             SteamDatabase.GameRow row = SteamRepository.getInstance().getDatabase().getGame(ref.appId);
             String displayName = (row != null && row.name != null) ? row.name : shortcut.name;
             // EA support: an EA-published title launches through EA Desktop's chain — tell the agent
@@ -6006,6 +6022,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
                 Log.w("BH_APPSTEAM", "AppSteam requested but appId unresolved — falling back to normal launch");
                 return;
             }
+            restoreGoldbergForRealSteam(ref);
             // Wine layer dir (to report whether lsteamclient is present — informational).
             File wineLibDir = null;
             try { wineLibDir = new File(imageFs.getWinePath(), "lib/wine"); } catch (Throwable ignored) {}
@@ -6936,19 +6953,8 @@ public class XServerDisplayActivity extends AppCompatActivity {
                 try {
                     SteamPrefs.INSTANCE.init(appCtx); // idempotent + cheap; XServer path may not have inited it
                     if (SteamPrefs.INSTANCE.getGoldbergMode(appId) != GoldbergMode.OFF) {
-                        // A Goldberg launch with the cloud option off is an offline launch: it must not wait on
-                        // Steam. Seed and schema come from the offline cache only; when nothing is cached yet, the
-                        // list is fetched in the background so the NEXT launch has it.
-                        final boolean allowFetch = !skipCloudForGoldberg();
-                        if (!allowFetch && SteamAchievementStore.INSTANCE.cached(appCtx, appId).isEmpty()) {
-                            Thread prefetch = new Thread(() -> {
-                                try { SteamAchievementStore.INSTANCE.fetch(appCtx, appId); } catch (Throwable ignored) {}
-                            }, "BH-AchvPrefetch");
-                            prefetch.setDaemon(true);
-                            prefetch.start();
-                        }
                         java.io.File gseFile = AchievementWatcher.gseAchievementsFile(containerRoot, appId);
-                        SteamAchievementStore.seedGse(appCtx, appId, gseFile, allowFetch);
+                        SteamAchievementStore.seedGse(appCtx, appId, gseFile);
 
                         // Also ensure the gbe_fork achievement SCHEMA (definitions) exists beside each
                         // swapped steam_api dll (installs patched by an older build never got it).
@@ -6960,7 +6966,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
                             for (GoldbergPatcher.PatchTarget target : GoldbergPatcher.analyze(installRoot)) {
                                 dirs.add(target.getDir());
                             }
-                            GoldbergPatcher.ensureAchievementSchema(appCtx, appId, dirs, GoldbergPatcher.SCHEMA_TIMEOUT_MS, allowFetch);
+                            GoldbergPatcher.ensureAchievementSchema(appCtx, appId, dirs, GoldbergPatcher.SCHEMA_TIMEOUT_MS);
                         }
                     } else {
                         Log.i("BH_STEAM_ACHV", "achievement seed: Goldberg OFF for appId=" + appId + " — no seed");

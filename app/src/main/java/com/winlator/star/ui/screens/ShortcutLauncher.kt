@@ -205,26 +205,21 @@ class ShortcutLauncher internal constructor(
             val check = SteamAccountStore.launchAccountCheck(context, steamAppIdOf(s))
             if (check is SteamAccountStore.LaunchCheck.Warn) { accountWarning = AccountWarning(s, check, appSteam = false); return }
         }
-        // The real Steam client must not meet Goldberg's emulated steam_api: put the game's original files
-        // back first if an earlier Goldberg launch left its files in the game folder (no-op otherwise).
-        GoldbergPatcher.restoreOriginalForRealSteamAsync(context, s) { restoreOk, restoreMsg ->
-            if (!restoreOk && restoreMsg.isNotEmpty()) Toast.makeText(context, restoreMsg, Toast.LENGTH_LONG).show()
-            if (!SteamLiteComponent.isInstalled(context)) {
-                componentDownloadFor = s
-                componentDownloadLabel = "SteamLite (Real Steam / VAC)"
-                componentDownloadProgress = 0f
-                SteamLiteComponent.downloadAsync(
-                    context,
-                    { f -> componentDownloadProgress = f },
-                    { ok, msg ->
-                        componentDownloadFor = null
-                        if (ok) preflightFor = s
-                        else Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                    },
-                )
-            } else {
-                preflightFor = s
-            }
+        if (!SteamLiteComponent.isInstalled(context)) {
+            componentDownloadFor = s
+            componentDownloadLabel = "SteamLite (Real Steam / VAC)"
+            componentDownloadProgress = 0f
+            SteamLiteComponent.downloadAsync(
+                context,
+                { f -> componentDownloadProgress = f },
+                { ok, msg ->
+                    componentDownloadFor = null
+                    if (ok) preflightFor = s
+                    else Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                },
+            )
+        } else {
+            preflightFor = s
         }
     }
 
@@ -236,25 +231,21 @@ class ShortcutLauncher internal constructor(
             val check = SteamAccountStore.launchAccountCheck(context, steamAppIdOf(s))
             if (check is SteamAccountStore.LaunchCheck.Warn) { accountWarning = AccountWarning(s, check, appSteam = true); return }
         }
-        // Same as SteamLite: this runs against the real Steam client, so undo an earlier Goldberg patch first.
-        GoldbergPatcher.restoreOriginalForRealSteamAsync(context, s) { restoreOk, restoreMsg ->
-            if (!restoreOk && restoreMsg.isNotEmpty()) Toast.makeText(context, restoreMsg, Toast.LENGTH_LONG).show()
-            if (!SteamHostComponent.isInstalled(context)) {
-                componentDownloadFor = s
-                componentDownloadLabel = "Headless Steam (Valve Steam client)"
-                componentDownloadProgress = 0f
-                SteamHostComponent.downloadAsync(
-                    context,
-                    { f -> componentDownloadProgress = f },
-                    { ok, msg ->
-                        componentDownloadFor = null
-                        if (ok) preflightFor = s
-                        else Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                    },
-                )
-            } else {
-                preflightFor = s
-            }
+        if (!SteamHostComponent.isInstalled(context)) {
+            componentDownloadFor = s
+            componentDownloadLabel = "Headless Steam (Valve Steam client)"
+            componentDownloadProgress = 0f
+            SteamHostComponent.downloadAsync(
+                context,
+                { f -> componentDownloadProgress = f },
+                { ok, msg ->
+                    componentDownloadFor = null
+                    if (ok) preflightFor = s
+                    else Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                },
+            )
+        } else {
+            preflightFor = s
         }
     }
 

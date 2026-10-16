@@ -733,6 +733,13 @@ private fun RailOverflow(
                 onClick = { expanded = false; onToggleView() },
             )
             DropdownMenuItem(
+                text = { Text(stringResource(R.string.steam_lib_title)) },
+                leadingIcon = {
+                    Icon(Icons.Filled.FolderOpen, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                },
+                onClick = { expanded = false; showLibraryLocations = true },
+            )
+            DropdownMenuItem(
                 text = { Text("Save Manager") },
                 leadingIcon = {
                     Icon(Icons.Filled.CloudSync, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
@@ -755,13 +762,6 @@ private fun RailOverflow(
                     Icon(Icons.Filled.SwitchAccount, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 },
                 onClick = { expanded = false; onChangeAccount() },
-            )
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.steam_lib_title)) },
-                leadingIcon = {
-                    Icon(Icons.Filled.FolderOpen, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                },
-                onClick = { expanded = false; showLibraryLocations = true },
             )
             HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outline)
             DropdownMenuItem(
