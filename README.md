@@ -1,11 +1,13 @@
 # AbuNashmi's BannerLator
 
-**The original [BannerLator](https://github.com/The412Banner/Bannerlator) at 3.1.7-pre2, plus six changes** — the Android app that runs Windows games and apps, with a handful of extra features for Steam.
+**The original [BannerLator](https://github.com/The412Banner/Bannerlator) at 3.1.7-pre2, plus five changes** — the Android app that runs Windows games and apps, with a handful of extra features for Steam.
+
+These five changes were also sent to the original project as pull requests: [#613](https://github.com/The412Banner/Bannerlator/pull/613), [#614](https://github.com/The412Banner/Bannerlator/pull/614), [#615](https://github.com/The412Banner/Bannerlator/pull/615), [#616](https://github.com/The412Banner/Bannerlator/pull/616), [#617](https://github.com/The412Banner/Bannerlator/pull/617).
 
 > **Please read before installing**
 >
 > - 🤖 **These changes are 100% "vibe coded".** Every change was written by an AI (Claude) from plain-language requests. The person behind it has **absolutely no coding knowledge**, can't review the code, and can't answer technical questions about it.
-> - 🧪 **Tested lightly, on one phone.** The changes were only tried on a OnePlus 15 (Snapdragon 8 Elite Gen 5), and possibly not on the current 3.1.7-pre2 base. Other devices and GPUs are untested. Expect rough edges.
+> - 🧪 **Tested lightly, on one phone.** The changes were only tried on a OnePlus 15 (Snapdragon 8 Elite Gen 5), on top of 3.1.7-pre2. Other devices and GPUs are untested. Expect rough edges.
 > - 🚧 **It will most likely not be maintained.** There is no roadmap and no promise of bug fixes, updates or answers to questions. Use it as-is.
 > - If you want the actively developed version, use the original: **[The412Banner/Bannerlator](https://github.com/The412Banner/Bannerlator)**.
 
@@ -21,7 +23,7 @@ If you enjoy this app, please support the person who actually built it. **[The41
 Everything else in the app is exactly BannerLator 3.1.7-pre2. The changes are only these:
 
 ### 👥 Switch between Steam accounts
-Works like the real Steam client. Every account you sign into is remembered. Tap **Change account**, pick one from your list, and you're in — no username or password again. You can also add another account or remove one from the list. If you're updating from an earlier version, your current login carries over and you stay signed in. Switching is blocked while a download is running, so nothing gets mixed up.
+Works like the real Steam client. Every account you sign into is remembered. Tap **Change account**, pick one from your list, and you're in — no username or password again. You can also add another account or remove one from the list. If you're updating from an earlier version, your current login carries over and you stay signed in. Switching is blocked while a download is running or a game is open. If you launch a game with SteamLite or Headless Steam while signed in as the wrong account, the app offers to switch first. The sign-in screen also lists your saved accounts.
 
 ### 📁 Extra game library folders that work like real Steam
 Add your own folders as game libraries (for example a **Games** folder). The app builds a proper Steam **`steamapps`** folder inside it, the same layout every Steam client uses, so **other apps and emulators can use the same games without downloading them again.**
@@ -40,9 +42,10 @@ A sort button next to the search bar: **A–Z** (the default) or **Steam user ra
 
 ### 🕹️ Goldberg (offline Steam emulator) fixes
 - Goldberg is **more reliable to launch**. Shortcuts created from the Steam **Library** tab or the **Downloads** screen now remember which Steam game they belong to; before, they didn't, and Goldberg was silently skipped, which could end in a black screen.
-- It now tells you with a message when Goldberg couldn't be applied, instead of failing silently.
+- It now tells you with a message when Goldberg couldn't be applied, instead of failing silently. A patch that fails halfway is undone, so a game is never left half patched.
+- Launching a game with **SteamLite** or **Headless Steam** puts its original files back first, so the Goldberg picker no longer has an **Off** option.
 - Every Goldberg launch writes a small report, `goldberg_diag.txt`, into `Documents/bannerlator/<game name>/` on your phone, which helps when something goes wrong.
-- **Goldberg launches don't sync Steam Cloud unless you switch it on** (**Save Manager → "sync with Steam Cloud during Goldberg launches"**, off by default). Achievements you earn are saved on the phone and wait until the next **SteamLite** or **Headless Steam** session to be sent to Steam. Those two modes still sync as before.
+- **Goldberg launches don't sync Steam Cloud unless you switch it on** (**Save Manager → "sync with Steam Cloud during Goldberg launches"**, off by default). Achievements you earn are saved on the phone and sent to Steam when that same game is next played with **SteamLite** or **Headless Steam**. Those two modes still sync as before.
 
 ---
 
@@ -63,7 +66,7 @@ Only the standard version is built here (not the Ludashi / PuBG / AnTuTu variant
 - Not every part has been tested on a real device. If something misbehaves, the original BannerLator is the safe fallback.
 
 ## Credits and license
-This is **[BannerLator](https://github.com/The412Banner/Bannerlator)** by The412Banner with six changes on top, and it stands on a long chain of work: **Winlator** (brunodev85) → cmod → Bionic → Star → Ludashi, plus GameNative, lsfg-vk, gbe_fork / Goldberg, DXVK and many others. **All the credit for the app itself belongs to them.** The full credits are in [`docs/UPSTREAM_README.md`](docs/UPSTREAM_README.md) (the original README, kept as-is, including the complete feature list) and [`THIRD-PARTY-LICENSES.md`](THIRD-PARTY-LICENSES.md).
+This is **[BannerLator](https://github.com/The412Banner/Bannerlator)** by The412Banner with five changes on top, and it stands on a long chain of work: **Winlator** (brunodev85) → cmod → Bionic → Star → Ludashi, plus GameNative, lsfg-vk, gbe_fork / Goldberg, DXVK and many others. **All the credit for the app itself belongs to them.** The full credits are in [`docs/UPSTREAM_README.md`](docs/UPSTREAM_README.md) (the original README, kept as-is, including the complete feature list) and [`THIRD-PARTY-LICENSES.md`](THIRD-PARTY-LICENSES.md).
 
 The changes here were written with [Claude](https://claude.ai) (Anthropic).
 
