@@ -1,0 +1,44 @@
+{
+  "id": "2026-10-14T13-54-58-aefd9d",
+  "created": "2026-10-14T13:54:58.550Z",
+  "ip_hash": "B0/FWK4QkN",
+  "fields": {
+    "reporter_name": "Anonymous",
+    "device_model": "25079RPDCC (Xiaomi Pad)",
+    "soc": "MediaTek MT8799, 8 cores",
+    "gpu": "Mali via PanVK (kbase g615-v11-csf pack)",
+    "android": "16",
+    "ram": "12 GB",
+    "app_version": "3.1.7-pre2 (standard)",
+    "install_source": "GitHub release",
+    "game_name": "Sovereign Tower (君王之塔) v1.1.1",
+    "steam_appid": "",
+    "store": "Other",
+    "exe": "C:\\Games\\SovereignTower\\sovereign_tower.exe (Godot 4.6.2 .NET, pack_format 3, 1.5 GB .pck)",
+    "symptom": "Graphical glitches (corruption, flicker, missing textures)",
+    "when": "Only in a specific area/scene",
+    "graphics_driver": "panvk-r3lm (rc3-lowmem). Identical results also with: panvk-minegraph / Wrapper + bcn_layer / Wrapper + compat + bcn",
+    "dx_wrapper": "DXVK",
+    "dxvk": "2.7.3 (+ VKD3D 2.8)",
+    "proton": "Proton-10.0-4-arm64ec-14 (arm64ec + FEXCore, X11)",
+    "box64": "FEXCore (default preset)",
+    "resolution": "1280x800",
+    "framegen": "No",
+    "repro": "Cold start via the shortcut. Godot splash renders fine. Then the title screen shows only the text \"press any key\" on a flat color, the main menu shows only 4 small text items, and the in-game dialogue shows the dialogue box plus text. Text and solid-color panels render; EVERY image asset (backgrounds, character sprites, icons, button art) never renders. Mouse input works (clicks advance the dialogue), Vulkan init completes, no assert.",
+    "tried": "- Graphics drivers tried with pixel-identical results: panvk-r3lm (rc3-lowmem), panvk-minegraph, Wrapper + bcn_layer, Wrapper + compat + bcn.\n- Copied the whole 1.8 GB game to the container's C: drive (native app storage): no change (so it is not shared-storage streaming).\n- WRAPPER_BCN_ASTC=1 (On) and WRAPPER_BCN_GPU=0 (CPU) per the in-app About text: no change. Also tried BCN_COMPUTE_AUTO=0 (force explicit settings) with Wrapper + bcn_layer: no images, and clicks stopped advancing the game.\n- Renderer OpenGL vs Vulkan: identical picture.\n- Restoring the wrapper's clip-distance patch: no change.\n- wine_debug.log (WINEDEBUG=+warn,+err,+fixme,+loaddll) shows NO Godot errors and NO Vulkan validation errors for the missing draws -> the game believes it rendered fine, so this looks like a silent PanVK/Mali draw failure.\n- Container env: WRAPPER_NO_PATCH_OPCONSTCOMP=1, DOTNET_EnableWriteXorExecute=0, WRAPPER_BCN_GPU=0, WRAPPER_BCN_ASTC=1, BCN_COMPUTE_AUTO=0, MESA_SHADER_CACHE_MAX_SIZE=512MB, GALLIUM_DRIVER=zink, MESA_GL_VERSION_OVERRIDE=4.5, LIBGL_DEBUG=verbose, TU_DEBUG=noconform sysmem, DXVK_HUD=fps, DXVK_LOG_LEVEL=info, VKD3D_SHADER_MODEL=6_6, WINEDLLOVERRIDES=d3d11,dxgi,d3d10core,d3d9=n,b\n  (WRAPPER_NO_PATCH_OPCONSTCOMP=1 was REQUIRED to stop a vkCreateShaderModule assert and let the Godot splash render at all.)"
+  },
+  "logs": [
+    {
+      "name": "wine_debug.log"
+    },
+    {
+      "name": "BREAKTHROUGH_splash_novulkan_confirm_1032.png"
+    },
+    {
+      "name": "WIN4_minegraph_menu_1243.png"
+    },
+    {
+      "name": "WIN3_INGAME_intro_dialogue_1214.png"
+    }
+  ]
+}

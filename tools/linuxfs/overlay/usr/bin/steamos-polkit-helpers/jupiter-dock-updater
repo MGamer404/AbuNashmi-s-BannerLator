@@ -1,0 +1,10 @@
+#!/bin/sh
+# There is no Deck dock here.
+# The client runs this with --check at start and reads the exit code.
+# Exit 0 with nothing printed is taken as "an update is available" and puts a Dock Firmware Update row with an Apply button in Settings > System.
+# Exit 7, SteamOS's "nothing to do", is read as up to date.
+# Staged from the apk. (From The412Banner/SteamDeck.)
+case "${1:-}" in
+  --check) exit 7 ;;
+esac
+exit 0

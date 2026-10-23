@@ -1,0 +1,4 @@
+#!/bin/sh
+# The session carries the device's time zone in TZ already, so the client's own setter is a no-op.
+# Staged from the apk. (From The412Banner/SteamDeck.)
+exit 0

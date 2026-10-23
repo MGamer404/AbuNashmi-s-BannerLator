@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item
+        android:id="@+id/sort_shortcuts"
+        android:title="Name"
+        android:icon="@drawable/icon_sort"
+        app:showAsAction="always|withText">
+        <menu>
+            <item
+                android:id="@+id/search_shortcut"
+                android:icon="@drawable/icon_magnifier"
+                android:title="Search" />
+            <item
+                android:id="@+id/sort_by_name"
+                android:title="By Name" />
+            <item
+                android:id="@+id/sort_by_con_id"
+                android:title="By Container ID" />
+            <item
+                android:id="@+id/sort_by_path"
+                android:title="By Path" />
+            <item
+                android:id="@+id/sort_by_playtime"
+                android:title="By Playtime" />
+            <item
+                android:id="@+id/sort_by_play_count"
+                android:title="By Play Count" />
+            <item
+                android:id="@+id/sort_by_play_date"
+                android:title="By Last Play Date" />
+            <item
+                android:id="@+id/sort_by_newest"
+                android:title="By Newest" />
+            <item
+                android:id="@+id/sort_by_oldest"
+                android:title="By Oldest" />
+        </menu>
+    </item>
+    <item
+        android:id="@+id/add_shortcuts"
+        android:title="Add Shortcuts"
+        android:icon="@drawable/icon_action_bar_add"
+        android:color="#FFFFFF"
+        app:showAsAction="ifRoom" />
+    <item
+        android:id="@+id/change_layout"
+        android:title="Change Layout"
+        android:icon="@drawable/icon_reset"
+        android:color="#000000"
+        app:showAsAction="ifRoom">
+        <menu>
+            <item
+                android:id="@+id/layout_grid_small"
+                android:title="Grid Layout (Small)" />
+            <item
+                android:id="@+id/layout_grid_big"
+                android:title="Grid Layout (Big)" />
+            <item
+                android:id="@+id/layout_list_small"
+                android:title="List Layout (Small)" />
+            <item
+                android:id="@+id/layout_list_big"
+                android:title="List Layout (Big)" />
+        </menu>
+    </item>
+</menu>

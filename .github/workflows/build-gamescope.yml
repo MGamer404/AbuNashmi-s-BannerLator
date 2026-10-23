@@ -1,0 +1,55 @@
+name: Build gamescope (patched)
+
+# The Linux runtime's own gamescope (Arch Linux ARM's 3.16.29 package) rebuilt with the patches under tools/gamescope/patches.
+# It is built in an Arch Linux ARM container on an arm64 runner, then published as a release asset the apk build fetches (tools/gamescope/release.env names the tag and the sha256).
+# The hosted runtime image is never changed: the apk stages the binary over /usr/local/bin.
+# Ported from The412Banner/SteamDeck (PR 9).
+on:
+  push:
+    paths:
+      - 'tools/gamescope/**'
+      - '.github/workflows/build-gamescope.yml'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to publish as (e.g. gamescope-3.16.29-p1); empty = artifact only'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build in Arch Linux ARM
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work menci/archlinuxarm:base-devel bash tools/gamescope/build-in-arch.sh
+          sudo chown -R "$(id -u):$(id -g)" .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gamescope-patched
+          path: |
+            gamescope.tzst
+            gamescope.tzst.sha256
+      # Publishing is only ever by hand, with a tag, and never on a push.
+      # The release is a pre-release and is never marked Latest: the in-app updater reads the Latest release, so a gamescope build taking that place would stop every user being offered the app.
+      - name: Publish
+        if: github.event_name == 'workflow_dispatch' && inputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sha=$(cut -d' ' -f1 gamescope.tzst.sha256)
+          gh release create "${{ inputs.tag }}" --prerelease --latest=false --title "${{ inputs.tag }}" \
+            --notes "gamescope 3.16.29 with tools/gamescope/patches, staged by the apk over /usr/local/bin/gamescope. Not an app release. sha256 ${sha}" \
+            gamescope.tzst gamescope.tzst.sha256 \
+            || gh release upload "${{ inputs.tag }}" gamescope.tzst gamescope.tzst.sha256 --clobber
+          # The updater's view, checked rather than assumed.
+          latest=$(gh release view --json tagName -q .tagName)
+          echo "Latest release is still: ${latest}"
+          case "$latest" in gamescope-*) echo "::error::a gamescope release became Latest"; exit 1 ;; esac

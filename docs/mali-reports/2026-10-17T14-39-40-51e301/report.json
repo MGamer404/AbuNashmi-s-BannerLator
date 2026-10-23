@@ -1,0 +1,31 @@
+{
+  "id": "2026-10-17T14-39-40-51e301",
+  "created": "2026-10-17T14:39:40.101Z",
+  "ip_hash": "zxEZnsPbLo",
+  "fields": {
+    "reporter_name": "",
+    "device_model": "Samsung galaxy a04e",
+    "soc": "Helio P35 MediaTek",
+    "gpu": "Mali",
+    "android": "Android 14",
+    "ram": "3GB",
+    "app_version": "2.8.2",
+    "install_source": "",
+    "game_name": "NFSMW 2005",
+    "steam_appid": "",
+    "store": "",
+    "exe": "SPEED",
+    "symptom": "Crashes / closes to home",
+    "when": "Never launches at all",
+    "graphics_driver": "System",
+    "dx_wrapper": "WineD3D",
+    "dxvk": "",
+    "proton": "",
+    "box64": "",
+    "resolution": "",
+    "framegen": "",
+    "repro": "",
+    "tried": ""
+  },
+  "logs": []
+}

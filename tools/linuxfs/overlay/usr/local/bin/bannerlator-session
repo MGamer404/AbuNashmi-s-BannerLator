@@ -1,0 +1,644 @@
+#!/bin/bash
+# The Linux runtime's session. Bannerlator execs this under proot with the output size and mode;
+# the first pass starts gamescope, which execs this script again inside it for the program:
+#   bannerlator-session desktop            the file manager
+#   bannerlator-session run <path>         a Linux program (AppImage, script or ELF)
+#   bannerlator-session steam [steam-url]  the native Steam client
+# BL_WIDTH / BL_HEIGHT size the output, BL_FPS limits it, BL_LOG collects everything said here.
+set -u
+export HOME=${HOME:-/root}
+mode=${1:-desktop}
+shift || true
+# One line per milestone, greppable as "== STEP", so a first run reads as a narrative rather than
+# something to be reconstructed from Steam's own chatter. The app shows these while it waits.
+step() { echo "== STEP $(date -u +%H:%M:%S) $*"; }
+if [ -n "${BL_LOG:-}" ] && [ -z "${BL_INSIDE:-}" ]; then
+  mkdir -p "$(dirname "$BL_LOG")" 2>/dev/null
+  # The client alone writes megabytes an hour; one earlier log is kept, not every session's.
+  if [ "$(stat -c %s "$BL_LOG" 2>/dev/null || echo 0)" -gt 8388608 ]; then
+    mv -f "$BL_LOG" "$BL_LOG.1"
+  fi
+  # A guest looping on an error writes gigabytes in minutes (an Xwayland proot had lost track of
+  # managed 9 GB of one line in 19 min): the log keeps its first BL_LOG_CAP bytes and the rest is
+  # drained, not refused - a writer that filled it must not die of SIGPIPE. (From The412Banner/DroidDeck.)
+  exec > >({ head -c "${BL_LOG_CAP:-268435456}" >>"$BL_LOG"; cat >/dev/null; }) 2>&1
+  echo "== bannerlator-session $(date) mode=$mode $*"
+  echo "== uid=$(id -u) size=${BL_WIDTH:-?}x${BL_HEIGHT:-?} fps=${BL_FPS:-0} icd=${VK_ICD_FILENAMES:-none}"
+  echo "== gamescope: $(gamescope --version 2>&1 | head -1) at $(command -v gamescope)"
+  echo "== rootfs: $(cat /.version 2>/dev/null || echo unversioned)"
+fi
+
+# Until the runtime is stable, Steam's own logs are copied beside the session log at exit so a
+# failed launch can be handed over as one folder.
+collect_steam_logs() {
+  # The app collects Steam's logs at teardown now - whatever ended the session, and scrubbed of
+  # credentials (the client logs its session token in connection_log.txt). This used to copy them
+  # raw into Download, and only on a clean exit. Kept as a name so nothing that calls it breaks.
+  [ -n "${BL_DEBUG_DIR:-}" ] && echo "== steam logs are collected by the app into $BL_DEBUG_DIR/steam"
+  return 0
+}
+# The driver everything in this session draws with: gamescope's compositing, the client's UI
+# (OpenGL through Zink) and every game Proton launches. BL_VK_DRIVER names an imported driver's ICD
+# manifest on the Android side, which is bound into the session at its own path; unset means the
+# runtime keeps the Turnip it was built with. VK_DRIVER_FILES REPLACES the loader's search, so a
+# manifest whose library is unreadable would leave the session with no Vulkan at all - check both
+# before setting it, and say so in the log rather than fail silently half a minute later.
+if [ -n "${BL_VK_DRIVER:-}" ]; then
+  bl_icd_lib=$(sed -n 's/.*"library_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$BL_VK_DRIVER" 2>/dev/null | head -1)
+  # JSON may escape the separator: org.json writes "\/data\/user\/0\/...". The Vulkan loader
+  # parses that correctly; this check has to as well, or an absolute path looks relative and gets
+  # glued onto the manifest's directory - which is exactly what happened the first time.
+  bl_icd_lib=$(printf '%s' "$bl_icd_lib" | sed 's|\\/|/|g')
+  case $bl_icd_lib in
+    /*) ;;
+    ?*) bl_icd_lib="$(dirname "$BL_VK_DRIVER")/$bl_icd_lib" ;;
+  esac
+  if [ -r "$BL_VK_DRIVER" ] && [ -n "$bl_icd_lib" ] && [ -r "$bl_icd_lib" ]; then
+    export VK_DRIVER_FILES="$BL_VK_DRIVER"
+    # Loaders older than 1.3.207 only know the old name; both are harmless together.
+    export VK_ICD_FILENAMES="$BL_VK_DRIVER"
+    echo "== vulkan driver: imported $bl_icd_lib (via $BL_VK_DRIVER)"
+  else
+    echo "== vulkan driver: IGNORING $BL_VK_DRIVER (manifest or ${bl_icd_lib:-library} unreadable); using the runtime's own"
+  fi
+  unset bl_icd_lib
+fi
+# The app's patched gamescope (tools/gamescope) asks for realtime-priority Vulkan queues on this switch instead of on CAP_SYS_NICE, which proot never has.
+# It falls back to normal priority where the driver refuses, and the runtime's own gamescope ignores the variable, so it is safe either way.
+# On KGSL Turnip it changes nothing yet: the driver reports one submit-queue priority and creates every KGSL context with the same flags, so no priority reaches the GPU.
+# Where a driver does map it, the compositor's queue preempting the game's buys nothing on a device whose GPU is waiting on the CPU, so it is off by default.
+# BL_GAMESCOPE_REALTIME=1 in the entry's env vars turns it on. (From Droid-Deck/DroidDeck #84 and #85.)
+export GAMESCOPE_FORCE_VULKAN_REALTIME=${BL_GAMESCOPE_REALTIME:-0}
+# A sleep that starts no process.
+# Under proot every exec is a traced execve plus the loader's opens and maps, and the watchers below poll for the whole session: `sleep 1` in a loop was 60 execs a minute each.
+# read -t on a pipe nothing ever writes to waits in bash itself. (From Droid-Deck/DroidDeck #84.)
+nap() {
+  [ -n "${bl_nap_fd:-}" ] || exec {bl_nap_fd}<> <(:)
+  read -r -t "$1" -u "$bl_nap_fd" _ 2>/dev/null || :
+}
+export XDG_DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}
+export XDG_CONFIG_HOME=${XDG_CONFIG_HOME:-$HOME/.config}
+export XDG_CACHE_HOME=${XDG_CACHE_HOME:-$HOME/.cache}
+mkdir -p "$XDG_DATA_HOME" "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME"
+
+if [ -z "${BL_INSIDE:-}" ]; then
+  # The compositor may still be starting, and a socket left by an earlier session is not
+  # a compositor: probe until a connection succeeds.
+  for _ in $(seq 1 100); do
+    wayland-info >/dev/null 2>&1 && break
+    sleep 0.1
+  done
+  width=${BL_WIDTH:-1280}
+  height=${BL_HEIGHT:-720}
+  args=(--backend wayland --expose-wayland -f -W "$width" -H "$height" -w "$width" -h "$height")
+  # -r is what gamescope advertises as the refresh rate, and what a game reads as the display's.
+  # Left unset it defaults to 60, so a 120 Hz panel offers only 60 Hz in game settings. The FPS
+  # limiter wins when it is on (it is a deliberate cap); otherwise use the panel's own rate.
+  if [ "${BL_FPS:-0}" -gt 0 ]; then
+    args+=(-r "$BL_FPS")
+  elif [ "${BL_REFRESH:-0}" -gt 0 ]; then
+    args+=(-r "$BL_REFRESH")
+  fi
+  # Scaling, from the entry's settings: the same controls as the Quick Access Menu's Scaling Mode and Scaling Filter.
+  # Only values this gamescope lists in --help are passed, because an unknown one stops the session from starting.
+  case "${BL_SCALER:-}" in
+    auto|integer|fit|fill|stretch) args+=(-S "$BL_SCALER") ;;
+  esac
+  case "${BL_FILTER:-}" in
+    linear|nearest|pixel|fsr|nis|sgsr) args+=(-F "$BL_FILTER") ;;
+  esac
+  [ "$mode" = steam ] && args+=(-e)
+  # A game that resizes its own window when it loses focus (the Steam menu opening over it) comes
+  # back smaller, and gamescope draws a window that is not flagged fullscreen at its own size in the
+  # top-left corner - FlatOut after Guide -> Resume game. Forcing every window to the output's size
+  # keeps it filling the screen. BL_FILL=0 (the entry's "Stretch games to fill the screen") turns it
+  # off; the in-game drawer changes it live, see the watcher below. (From The412Banner/DroidDeck.)
+  [ "$mode" = steam ] && [ "${BL_FILL:-1}" = 1 ] && args+=(--force-windows-fullscreen)
+  # HDR10: the app opened its compositor's HDR gate for this session (the entry's HDR output setting
+  # on a screen that lists HDR10), and gamescope offers HDR to the games through the same colour
+  # management it binds on ours. Without it a game's HDR setting stays greyed out.
+  [ "${BL_HDR:-0}" = 1 ] && args+=(--hdr-enabled)
+  # Deck mode's performance overlay (Quick Access Menu, Performance, Overlay Level) is drawn by mangoapp, which gamescope starts beside the client.
+  # The client picks the level by rewriting the file MANGOHUD_CONFIGFILE names, so it starts hidden until the client writes one.
+  # The apk carries Valve's aarch64 build (tools/mangoapp); without it the menu still offers the levels and nothing appears.
+  # BL_MANGOAPP=0 turns it off, because one community build found Valve's mangoapp crashing on Turnip. (From The412Banner/SteamDeck.)
+  if [ "$mode" = steam ] && [ "${BL_STEAMDECK:-0}" = 1 ] && [ "${BL_MANGOAPP:-1}" = 1 ] \
+     && command -v mangoapp >/dev/null 2>&1; then
+    MANGOHUD_CONFIGFILE=$(mktemp /tmp/mangohud.XXXXXXXX)
+    echo no_display > "$MANGOHUD_CONFIGFILE"
+    export MANGOHUD_CONFIGFILE STEAM_USE_MANGOAPP=1 STEAM_MANGOAPP_PRESETS_SUPPORTED=1 STEAM_MANGOAPP_HORIZONTAL_SUPPORTED=1
+    args+=(--mangoapp)
+    echo "== gamescope: mangoapp on ($(command -v mangoapp), config $MANGOHUD_CONFIGFILE)"
+  fi
+  export BL_INSIDE=1
+  exec gamescope "${args[@]}" -- "$0" "$mode" "$@"
+fi
+
+# gamescope manages X windows: toolkits go through Xwayland, not gamescope's own Wayland socket.
+export GDK_BACKEND=x11 QT_QPA_PLATFORM=xcb SDL_VIDEODRIVER=x11
+# gamescope's reaper waits for every process left under it before the compositor comes down. A
+# process a game left behind - a Wine service blocked on a server that is already gone - is
+# reparented there when the client exits, and the screen stays black on it for good. Nothing of
+# the session outlives the program it was started for.
+reap_orphans() {
+  local round p stat pid left
+  for round in 1 2 3 4 5; do
+    left=
+    for p in /proc/[0-9]*; do
+      pid=${p#/proc/}
+      [ "$pid" = "$$" ] && continue
+      stat=$(cat "$p/stat" 2>/dev/null) || continue
+      stat=${stat##*) }
+      set -- $stat
+      [ "${2:-}" = "$PPID" ] && left="$left $pid"
+    done
+    [ -n "$left" ] || return 0
+    echo "== leaving behind:$left"
+    kill -9 $left 2>/dev/null
+    sleep 0.2
+  done
+}
+# This script's own background loops and daemons: the fill-screen and resume watchers never end on their own, and the seeder and core-pinning loops run for an hour.
+# Left running when the script exits, they pass to gamescope's reaper and hold the compositor up on a black screen. (From Droid-Deck/DroidDeck #50.)
+# Each job's direct children go first, since killing a subshell leaves its pipeline running (the resume watcher's xprop -spy) and its current nap asleep.
+# The jobs are waited for, so what they leave behind has been handed to gamescope by the time reap_orphans looks.
+# One that is still up after two seconds is killed outright, so a job that ignores SIGTERM cannot hang the teardown here.
+stop_own_jobs() {
+  local jobs_left j alive
+  jobs_left=$(jobs -p)
+  [ -n "$jobs_left" ] || return 0
+  for j in $jobs_left; do pkill -TERM -P "$j" 2>/dev/null; done
+  kill $jobs_left 2>/dev/null
+  for _ in $(seq 1 20); do
+    alive=
+    for j in $jobs_left; do kill -0 "$j" 2>/dev/null && alive="$alive $j"; done
+    [ -n "$alive" ] || break
+    sleep 0.1
+  done
+  [ -n "$alive" ] && kill -9 $alive 2>/dev/null
+  wait $jobs_left 2>/dev/null
+  return 0
+}
+
+case $mode in
+  desktop)
+    exec pcmanfm
+    ;;
+  run)
+    target=${1:?program path}
+    shift
+    case ${target,,} in
+      *.appimage)
+        export APPIMAGE_EXTRACT_AND_RUN=1
+        chmod +x "$target" 2>/dev/null
+        exec "$target" "$@"
+        ;;
+      *.sh)
+        exec bash "$target" "$@"
+        ;;
+      *)
+        chmod +x "$target" 2>/dev/null
+        cd "$(dirname "$target")" && exec "$target" "$@"
+        ;;
+    esac
+    ;;
+  steam)
+    # Every way out of this branch, a signal from the teardown included, stops the loops started below.
+    trap stop_own_jobs EXIT
+    step "checking the Steam client (first run downloads it, ~1-2 min with nothing on screen)"
+    bannerlator-steam-install || exit $?
+    step "Steam client ready"
+    steam_root=$XDG_DATA_HOME/Steam
+    # Register the card library (bound at /mnt/bannerlator-sd) with the client - internal storage is
+    # its main library already - and the ARM64 Proton that lets it launch the Windows ones.
+    # A request left in ~/.bl-proton-extra installs a third-party Proton before the client starts,
+    # so it is in the Compatibility dropdown the first time the user looks. One per line, each the
+    # arguments to bannerlator-proton-extra: "ge", "cachyos", "ge --tag GE-Proton11-7", or a URL.
+    # Hundreds of megabytes each, so it is only ever done on request, and the line is dropped once
+    # it has succeeded - a failed download stays and is retried next session.
+    if [ -s "$HOME/.bl-proton-extra" ]; then
+      _bl_left=$HOME/.bl-proton-extra.left
+      : > "$_bl_left"
+      while read -r _bl_extra || [ -n "$_bl_extra" ]; do
+        case ${_bl_extra# } in ""|"#"*) continue ;; esac
+        step "installing Proton '$_bl_extra' (large download, several minutes)"
+        if bannerlator-proton-extra "$steam_root" $_bl_extra; then
+          step "installed Proton '$_bl_extra'"
+        else
+          step "Proton '$_bl_extra' failed; will retry next session"
+          echo "$_bl_extra" >> "$_bl_left"
+        fi
+      done < "$HOME/.bl-proton-extra"
+      mv -f "$_bl_left" "$HOME/.bl-proton-extra"
+    fi
+    # steam:// URLs left in ~/.bl-steam-urls are handed to the client on its command line. The app
+    # writes one when the user asks for a Proton that is one of Valve's own depots rather than a
+    # tarball: those are not files anywhere, the client fetches them like any other app. One per
+    # line, and the file is cleared once they have been passed on - the client either acts on a URL
+    # or it does not, and repeating it every session would re-ask forever.
+    if [ -s "$HOME/.bl-steam-urls" ]; then
+      while read -r _bl_url || [ -n "$_bl_url" ]; do
+        case ${_bl_url# } in steam://*) ;; *) continue ;; esac
+        step "asking the client for $_bl_url"
+        set -- "$@" "$_bl_url"
+      done < "$HOME/.bl-steam-urls"
+      rm -f "$HOME/.bl-steam-urls"
+    fi
+    # Cores for the client itself. Steam pins its own interface renderer to a subset - on the
+    # device it took 5 of 8, leaving out both little cores and the fastest one - which is a
+    # reasonable thing to do while a game is running and the wrong thing when the client is all
+    # there is. BL_CLIENT_CPUS overrides it. Re-applied on a beat because steamwebhelper spawns
+    # children continuously and each one inherits Steam's choice, not ours.
+    if [ -n "${BL_CLIENT_CPUS:-}" ]; then
+      step "client cores: $BL_CLIENT_CPUS"
+      (
+        for _ in $(seq 1 720); do
+          for _p in $(pgrep -f 'steamwebhelper|steamrtarm64/steam|gamescope' 2>/dev/null); do
+            taskset -cp "$BL_CLIENT_CPUS" "$_p" >/dev/null 2>&1 || true
+          done
+          nap 5
+        done
+      ) &
+    fi
+
+    step "registering the app's game library with Steam"
+    bannerlator-steam-library "$steam_root" || true
+    step "setting up the ARM64 Proton compatibility tool"
+    bannerlator-steam-compat "$steam_root" || true
+    # The app's own games, as non-Steam shortcuts under that tool, with their saves shared with their containers.
+    # The list is written by the app each session; an empty one removes the app's earlier entries and keeps the client's own.
+    if [ -n "${BL_APP_GAMES:-}" ]; then
+      step "adding the app's own games to the client's library"
+      bannerlator-steam-shortcuts "$steam_root" "$BL_APP_GAMES" || true
+    fi
+    # Steam runs a game's shared redistributables inside its prefix on first launch; marking
+    # them as already run keeps those x86 installers from starting under emulation at all.
+    bannerlator-seed-redists "$steam_root" || true
+    # The compatibility tool runs Valve's arm64 Proton, which the client fetches like any depot.
+    # Asked for on the command line the first time, so a Windows title has it before it is needed.
+    if [ ! -f "$steam_root/steamapps/appmanifest_4427310.acf" ]; then
+      step "asking the client to fetch the ARM64 Proton"
+      set -- "$@" steam://install/4427310
+      # The client decides a title's compatibility tool when the title is installed and keeps that
+      # decision for the rest of its run; every session start sets the tool up before the client
+      # comes up. So once the depot has fully landed, restart the client once (its own -shutdown
+      # switch, then the same restart loop that serves its self-update) and everything installed
+      # before or after that moment runs through our tool - no second launch by the user. The
+      # marker tells the loop below this exit is ours. A first run only: with the depot present
+      # at session start nothing here is armed.
+      (
+        _bl_acf="$steam_root/steamapps/appmanifest_4427310.acf"
+        for _ in $(seq 1 360); do
+          nap 10
+          # StateFlags 4 = fully installed; a moment more for the client to finish its bookkeeping.
+          if grep -q '"StateFlags"[[:space:]]*"4"' "$_bl_acf" 2>/dev/null; then
+            nap 10
+            bannerlator-steam-compat "$steam_root" >/dev/null 2>&1 || true
+            step "compatibility layer installed: restarting the Steam client once"
+            : > "$HOME/.bl-restart-once"
+            "$steam_root/steamrtarm64/steam" -shutdown >/dev/null 2>&1 || true
+            exit 0
+          fi
+        done
+      ) &
+      # A client that starts signed out drops that request: on a clean install nobody has signed
+      # in yet, so the tool stayed incomplete, and the first game install then made the client
+      # fall back to its own four-app chain (Proton Experimental, SLR 4.0, FEX) - which it
+      # queued twice and segfaulted on (device-seen 2026-09-22, FlatOut). With no remembered
+      # sign-in, ask again once the sign-in has happened: the client binary started a second
+      # time with a URL hands it to the running instance (steam.pid + steam.pipe) and exits.
+      if ! grep -q '"RememberPassword"[[:space:]]*"1"' "$steam_root/config/loginusers.vdf" 2>/dev/null; then
+        (
+          _bl_conn="$steam_root/logs/connection_log.txt"
+          _bl_from=$(stat -c %s "$_bl_conn" 2>/dev/null || echo 0)
+          for _ in $(seq 1 180); do
+            nap 10
+            [ -f "$steam_root/steamapps/appmanifest_4427310.acf" ] && exit 0
+            if tail -c +$((_bl_from + 1)) "$_bl_conn" 2>/dev/null | grep -q "RecvMsgClientLogOnResponse() : processing complete"; then
+              nap 15
+              [ -f "$steam_root/steamapps/appmanifest_4427310.acf" ] && exit 0
+              echo "== STEP $(date -u +%H:%M:%S) signed in: asking the client again for the ARM64 Proton"
+              "$steam_root/steamrtarm64/steam" steam://install/4427310 >/dev/null 2>&1 || true
+              exit 0
+            fi
+          done
+        ) &
+      fi
+    fi
+    # The tool is registered before the client starts and finds the depot at launch time, so
+    # nothing here waits for a download. What can still change under a running client is which
+    # titles are installed: a title installed this session gets the client's own per-app Proton
+    # choice, which it cannot start. Refresh the per-app entries every so often; the registrar is
+    # idempotent, so a repeat costs nothing.
+    # The seeder has the same problem and a worse consequence. It marks the shared redistributables
+    # as already run in each prefix that exists, and a game's prefix is not created until the
+    # client launches it - so a title played for the first time this session was never covered, and
+    # its install scripts run for real. That is exactly the hang the seeder exists to prevent: Need
+    # for Speed Payback sat on "Running install script" with vcredist_x86.exe blocked in pipe_read,
+    # holding both ends of a pipe nobody would write to, while the client waited for it to exit.
+    # Seeding again on the same beat covers a prefix the moment it appears.
+    # The seeder runs on a shorter beat than the registrar because it is racing something. The
+    # client creates a prefix when it launches a title and runs that title's install scripts
+    # moments later, so the seeder has only that gap to mark the redistributables as already run.
+    # It stamps each prefix it has covered and skips it thereafter, so the extra passes cost
+    # almost nothing.
+    # "Stretch games to fill the screen", live: the app writes the drawer's choice to $BL_LIVE_DIR/fill,
+    # and each change goes to gamescope as GAMESCOPE_FORCE_WINDOWS_FULLSCREEN on the root window, which
+    # it watches. What gamescope was started with is where this begins. It lives as long as this script.
+    if [ -n "${BL_LIVE_DIR:-}" ] && command -v xprop >/dev/null 2>&1; then
+      (
+        last=${BL_FILL:-1}
+        script=$$
+        while kill -0 "$script" 2>/dev/null; do
+          nap 1
+          want=
+          { read -r want || [ -n "$want" ]; } < "$BL_LIVE_DIR/fill" 2>/dev/null || continue
+          case $want in 0|1) ;; *) continue ;; esac
+          [ "$want" = "$last" ] && continue
+          if xprop -root -f GAMESCOPE_FORCE_WINDOWS_FULLSCREEN 32c -set GAMESCOPE_FORCE_WINDOWS_FULLSCREEN "$want" 2>/dev/null; then
+            echo "== stretch games to fill the screen: $want (live)"
+            last=$want
+          fi
+        done
+      ) &
+    fi
+    # Resume from the Steam menu.
+    # The menu is an overlay that takes input, and a fullscreen game that loses input minimizes itself.
+    # gamescope only takes a window out of that state when the focused window changes, which the menu never does, so the game stayed minimized after Resume (a black screen with its small caption in the top-left corner).
+    # gamescope-3.16.29-p4 restores it itself, and this asks it again a moment after input comes back from the client (app 769) to anything else, which covers a game that minimizes late.
+    # It is harmless when nothing is minimized, and BL_RESTORE_ON_RESUME=0 turns it off. (From Droid-Deck/DroidDeck #89.)
+    if [ "${BL_RESTORE_ON_RESUME:-1}" = 1 ] && command -v xprop >/dev/null 2>&1; then
+      (
+        prev=
+        xprop -spy -root GAMESCOPE_FOCUSED_APP 2>/dev/null | while read -r line; do
+          app=${line##*= }
+          case $app in ''|*[!0-9]*) prev=; continue ;; esac
+          if [ "$prev" = 769 ] && [ "$app" != 769 ]; then
+            nap 1
+            xprop -root -f GAMESCOPE_RESTORE_FOCUS_WINDOW 32c -set GAMESCOPE_RESTORE_FOCUS_WINDOW 1 2>/dev/null \
+              && echo "== resume: asked gamescope to restore the game window (app $app)"
+          fi
+          prev=$app
+        done
+      ) &
+    fi
+    (
+      beat=0
+      for _ in $(seq 1 720); do
+        nap 5
+        bannerlator-seed-redists "$steam_root" >/dev/null 2>&1 || true
+        beat=$((beat + 1))
+        if [ "$((beat % 3))" -eq 0 ]; then
+          bannerlator-steam-compat "$steam_root" >/dev/null 2>&1 || true
+        fi
+      done
+    ) &
+    # Debug aid while the runtime is being brought up: an app id dropped in ~/.bl-autolaunch is
+    # handed to the client as a rungameid URL, so a launch can be reproduced without touching the
+    # screen. Removed once the runtime is stable.
+    if [ -s "$HOME/.bl-autolaunch" ]; then
+      _bl_app=$(cat "$HOME/.bl-autolaunch")
+      # A bare app id runs the game; a full steam:// URL is passed through, which is how a
+      # validate or an install is driven without touching the screen.
+      case $_bl_app in
+        steam://*) _bl_url=$_bl_app ;;
+        *) _bl_url=steam://rungameid/$_bl_app ;;
+      esac
+      echo "== autolaunch $_bl_url"
+      set -- "$@" "$_bl_url"
+    fi
+    # The client builds Settings > Internet and its connection indicator on NetworkManager, which
+    # it looks for on the SYSTEM bus as it starts. This runtime has neither, so the page failed
+    # ("StartScanningForNetworks is not a function") under a header that showed no connection even
+    # while downloads ran. A system bus and a stand-in that reports Android's connection - and
+    # refuses what it cannot do, since the app has no say over Wi-Fi - answer what the client asks.
+    # The bus config is written here rather than shipped, so a runtime installed earlier gets this
+    # from the app's copy of the session scripts without a re-host. (WinNative, maxjivi05, e7a224ae.)
+    if command -v dbus-daemon >/dev/null 2>&1 && command -v bannerlator-netmanager >/dev/null 2>&1; then
+      mkdir -p /run/dbus /usr/local/share/bannerlator
+      cat > /usr/local/share/bannerlator/system-bus.conf <<'BUSCONF'
+<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+<busconfig>
+  <type>system</type>
+  <listen>unix:path=/run/dbus/system_bus_socket</listen>
+  <auth>EXTERNAL</auth>
+  <policy context="default">
+    <allow user="*"/>
+    <allow own="*"/>
+    <allow send_destination="*"/>
+    <allow receive_sender="*"/>
+  </policy>
+</busconfig>
+BUSCONF
+      rm -f /run/dbus/system_bus_socket
+      dbus-daemon --config-file=/usr/local/share/bannerlator/system-bus.conf --nofork --nopidfile &
+      system_bus=$!
+      for _ in $(seq 1 50); do
+        [ -S /run/dbus/system_bus_socket ] && break
+        sleep 0.1
+      done
+      if [ -S /run/dbus/system_bus_socket ]; then
+        bannerlator-netmanager &
+        netmanager=$!
+        echo "== network: system bus up, NetworkManager stand-in running"
+      else
+        echo "== network: the system bus did not come up; the client will show no connection"
+      fi
+    else
+      echo "== network: no dbus-daemon or netmanager in this runtime; the client will show no connection"
+    fi
+
+    export STEAM_RUNTIME=1
+    export LD_LIBRARY_PATH=$steam_root/steamrtarm64:$steam_root/steamrtarm64/panorama${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+    export SDL_VIDEO_X11_DGAMOUSE=0
+    # Native-Linux x86 games go through Valve's FEX compat tool, which runs FEX with FEX_PORTABLE=1
+    # - that makes FEX look for its config next to the binary, while the tool writes one into the
+    # app's compatdata instead. FEX therefore starts with no rootfs, every x86_64 library lookup
+    # falls through to the host, and the guest shell dies on libreadline before the game is reached.
+    # FEX_ROOTFS names it outright and is read whatever the config situation.
+    [ -d /usr/share/guestos/fex-mesa ] && export FEX_ROOTFS=/usr/share/guestos/fex-mesa
+    # The client's update channel, from the entry's settings.
+    # publicbeta is what every session ran on before; steamdeck_publicbeta is the Deck's beta channel, which also carries an ARM64 client.
+    # Deck mode on publicbeta reinstalled the same client at every start, where steamdeck_publicbeta comes up clean on the second launch, so Deck mode takes the Deck channel unless one is chosen. (Seen on device in The412Banner/SteamDeck, 2026-09-23.)
+    # Only a channel known to carry an ARM64 client is accepted; anything else falls back to publicbeta, so a bad value cannot strand the client.
+    case "${BL_STEAM_CHANNEL:-}" in
+      publicbeta|steamdeck_publicbeta) steam_channel=$BL_STEAM_CHANNEL ;;
+      *) steam_channel=publicbeta ;;
+    esac
+    steam_args=(-gamepadui -clientbeta "$steam_channel"
+      -no-cef-sandbox -cef-force-gpu -cef-ozone-platform=x11
+      -cef-use-gl=angle -cef-use-angle=vulkan)
+    # SteamOS runs its own session as `steam -gamepadui -steamos3 -steamdeck`, which is the shape Valve tunes Big Picture for.
+    # The app sets BL_STEAMDECK from the Steam Deck mode switch in the entry's settings.
+    # Deck mode passes both flags, as SteamOS does.
+    # -steamdeck puts the Quick Access Menu and the Deck settings pages on screen, and the Quick Access Menu's performance overlay controls stay greyed out without -steamos3.
+    # -steamos3 makes the client manage itself as SteamOS does, and the SteamOS helpers it calls (steamos-select-branch, steamos-update, the polkit helpers) are staged as no-op stubs under /usr/bin.
+    # Deck mode opts the install into the steamdeck_stable client branch, written to package/beta during the run (seen on device: publicbeta at start, steamdeck_stable after the client's own update restart).
+    # That branch outlives the setting, and it then loses to the -clientbeta above on every launch.
+    # The updater reads the forced branch, finds "installed version 0" against a package set installed from the other one, marks an update pending and exits 42 to apply it - which never happens, so the client restarts for ever.
+    # The loop below puts package/beta back before every start, which is what keeps that from happening.
+    if [ "${BL_STEAMDECK:-0}" = 1 ]; then
+      steam_args+=(-steamdeck -steamos3)
+      # The Quick Access Menu's Scaling Filter lists NVIDIA Image Scaling only when it is told gamescope has it, and this gamescope does.
+      export STEAM_GAMESCOPE_NIS_SUPPORTED=1
+      echo "== steam: Deck mode on (-steamdeck -steamos3)"
+    fi
+    # What a killed session leaves behind is cleared here, while no client or web helper is running.
+    # Android ends sessions without warning (backgrounding, the low-memory killer), and the next client then finds .crash and opens its update screen on the spinner.
+    # The web helper's Singleton* locks in htmlcache are left too, owned by a process that is gone, and they can leave the Gamepad UI blank. (From The412Banner/SteamDeck.)
+    if ! pgrep -f 'steamwebhelper|steamrtarm64/steam' >/dev/null 2>&1; then
+      _stale=""
+      for _f in "$steam_root/.crash" "$steam_root/steam.pid" \
+                "$steam_root/config/htmlcache/SingletonLock" "$steam_root/config/htmlcache/SingletonCookie" \
+                "$steam_root/config/htmlcache/SingletonSocket"; do
+        if [ -e "$_f" ] || [ -L "$_f" ]; then rm -f "$_f" && _stale="$_stale ${_f##*/}"; fi
+      done
+      [ -n "$_stale" ] && echo "== steam: cleared what an earlier session left:$_stale"
+      unset _stale _f
+    fi
+    echo "== steam args: ${steam_args[*]}"
+
+    # The client exits 42 when it has updated itself and wants a fresh start (steam.sh does this).
+    # An update that cannot install asks for that restart every time, so the count is capped.
+    # A session that keeps restarting looks to the user like a menu that opens and closes by itself, and the game it was launched over loses its controller each time.
+    steam_updates=0
+    steam_beta=$steam_root/package/beta
+    # When the session is being stopped, the app asks for a clean exit by writing $BL_LIVE_DIR/steam-stop, and the client is shut down with its own -shutdown switch instead of being killed with the session.
+    # A killed client leaves .crash behind and loses whatever it had not yet written, such as cloud sync state and the library it had just changed.
+    # steam-stop-ready tells the app a watcher is listening, so a session that never got this far is torn down at once instead of waiting on a request nobody reads.
+    # (From Droid-Deck/DroidDeck #68.)
+    rm -f "$HOME/.bl-stop-requested"
+    if [ -n "${BL_LIVE_DIR:-}" ] && [ -d "$BL_LIVE_DIR" ]; then
+      rm -f "$BL_LIVE_DIR/steam-stop"
+      (
+        script=$$
+        while kill -0 "$script" 2>/dev/null; do
+          if [ -e "$BL_LIVE_DIR/steam-stop" ]; then
+            rm -f "$BL_LIVE_DIR/steam-stop"
+            : > "$HOME/.bl-stop-requested"
+            echo "== steam: the app asked for a clean exit"
+            "$steam_root/steamrtarm64/steam" -shutdown >/dev/null 2>&1 || true
+            exit 0
+          fi
+          nap 0.5
+        done
+      ) &
+      stop_watcher=$!
+      : > "$BL_LIVE_DIR/steam-stop-ready"
+    fi
+    # Offline mode, from the entry's settings: the client starts in its own offline mode instead of signing in to Valve.
+    # Two keys in the account's block of loginusers.vdf decide it: WantsOfflineMode goes offline without trying, and SkipOfflineModeWarning stops the client asking first.
+    # The client reads them only while it starts and rewrites the file when it exits, so they are written before every start, the restarts below included.
+    # On, the account the client signs in as gets both set to 1, added when the block lacks them.
+    # That account is the one marked MostRecent "1" (older clients) or AutoLogin "1" (the client on the device, 2026-09-30), or every account when none is marked, as DroidDeck does.
+    # Off, any of those keys set to 1 in any account goes back to 0, so a session that was offline does not stay that way; nothing is added.
+    # Only those two keys are touched, and the file is replaced only when something changed.
+    # It needs a remembered sign-in from an earlier online session on this device; with none there is nothing to be offline as, and the client asks for a sign-in as usual. (From Droid-Deck/DroidDeck, OfflineMode.)
+    steam_offline_mode() {
+      local users=$steam_root/config/loginusers.vdf want=${BL_STEAM_OFFLINE:-0}
+      case $want in 0|1) ;; *) return 0 ;; esac
+      if [ ! -s "$users" ]; then
+        [ "$want" = 1 ] && echo "== steam: offline mode asked for, but no account has signed in on this device yet; signing in online"
+        return 0
+      fi
+      if [ "$want" = 1 ] && ! grep -q '"RememberPassword"[[:space:]]*"1"' "$users" 2>/dev/null; then
+        echo "== steam: offline mode asked for, but no account has a remembered sign-in; the client will ask to sign in"
+      fi
+      awk -v want="$want" '
+        NR == FNR {
+          if ($0 ~ /^[[:space:]]*\{[[:space:]]*$/) { depth++; if (depth == 2) cur = pending; next }
+          if ($0 ~ /^[[:space:]]*\}[[:space:]]*$/) { depth--; next }
+          if (depth == 1 && $0 ~ /^[[:space:]]*"[^"]*"[[:space:]]*$/) { pending = $0; next }
+          if (depth == 2 && $0 ~ /"(MostRecent|AutoLogin)"[[:space:]]*"1"/) { recent[cur] = 1; anyrecent = 1 }
+          next
+        }
+        FNR == 1 { depth = 0 }
+        {
+          line = $0
+          if (line ~ /^[[:space:]]*\{[[:space:]]*$/) {
+            depth++
+            if (depth == 2) { cur = pending; target = (want == 1) && (!anyrecent || (cur in recent)); sawwants = 0; sawskip = 0; indent = "" }
+            print line; next
+          }
+          if (line ~ /^[[:space:]]*\}[[:space:]]*$/) {
+            if (depth == 2 && target) {
+              if (!sawwants) { print indent "\"WantsOfflineMode\"\t\t\"1\""; changed = 1 }
+              if (!sawskip) { print indent "\"SkipOfflineModeWarning\"\t\t\"1\""; changed = 1 }
+            }
+            depth--
+            print line; next
+          }
+          if (depth == 1 && line ~ /^[[:space:]]*"[^"]*"[[:space:]]*$/) pending = line
+          if (depth == 2) {
+            if (indent == "" && match(line, /^[[:space:]]*"/)) indent = substr(line, 1, RLENGTH - 1)
+            if (line ~ /^[[:space:]]*"(WantsOfflineMode|SkipOfflineModeWarning)"[[:space:]]*"[01]"[[:space:]]*$/) {
+              if (line ~ /"WantsOfflineMode"/) sawwants = 1; else sawskip = 1
+              value = target ? "1" : (want == 1 ? "" : "0")
+              if (value != "" && line !~ ("\"" value "\"[[:space:]]*$")) {
+                sub(/"[01]"[[:space:]]*$/, "\"" value "\"", line)
+                changed = 1
+              }
+            }
+          }
+          print line
+        }
+        END { exit changed ? 0 : 3 }
+      ' "$users" "$users" > "$users.bl-offline"
+      case $? in
+        0)
+          mv -f "$users.bl-offline" "$users"
+          echo "== steam: offline mode $([ "$want" = 1 ] && echo on || echo off) written to loginusers.vdf"
+          ;;
+        *)
+          rm -f "$users.bl-offline"
+          ;;
+      esac
+    }
+    while :; do
+      rm -f "$HOME/.bl-restart-once"
+      steam_offline_mode
+      # The branch on disk has to agree with the one forced on the command line, and it is checked before every start rather than once.
+      # The client rewrites package/beta during its own run, and an rc=42 restart below would otherwise start it again on the branch it just wrote.
+      # A disagreement is the restart loop described above, and it is silent apart from rc=42 in this log.
+      if [ -f "$steam_beta" ] && [ "$(cat "$steam_beta" 2>/dev/null)" != "$steam_channel" ]; then
+        echo "== steam: client branch was $(cat "$steam_beta" 2>/dev/null), forcing $steam_channel to match -clientbeta"
+        echo "$steam_channel" > "$steam_beta"
+      fi
+      step "starting the Steam client"
+      "$steam_root/steamrtarm64/steam" "${steam_args[@]}" "$@"
+      rc=$?
+      echo "== steam exited rc=$rc"
+      collect_steam_logs
+      # A clean exit the app asked for ends the session here, whatever the client's exit code or a pending restart says.
+      if [ -f "$HOME/.bl-stop-requested" ]; then
+        rm -f "$HOME/.bl-stop-requested" "$HOME/.bl-restart-once"
+        break
+      fi
+      # 42 = the client updated itself; the marker = the session asked for one restart after the
+      # compatibility layer landed. The URL arguments are not repeated: they were acted on.
+      if [ -f "$HOME/.bl-restart-once" ]; then set --; continue; fi
+      [ "$rc" -eq 42 ] || break
+      steam_updates=$((steam_updates + 1))
+      if [ "$steam_updates" -ge 3 ]; then
+        echo "== steam: asked to restart for an update $steam_updates times; it is not installing, so the session stops looping"
+        break
+      fi
+      set --
+    done
+    # The client is down: the app stops waiting on it once the marker is gone.
+    if [ -n "${stop_watcher:-}" ]; then
+      rm -f "$BL_LIVE_DIR/steam-stop-ready"
+      kill "$stop_watcher" 2>/dev/null || true
+      wait "$stop_watcher" 2>/dev/null || true
+    fi
+    kill ${netmanager:-} ${system_bus:-} 2>/dev/null || true
+    stop_own_jobs
+    reap_orphans
+    exit "$rc"
+    ;;
+  *)
+    echo "bannerlator-session: unknown mode '$mode'" >&2
+    exit 64
+    ;;
+esac

@@ -1,0 +1,16 @@
+[package]
+name = "bannerin-guest"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# libbannerin_guest.a: linked into libfakeinput.so (bionic, via CMake) and into the glibc
+# libfakeinput.so of the Linux runtime. Exposes only the C ABI declared in include/bannerin.h.
+[lib]
+name = "bannerin_guest"
+path = "src/lib.rs"
+crate-type = ["staticlib"]
+
+[dependencies]
+bannerin-core = { path = "../core" }

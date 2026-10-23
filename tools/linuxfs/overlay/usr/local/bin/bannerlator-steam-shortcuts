@@ -1,0 +1,355 @@
+#!/usr/bin/python3
+"""Puts the app's own games into the Steam client's library as non-Steam shortcuts, each under the
+ARM64 Proton, before the client starts; and shares their save folders with the app's containers.
+
+    bannerlator-steam-shortcuts <steam_root> <app-games.json>
+
+The JSON is a list the app writes each session (LinuxAppGames): {"name", "exe", "dir", "appid",
+"args"?, "saves"?, "art"?} with paths as the session sees them. The client keeps non-Steam games in
+userdata/<account>/config/shortcuts.vdf, a binary VDF it reads at start-up and rewrites at exit,
+so this runs while it is down. Entries the app wrote carry the tag "bannerlator-app" and are
+replaced wholesale; anything the user added inside the client is kept as it is. The appid is the
+one the client itself derives (crc32 of the quoted exe and the name, top bit set).
+
+A game with "saves" (a container's drive_c/users/<user>) gets the save folders of its Proton prefix
+linked to that container's: Documents, AppData/Roaming, AppData/Local, AppData/LocalLow and Saved
+Games. Nothing else of the container is shared. A folder the prefix already had with something in
+it is kept beside the link under a new name, never deleted. A game that no longer shares gets its
+own folders back.
+
+Taken from The412Banner/SteamDeck (PR 9), where adding games this way is proven on device; the
+save sharing is Bannerlator's own.
+"""
+import importlib.machinery
+import importlib.util
+import json
+import os
+import re
+import shutil
+import struct
+import sys
+import time
+
+TAG = "bannerlator-app"
+LOG = "bannerlator-steam-shortcuts"
+
+
+def say(msg):
+    print("%s: %s" % (LOG, msg))
+
+
+def account_dir(steam_root):
+    """The most recent account's userdata folder, else the only one that is not 0."""
+    users = os.path.join(steam_root, "config", "loginusers.vdf")
+    recent = None
+    try:
+        with open(users, encoding="utf-8", errors="replace") as f:
+            text = f.read()
+        for block in re.finditer(r'"(\d{5,})"\s*\{([^}]*)\}', text):
+            if re.search(r'"MostRecent"\s*"1"', block.group(2)):
+                recent = int(block.group(1))
+    except OSError:
+        pass
+    userdata = os.path.join(steam_root, "userdata")
+    if recent is not None:
+        # loginusers holds the 64-bit id; userdata folders use the 32-bit account id.
+        return os.path.join(userdata, str(recent - 76561197960265728))
+    try:
+        dirs = [d for d in os.listdir(userdata) if d.isdigit() and d != "0"]
+    except OSError:
+        dirs = []
+    return os.path.join(userdata, dirs[0]) if len(dirs) == 1 else None
+
+
+# ---- binary VDF: 0x00 map, 0x01 string, 0x02 int32, 0x08 end ----
+
+def parse(data):
+    pos = [0]
+
+    def cstr():
+        end = data.index(b"\x00", pos[0])
+        s = data[pos[0]:end].decode("utf-8", "replace")
+        pos[0] = end + 1
+        return s
+
+    def node():
+        out = {}
+        while True:
+            t = data[pos[0]]
+            pos[0] += 1
+            if t == 0x08:
+                return out
+            key = cstr()
+            if t == 0x00:
+                out[key] = node()
+            elif t == 0x01:
+                out[key] = cstr()
+            elif t == 0x02:
+                out[key] = struct.unpack_from("<i", data, pos[0])[0]
+                pos[0] += 4
+            else:
+                raise ValueError("unknown vdf type 0x%02x" % t)
+
+    pos[0] += 1
+    key = cstr()
+    return {key: node()}
+
+
+def write(obj):
+    out = bytearray()
+
+    def emit(key, value):
+        if isinstance(value, dict):
+            out.append(0x00)
+            out.extend(key.encode() + b"\x00")
+            for k, v in value.items():
+                emit(k, v)
+            out.append(0x08)
+        elif isinstance(value, int):
+            out.append(0x02)
+            out.extend(key.encode() + b"\x00" + struct.pack("<i", value))
+        else:
+            out.append(0x01)
+            out.extend(key.encode() + b"\x00" + str(value).encode() + b"\x00")
+
+    for k, v in obj.items():
+        emit(k, v)
+    out.append(0x08)
+    return bytes(out)
+
+
+def unsigned(game):
+    return int(game["appid"]) & 0xFFFFFFFF
+
+
+def shortcut(game):
+    return {
+        "appid": struct.unpack("<i", struct.pack("<I", unsigned(game)))[0],
+        "AppName": game["name"],
+        "Exe": '"%s"' % game["exe"],
+        "StartDir": '"%s"' % game["dir"],
+        "icon": (game.get("art") or {}).get("icon", "") or "",
+        "ShortcutPath": "",
+        "LaunchOptions": game.get("args", "") or "",
+        "IsHidden": 0,
+        "AllowDesktopConfig": 1,
+        "AllowOverlay": 1,
+        "OpenVR": 0,
+        "Devkit": 0,
+        "DevkitGameID": "",
+        "DevkitOverrideAppID": 0,
+        "LastPlayTime": 0,
+        "FlatpakAppID": "",
+        "tags": {"0": TAG},
+    }
+
+
+ART_MANIFEST = ".bannerlator-art.json"
+# listing key -> the client's grid file suffix: <appid>p = portrait capsule, <appid> = header,
+# <appid>_hero, <appid>_logo.
+ART_SLOTS = (("p", "p"), ("header", ""), ("hero", "_hero"), ("logo", "_logo"))
+
+
+def install_art(acct, games):
+    """Copies each game's art into the client's grid folder under the names it looks for. A file
+    the client already has that this script did not write (art the user set in the client) is
+    left alone; ours are replaced when the source changed and removed when the game lost its art."""
+    grid = os.path.join(acct, "config", "grid")
+    os.makedirs(grid, exist_ok=True)
+    manifest_path = os.path.join(grid, ART_MANIFEST)
+    try:
+        with open(manifest_path, encoding="utf-8") as f:
+            manifest = json.load(f)
+    except (OSError, ValueError):
+        manifest = {}
+    wanted = {}
+    copied = 0
+    for game in games:
+        art = game.get("art") or {}
+        appid = str(unsigned(game))
+        for key, suffix in ART_SLOTS:
+            src = art.get(key)
+            if not src or not os.path.isfile(src):
+                continue
+            ext = os.path.splitext(src)[1].lower() or ".png"
+            if ext == ".jpeg":
+                ext = ".jpg"
+            name = appid + suffix + ext
+            dst = os.path.join(grid, name)
+            size = os.path.getsize(src)
+            if os.path.exists(dst) and name not in manifest:
+                continue  # the user's own choice inside the client; never ours to touch
+            wanted[name] = size
+            if os.path.exists(dst) and manifest.get(name) == size:
+                continue
+            try:
+                shutil.copyfile(src, dst + ".tmp")
+                os.replace(dst + ".tmp", dst)
+                copied += 1
+            except OSError as e:
+                say("could not copy art %s (%s)" % (name, e))
+    for name in list(manifest):
+        if name not in wanted:
+            try:
+                os.remove(os.path.join(grid, name))
+            except OSError:
+                pass
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(wanted, f)
+    if copied:
+        say("%d piece(s) of art placed" % copied)
+
+
+# ---- shared saves ----
+
+SAVE_DIRS = ("Documents", "AppData/Roaming", "AppData/Local", "AppData/LocalLow", "Saved Games")
+SHARE_MARK = "bannerlator-shared-saves"
+KEPT_SUFFIX = " (Steam's own, before sharing)"
+
+
+def prefix_users(steam_root, appid):
+    base = os.path.join(steam_root, "steamapps", "compatdata", str(appid))
+    return base, os.path.join(base, "pfx", "drive_c", "users", "steamuser")
+
+
+def share_saves(steam_root, game):
+    """Links the game's Proton prefix save folders to the container's. Done before the prefix
+    exists as well: Proton creates a prefix around folders that are already there and never
+    replaces them (its copy only fills in what is missing, and it only re-links the XP-style
+    names such as "My Documents", which point at these)."""
+    appid = unsigned(game)
+    src = game["saves"]
+    base, users = prefix_users(steam_root, appid)
+    linked = 0
+    for rel in SAVE_DIRS:
+        target = os.path.join(src, rel)
+        dst = os.path.join(users, rel)
+        try:
+            os.makedirs(target, exist_ok=True)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            if os.path.islink(dst):
+                if os.readlink(dst) == target:
+                    continue
+                os.remove(dst)
+            elif os.path.isdir(dst):
+                if os.listdir(dst):
+                    kept = dst + KEPT_SUFFIX
+                    if os.path.exists(kept):
+                        kept += " " + time.strftime("%Y%m%d-%H%M%S")
+                    os.rename(dst, kept)
+                    say("%s: kept the prefix's own %s as '%s'" % (game["name"], rel, os.path.basename(kept)))
+                else:
+                    os.rmdir(dst)
+            os.symlink(target, dst)
+            linked += 1
+        except OSError as e:
+            say("%s: could not share %s (%s)" % (game["name"], rel, e))
+    with open(os.path.join(base, SHARE_MARK), "w", encoding="utf-8") as f:
+        f.write(src + "\n")
+    print("== app games: %s (%d) saves shared with %s%s" % (
+        game["name"], appid, src, "" if not linked else " (%d link(s) made)" % linked))
+
+
+def unshare_saves(steam_root, appid, name):
+    """Gives a game that no longer shares its own folders back: each link becomes an empty folder
+    again, or the folder that was kept aside when sharing began."""
+    base, users = prefix_users(steam_root, appid)
+    mark = os.path.join(base, SHARE_MARK)
+    if not os.path.isfile(mark):
+        return
+    with open(mark, encoding="utf-8") as f:
+        src = f.readline().strip()
+    for rel in SAVE_DIRS:
+        dst = os.path.join(users, rel)
+        try:
+            if os.path.islink(dst) and os.readlink(dst).startswith(src):
+                os.remove(dst)
+                kept = dst + KEPT_SUFFIX
+                if os.path.isdir(kept):
+                    os.rename(kept, dst)
+                else:
+                    os.makedirs(dst, exist_ok=True)
+        except OSError as e:
+            say("%s: could not unshare %s (%s)" % (name, rel, e))
+    os.remove(mark)
+    print("== app games: %s (%d) no longer shares saves" % (name, appid))
+
+
+def main():
+    if len(sys.argv) < 3:
+        print(__doc__)
+        return 2
+    steam_root, listing = sys.argv[1], sys.argv[2]
+    try:
+        with open(listing, encoding="utf-8") as f:
+            games = json.load(f)
+    except (OSError, ValueError) as e:
+        say("no list (%s)" % e)
+        return 0
+    games = [g for g in games if g.get("exe") and g.get("name")]
+    acct = account_dir(steam_root)
+    if not acct:
+        say("no signed-in account yet; nothing written")
+        return 0
+    config = os.path.join(acct, "config")
+    os.makedirs(config, exist_ok=True)
+    path = os.path.join(config, "shortcuts.vdf")
+    existing = {}
+    if os.path.isfile(path):
+        try:
+            with open(path, "rb") as f:
+                existing = parse(f.read()).get("shortcuts", {})
+        except (ValueError, IndexError) as e:
+            say("could not read the existing file (%s); starting over" % e)
+    entries = [v for v in existing.values() if isinstance(v, dict)]
+    kept = [v for v in entries if TAG not in (v.get("tags") or {}).values()]
+    previous = {int(v.get("appid", 0)) & 0xFFFFFFFF: v.get("AppName", "") for v in entries if v not in kept}
+    ours = [shortcut(g) for g in games]
+    tmp = path + ".bannerlator"
+    with open(tmp, "wb") as f:
+        f.write(write({"shortcuts": {str(i): v for i, v in enumerate(kept + ours)}}))
+    os.replace(tmp, path)
+    for g in games:
+        print("== app games: %s (%d) [%s] %s" % (g["name"], unsigned(g), g.get("source", "?"), g["exe"]))
+    say("%d game(s) written, %d of the client's own kept" % (len(ours), len(kept)))
+    install_art(acct, games)
+
+    # Saves: shared for each game that asks, handed back for any of ours that stopped asking.
+    sharing = set()
+    for g in games:
+        if g.get("saves") and os.path.isdir(g["saves"]):
+            try:
+                share_saves(steam_root, g)
+                sharing.add(unsigned(g))
+            except OSError as e:
+                say("%s: saves not shared (%s)" % (g["name"], e))
+    names = dict(previous)
+    names.update({unsigned(g): g["name"] for g in games})
+    for appid, name in names.items():
+        if appid not in sharing:
+            try:
+                unshare_saves(steam_root, appid, name)
+            except OSError as e:
+                say("%s: could not hand its saves back (%s)" % (name, e))
+
+    # Each game runs under the ARM64 Proton: the compat registrar's own mapping writer, with the
+    # Protons the user installed protected exactly as the registrar protects them.
+    try:
+        # No .py suffix on the registrar, so the loader has to be named.
+        compat_path = "/usr/local/bin/bannerlator-steam-compat"
+        loader = importlib.machinery.SourceFileLoader("compat", compat_path)
+        spec = importlib.util.spec_from_file_location("compat", compat_path, loader=loader)
+        compat = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(compat)
+        cfg = os.path.join(steam_root, "config", "config.vdf")
+        if os.path.isfile(cfg) and ours:
+            extras = compat.adopt_extras(os.path.join(steam_root, "compatibilitytools.d"))
+            compat.register_default(cfg, apps=[str(unsigned(g)) for g in games], protect=extras)
+            say("mapped them to %s" % compat.TOOL)
+    except Exception as e:  # noqa: BLE001 - the games still show; the client falls back to the default tool
+        say("compat mapping skipped (%s)" % e)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

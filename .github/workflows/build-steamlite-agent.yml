@@ -1,0 +1,48 @@
+name: Build SteamLite agent
+
+# Builds our clean-room SteamLite agent (tools/steamlite-agent → steam.exe, x86_64 PE) with MinGW-w64
+# exactly as tools/steamlite-agent/README.md documents (the hosted package's corresponding source lives in
+# winlator-contents/steamlite/agent-src — keep the two in step), and uploads it as an artifact. The agent is
+# NOT part of the APK: it ships inside the hosted steamlite.tzst package (winlator-contents
+# release steamlite-vN). This workflow only produces the binary for device testing and for the next
+# package; repacking/hosting stays a separate, deliberate step after the build is device-proven.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'tools/steamlite-agent/**'
+      - '.github/workflows/build-steamlite-agent.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install MinGW-w64 (x86_64, posix threads)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q g++-mingw-w64-x86-64-posix
+
+      - name: Build steam.exe
+        working-directory: tools/steamlite-agent
+        run: |
+          x86_64-w64-mingw32-g++-posix -std=c++17 -O2 -s -static -static-libgcc -static-libstdc++ \
+            -Wl,--subsystem,windows -I. -o steam.exe main.cpp clean_shutdown.cpp -ladvapi32 -lws2_32
+          file steam.exe | grep -q 'PE32+ executable' || { echo "FATAL: not a PE32+ image"; file steam.exe; exit 1; }
+          file steam.exe | grep -q 'x86-64' || { echo "FATAL: not x86-64"; file steam.exe; exit 1; }
+          ls -la steam.exe
+          md5sum steam.exe | tee steam.exe.md5
+          sha256sum steam.exe | tee steam.exe.sha256
+          echo "commit=${GITHUB_SHA}" > steam.exe.build.txt
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: steamlite-agent
+          path: |
+            tools/steamlite-agent/steam.exe
+            tools/steamlite-agent/steam.exe.md5
+            tools/steamlite-agent/steam.exe.sha256
+            tools/steamlite-agent/steam.exe.build.txt
+          if-no-files-found: error

@@ -1,0 +1,663 @@
+=== Wine Debug Log ===
+WINEDEBUG: +warn,+err,+fixme,+loaddll
+WINEPREFIX: /data/user/0/com.winlator.banner/files/imagefs/home/xuser/.wine
+Container ID: 1
+Shortcut file: /data/user/0/com.winlator.banner/files/imagefs/home/xuser-1/.wine/drive_c/users/xuser/Desktop/君王之塔 · PanVK.desktop
+Shortcut path (resolved): C:\Games\SovereignTower\sovereign_tower.exe
+--- DX Wrapper State ---
+dxwrapper type: dxvk+vkd3d
+dxwrapperConfig (raw): version=2.7.3,framerate=0,async=0,asyncCache=0,vkd3dVersion=2.8,vkd3dLevel=12_1,ddrawrapper=none,csmt=3,gpuName=NVIDIA GeForce GTX 480,videoMemorySize=2048,strict_shader_math=1,OffscreenRenderingMode=fbo,renderer=gl
+vkd3dVersion (parsed): 2.8
+dxvk version (parsed): 2.7.3
+ddrawrapper (parsed): none
+cached dxwrapper extra: dxvk-2.7.3;vkd3d-2.8;none
+expected full string: dxvk-2.7.3;vkd3d-2.8;none
+extraction will run: false
+--- End DX Wrapper State ---
+=== Wine output below ===
+fast opengl: off (unsupported: Needs a Turnip driver) | fps hud: off (container) | vsync off: off (container)
+_r_debug not found in ld.so
+esync: up and running.
+0024:fixme:fsync:do_fsync futexes not supported on this platform.
+_r_debug not found in ld.so
+002c:fixme:fsync:do_fsync futexes not supported on this platform.
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\wineboot.exe" at 0000000140000000: builtin
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernelbase.dll" at 0000006FFFC40000: builtin
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernel32.dll" at 0000006FFFE10000: builtin
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ucrtbase.dll" at 0000006FFF9D0000: builtin
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\sechost.dll" at 0000006FFFB70000: builtin
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\msvcrt.dll" at 0000006FFF890000: builtin
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\advapi32.dll" at 0000006FFFBC0000: builtin
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ws2_32.dll" at 0000006FFF830000: builtin
+_r_debug not found in ld.so
+0034:fixme:fsync:do_fsync futexes not supported on this platform.
+0034:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\services.exe" at 0000000140000000: builtin
+0034:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernelbase.dll" at 0000006FFFC40000: builtin
+0034:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernel32.dll" at 0000006FFFE10000: builtin
+0034:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ucrtbase.dll" at 0000006FFF9D0000: builtin
+0034:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\sechost.dll" at 0000006FFFB70000: builtin
+0034:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\msvcrt.dll" at 0000006FFF890000: builtin
+0034:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\advapi32.dll" at 0000006FFFBC0000: builtin
+0034:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\rpcrt4.dll" at 0000006FFF720000: builtin
+0034:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\userenv.dll" at 0000006FFF6F0000: builtin
+0034:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\setupapi.dll" at 0000006FFF620000: builtin
+_r_debug not found in ld.so
+0040:fixme:fsync:do_fsync futexes not supported on this platform.
+0040:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\winedevice.exe" at 0000000140000000: builtin
+0040:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernelbase.dll" at 0000006FFFC40000: builtin
+0040:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernel32.dll" at 0000006FFFE10000: builtin
+0040:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ucrtbase.dll" at 0000006FFF9D0000: builtin
+0040:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\sechost.dll" at 0000006FFFB70000: builtin
+0040:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\msvcrt.dll" at 0000006FFF890000: builtin
+0040:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\advapi32.dll" at 0000006FFFBC0000: builtin
+0040:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ntoskrnl.exe" at 0000006FFF560000: builtin
+0040:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\rpcrt4.dll" at 0000006FFF720000: builtin
+004c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\drivers\\mountmgr.sys" at 0000006FFF530000: builtin
+004c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\setupapi.dll" at 0000006FFF620000: builtin
+_r_debug not found in ld.so
+0064:fixme:fsync:do_fsync futexes not supported on this platform.
+0064:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\winedevice.exe" at 0000000140000000: builtin
+0064:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernelbase.dll" at 0000006FFFC40000: builtin
+0064:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernel32.dll" at 0000006FFFE10000: builtin
+0064:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ucrtbase.dll" at 0000006FFF9D0000: builtin
+0064:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\sechost.dll" at 0000006FFFB70000: builtin
+0064:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\msvcrt.dll" at 0000006FFF890000: builtin
+0064:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\advapi32.dll" at 0000006FFFBC0000: builtin
+0064:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ntoskrnl.exe" at 0000006FFF560000: builtin
+0064:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\rpcrt4.dll" at 0000006FFF720000: builtin
+006c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\drivers\\hidparse.sys" at 0000006FFF4D0000: builtin
+006c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\drivers\\winebus.sys" at 0000006FFF500000: builtin
+006c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\setupapi.dll" at 0000006FFF620000: builtin
+006c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\win32u.dll" at 0000006FFF080000: builtin
+006c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\gdi32.dll" at 0000006FFF110000: builtin
+006c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\user32.dll" at 0000006FFF210000: builtin
+006c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\drivers\\hidclass.sys" at 0000006FFF480000: builtin
+006c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\drivers\\winehid.sys" at 0000006FFF4B0000: builtin
+006c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\imm32.dll" at 0000006FFF030000: builtin
+0080:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\drivers\\winexinput.sys" at 0000006FFF000000: builtin
+0080:fixme:xinput:pdo_pnp code 0xc, not implemented!
+004c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\drivers\\sharedgpures.sys" at 0000006FFEFE0000: builtin
+0080:fixme:xinput:pdo_pnp code 0xc, not implemented!
+_r_debug not found in ld.so
+0098:fixme:fsync:do_fsync futexes not supported on this platform.
+0080:fixme:xinput:pdo_pnp code 0xc, not implemented!
+0098:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\plugplay.exe" at 0000000140000000: builtin
+0098:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernelbase.dll" at 0000007FFFC60000: builtin
+0098:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernel32.dll" at 0000007FFFE20000: builtin
+0098:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ucrtbase.dll" at 0000007FFFA20000: builtin
+0098:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\sechost.dll" at 0000007FFFBB0000: builtin
+0098:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\msvcrt.dll" at 0000007FFF8F0000: builtin
+0098:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\advapi32.dll" at 0000007FFFBF0000: builtin
+0098:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\rpcrt4.dll" at 0000007FFF7F0000: builtin
+0080:fixme:xinput:pdo_pnp code 0xc, not implemented!
+0098:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\win32u.dll" at 0000007FFF420000: builtin
+0098:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\gdi32.dll" at 0000007FFF4A0000: builtin
+0098:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\user32.dll" at 0000007FFF590000: builtin
+0080:fixme:xinput:pdo_pnp code 0xc, not implemented!
+0098:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\imm32.dll" at 0000007FFF3E0000: builtin
+0080:fixme:xinput:pdo_pnp code 0xc, not implemented!
+_r_debug not found in ld.so
+00c8:fixme:fsync:do_fsync futexes not supported on this platform.
+0080:fixme:xinput:pdo_pnp code 0xc, not implemented!
+00c8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\svchost.exe" at 0000000140000000: builtin
+00c8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernelbase.dll" at 0000006FFFC40000: builtin
+00c8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernel32.dll" at 0000006FFFE10000: builtin
+0080:fixme:xinput:pdo_pnp code 0xc, not implemented!
+00c8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ucrtbase.dll" at 0000006FFF9D0000: builtin
+00c8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\sechost.dll" at 0000006FFFB70000: builtin
+00c8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\msvcrt.dll" at 0000006FFF890000: builtin
+00c8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\advapi32.dll" at 0000006FFFBC0000: builtin
+00c8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\wevtsvc.dll" at 0000006FFEFC0000: builtin
+00c8:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\rpcrt4.dll" at 0000006FFF720000: builtin
+004c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\drivers\\nsiproxy.sys" at 0000006FFEF90000: builtin
+00e4:err:nsi:poll_events bind failed, errno 13.
+004c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\dnsapi.dll" at 0000006FFEEC0000: builtin
+004c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\nsi.dll" at 0000006FFEE90000: builtin
+004c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ws2_32.dll" at 0000006FFF830000: builtin
+004c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\iphlpapi.dll" at 0000006FFEF00000: builtin
+004c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\drivers\\ndis.sys" at 0000006FFEF60000: builtin
+006c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\drivers\\winebth.sys" at 0000006FFEE60000: builtin
+006c:err:ntoskrnl:ZwLoadDriver failed to create driver L"\\Registry\\Machine\\System\\CurrentControlSet\\Services\\winebth": c00000e5
+0034:fixme:service:scmdatabase_autostart_services Auto-start service L"winebth" failed to start: 1359
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shcore.dll" at 0000006FFE420000: builtin
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\win32u.dll" at 0000006FFF080000: builtin
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\gdi32.dll" at 0000006FFF110000: builtin
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\user32.dll" at 0000006FFF210000: builtin
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shlwapi.dll" at 0000006FFE460000: builtin
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shell32.dll" at 0000006FFE4F0000: builtin
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\imm32.dll" at 0000006FFF030000: builtin
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\rpcrt4.dll" at 0000006FFF720000: builtin
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\combase.dll" at 0000006FFE230000: builtin
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\coml2.dll" at 0000006FFE1F0000: builtin
+002c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ole32.dll" at 0000006FFE2D0000: builtin
+0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\start.exe" at 0000000140000000: builtin
+0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernelbase.dll" at 0000007FFFC60000: builtin
+0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernel32.dll" at 0000007FFFE20000: builtin
+0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ucrtbase.dll" at 0000007FFF010000: builtin
+0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\sechost.dll" at 0000007FFF1A0000: builtin
+0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\msvcrt.dll" at 0000007FFEEE0000: builtin
+0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\advapi32.dll" at 0000007FFF1E0000: builtin
+0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shcore.dll" at 0000007FFF250000: builtin
+0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\win32u.dll" at 0000007FFEB10000: builtin
+0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\gdi32.dll" at 0000007FFEB90000: builtin
+0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\user32.dll" at 0000007FFEC80000: builtin
+0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shlwapi.dll" at 0000007FFF280000: builtin
+0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shell32.dll" at 0000007FFF300000: builtin
+0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\imm32.dll" at 0000007FFEAD0000: builtin
+_r_debug not found in ld.so
+00f0:fixme:fsync:do_fsync futexes not supported on this platform.
+00f0:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\explorer.exe" at 0000000140000000: builtin
+00f0:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernelbase.dll" at 0000006FFFC40000: builtin
+00f0:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernel32.dll" at 0000006FFFE10000: builtin
+00f0:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ucrtbase.dll" at 0000006FFF9D0000: builtin
+00f0:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\sechost.dll" at 0000006FFFB70000: builtin
+00f0:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\msvcrt.dll" at 0000006FFF890000: builtin
+00f0:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\advapi32.dll" at 0000006FFFBC0000: builtin
+00f0:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\rpcrt4.dll" at 0000006FFF720000: builtin
+00f0:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\win32u.dll" at 0000006FFF080000: builtin
+00f0:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\gdi32.dll" at 0000006FFF110000: builtin
+00f0:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\user32.dll" at 0000006FFF210000: builtin
+00f0:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\imm32.dll" at 0000006FFF030000: builtin
+00f0:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\winex11.drv" at 0000006FFE400000: builtin
+Could not open module param file '/sys/module/mali_kbase/parameters/large_page_conf'
+00f0:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\uxtheme.dll" at 0000006FFE380000: builtin
+00f0:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\combase.dll" at 0000006FFDD80000: builtin
+00f0:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\coml2.dll" at 0000006FFDD40000: builtin
+00f0:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ole32.dll" at 0000006FFDE20000: builtin
+00f0:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\oleaut32.dll" at 0000006FFDF70000: builtin
+00f0:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\oleacc.dll" at 0000006FFE110000: builtin
+00f0:trace:loaddll:build_module Loaded L"C:\\windows\\winsxs\\arm64_microsoft.windows.common-controls_6595b64144ccf1df_6.0.2600.2982_none_deadbeef\\comctl32.dll" at 0000006FFE160000: builtin
+00f0:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shcore.dll" at 0000006FFE420000: builtin
+00f0:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shlwapi.dll" at 0000006FFE460000: builtin
+00f0:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shell32.dll" at 0000006FFE4F0000: builtin
+_r_debug not found in ld.so
+0104:fixme:fsync:do_fsync futexes not supported on this platform.
+0104:err:environ:init_peb starting L"C:\\windows\\winhandler.exe" in experimental ARM64EC mode
+0104:trace:loaddll:build_module Loaded L"C:\\windows\\winhandler.exe" at 0000000140000000: native
+00f0:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\actxprxy.dll" at 0000006FFD8E0000: builtin
+0104:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\libarm64ecfex.dll" at 0000006FFD960000: builtin
+0104:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernelbase.dll" at 0000006FFFC40000: builtin
+0104:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernel32.dll" at 0000006FFFE10000: builtin
+0104:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\msvcrt.dll" at 0000006FFF890000: builtin
+_r_debug not found in ld.so
+0114:fixme:fsync:do_fsync futexes not supported on this platform.
+0104:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ucrtbase.dll" at 0000006FFF9D0000: builtin
+0104:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\sechost.dll" at 0000006FFFB70000: builtin
+0104:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\advapi32.dll" at 0000006FFFBC0000: builtin
+0104:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shcore.dll" at 0000006FFE420000: builtin
+0114:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\rpcss.exe" at 0000000140000000: builtin
+0114:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernelbase.dll" at 0000006FFFC40000: builtin
+0114:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernel32.dll" at 0000006FFFE10000: builtin
+0104:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\win32u.dll" at 0000006FFF080000: builtin
+0104:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\gdi32.dll" at 0000006FFF110000: builtin
+0104:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\user32.dll" at 0000006FFF210000: builtin
+0104:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shlwapi.dll" at 0000006FFE460000: builtin
+0104:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\SHELL32.dll" at 0000006FFE4F0000: builtin
+0104:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\WS2_32.dll" at 0000006FFF830000: builtin
+0114:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ucrtbase.dll" at 0000006FFF9D0000: builtin
+0114:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\sechost.dll" at 0000006FFFB70000: builtin
+0114:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\msvcrt.dll" at 0000006FFF890000: builtin
+0114:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\advapi32.dll" at 0000006FFFBC0000: builtin
+0114:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\rpcrt4.dll" at 0000006FFF720000: builtin
+0104:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\imm32.dll" at 0000006FFF030000: builtin
+0104:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\rpcrt4.dll" at 0000006FFF720000: builtin
+0104:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\combase.dll" at 0000006FFDD80000: builtin
+0104:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\coml2.dll" at 0000006FFDD40000: builtin
+0104:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ole32.dll" at 0000006FFDE20000: builtin
+_r_debug not found in ld.so
+013c:fixme:fsync:do_fsync futexes not supported on this platform.
+013c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\tabtip.exe" at 0000000140000000: builtin
+013c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernelbase.dll" at 0000007FFFC60000: builtin
+013c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernel32.dll" at 0000007FFFE20000: builtin
+013c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ucrtbase.dll" at 0000007FFF8E0000: builtin
+013c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\sechost.dll" at 0000007FFFA70000: builtin
+013c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\msvcrt.dll" at 0000007FFF7B0000: builtin
+013c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\advapi32.dll" at 0000007FFFAB0000: builtin
+013c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\win32u.dll" at 0000007FFF3E0000: builtin
+013c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\gdi32.dll" at 0000007FFF460000: builtin
+013c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\user32.dll" at 0000007FFF550000: builtin
+013c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\rpcrt4.dll" at 0000007FFF250000: builtin
+013c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\combase.dll" at 0000007FFF350000: builtin
+013c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\coml2.dll" at 0000007FFF220000: builtin
+013c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ole32.dll" at 0000007FFFB20000: builtin
+013c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shcore.dll" at 0000007FFE810000: builtin
+013c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shlwapi.dll" at 0000007FFE840000: builtin
+013c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shell32.dll" at 0000007FFE8C0000: builtin
+013c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\oleaut32.dll" at 0000007FFE680000: builtin
+013c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\imm32.dll" at 0000007FFE640000: builtin
+013c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\oleacc.dll" at 0000007FFE540000: builtin
+013c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\uiautomationcore.dll" at 0000007FFE580000: builtin
+013c:trace:loaddll:build_module Loaded L"c:\\windows\\system32\\winex11.drv" at 0000007FFE530000: builtin
+013c:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\uxtheme.dll" at 0000007FFE4C0000: builtin
+013c:fixme:oleacc:find_class_data unhandled window class: L"#32769"
+013c:fixme:uiautomation:uia_get_providers_for_hwnd Override provider callback currently unimplemented.
+013c:fixme:uiautomation:default_uia_provider_callback Default ProviderType_NonClientArea provider unimplemented.
+013c:fixme:oleacc:find_class_data unhandled window class: L"#32769"
+013c:fixme:uiautomation:base_hwnd_fragment_get_FragmentRoot 00000000006E46A8, 000000000011FC08: stub!
+013c:fixme:uiautomation:base_hwnd_fragment_GetEmbeddedFragmentRoots 00000000006E46A8, 000000000011FBF8: stub!
+_r_debug not found in ld.so
+0154:fixme:fsync:do_fsync futexes not supported on this platform.
+0154:err:environ:init_peb starting L"C:\\Games\\SovereignTower\\sovereign_tower.exe" in experimental ARM64EC mode
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\sovereign_tower.exe" at 0000000140000000: native
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\libarm64ecfex.dll" at 0000006FFD960000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernelbase.dll" at 0000006FFFC40000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernel32.dll" at 0000006FFFE10000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ucrtbase.dll" at 0000006FFF9D0000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\sechost.dll" at 0000006FFFB70000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\msvcrt.dll" at 0000006FFF890000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\advapi32.dll" at 0000006FFFBC0000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\win32u.dll" at 0000006FFF080000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\gdi32.dll" at 0000006FFF110000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\user32.dll" at 0000006FFF210000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\rpcrt4.dll" at 0000006FFF720000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\coml2.dll" at 0000006FFDD40000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ole32.dll" at 0000006FFDE20000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\combase.dll" at 0000006FFDD80000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\oleaut32.dll" at 0000006FFDF70000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\oleacc.dll" at 0000006FFE110000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\uiautomationcore.dll" at 0000006FFD810000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\AVRT.dll" at 0000006FFD7F0000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\bcrypt.dll" at 0000006FFD7B0000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\CRYPT32.dll" at 0000006FFD690000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\dwmapi.dll" at 0000006FFD660000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\DWrite.dll" at 0000006FFD570000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\opengl32.dll" at 000000007BE20000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\wined3d.dll" at 0000006FFCFB0000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\dxgi.dll" at 0000006FFD4F0000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\HID.DLL" at 0000006FFCF80000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\IMM32.dll" at 0000006FFF030000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\dnsapi.dll" at 0000006FFEEC0000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\nsi.dll" at 0000006FFEE90000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ws2_32.dll" at 0000006FFF830000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\IPHLPAPI.DLL" at 0000006FFEF00000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\SHCORE.dll" at 0000006FFE420000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shlwapi.dll" at 0000006FFE460000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\SHELL32.dll" at 0000006FFE4F0000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\msacm32.dll" at 0000006FFCEA0000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\WINMM.dll" at 0000006FFCEE0000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\WSOCK32.dll" at 0000006FFCE70000: builtin
+0154:trace:loaddll:build_module Loaded L"c:\\windows\\system32\\winex11.drv" at 0000006FFE400000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\uxtheme.dll" at 0000006FFE380000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\winsxs\\arm64_microsoft.windows.common-controls_6595b64144ccf1df_6.0.2600.2982_none_deadbeef\\comctl32.dll" at 0000006FFE160000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\setupapi.dll" at 0000006FFF620000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\dinput8.dll" at 0000006FFCDF0000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\qwave.dll" at 0000006FFBFC0000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\cfgmgr32.dll" at 0000006FFBF90000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\propsys.dll" at 0000006FFBF30000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\discord_partner_sdk.dll" at 0000006FFBFE0000: native
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\libdiscord_social_sdk.windows.template_release.x86_64.dll" at 0000006FFCBF0000: native
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\dbghelp.dll" at 0000006FFAF90000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\XINPUT1_4.dll" at 0000006FFAF60000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\steam_api64.dll" at 0000006FFB070000: native
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\libgodotsteam.windows.template_release.x86_64.dll" at 0000006FFBB50000: native
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\jsproxy.dll" at 0000006FFAD30000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\WINHTTP.dll" at 0000006FFAD70000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\VERSION.dll" at 0000006FFAD00000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\libsentry.windows.release.x86_64.dll" at 0000006FFADF0000: native
+0154:fixme:powermgnt:PowerCreateRequest (000000000081F2F0): stub
+0154:fixme:powermgnt:PowerSetRequest (0000000000000160, 1): stub
+0154:fixme:powermgnt:PowerSetRequest (0000000000000160, 0): stub
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\wintab32.dll" at 0000006FFACD0000: builtin
+0154:fixme:shcore:SetCurrentProcessExplicitAppUserModelID L"Godot.SovereignTower_vs_.1.1.1": stub
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\vulkan-1.dll" at 0000006FFACA0000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\winevulkan.dll" at 0000006FFAC30000: builtin
+Could not open module param file '/sys/module/mali_kbase/parameters/large_page_conf'
+0154:fixme:dwmapi:DwmSetWindowAttribute (00000000000100A8, 21, 000000000081E2B0, 4) stub
+0154:fixme:shell:SHGetPropertyStoreForWindow (00000000000100A8 0000000145B01BD0 000000000081F260) stub!
+0154:fixme:shell:window_prop_store_SetValue 0000000000D902D0, {{9f4c2855-9f79-4b39-a8d0-e1d42de1d5f3},5}, 000000000081F2B0
+[info]: create_bcn_compute_pipelines took 461 ms
+0154:fixme:setupapi:CM_Get_Parent 000000000081EFF0 0x00000004 0x00000000 stub
+0154:fixme:setupapi:CM_Get_Parent 000000000081EFF0 0x00000005 0x00000000 stub
+0154:fixme:xinput:XInputGetBatteryInformation index 0, type 0, battery 000000000081EF0E.
+0154:fixme:avrt:AvSetMmThreadCharacteristicsW (L"Games",000000000081F4B0): stub
+0154:fixme:avrt:AvSetMmThreadPriority (0000000012345678)->(2) stub
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\mmdevapi.dll" at 0000006FFABD0000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\winepulse.drv" at 0000006FFABA0000: builtin
+0154:fixme:file:NtLockFile I/O completion on lock not implemented yet
+_r_debug not found in ld.so
+01ac:fixme:fsync:do_fsync futexes not supported on this platform.
+01ac:err:environ:init_peb starting L"C:\\Games\\SovereignTower\\crashpad_handler.exe" in experimental ARM64EC mode
+01ac:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\crashpad_handler.exe" at 0000000140000000: native
+01ac:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\libarm64ecfex.dll" at 0000006FFD960000: builtin
+01ac:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernelbase.dll" at 0000006FFFC40000: builtin
+01ac:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernel32.dll" at 0000006FFFE10000: builtin
+01ac:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ucrtbase.dll" at 0000006FFF9D0000: builtin
+01ac:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\sechost.dll" at 0000006FFFB70000: builtin
+01ac:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\msvcrt.dll" at 0000006FFF890000: builtin
+01ac:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\advapi32.dll" at 0000006FFFBC0000: builtin
+01ac:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\POWRPROF.dll" at 0000006FFAB70000: builtin
+01ac:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\win32u.dll" at 0000006FFF080000: builtin
+01ac:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\gdi32.dll" at 0000006FFF110000: builtin
+01ac:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\USER32.dll" at 0000006FFF210000: builtin
+01ac:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\VERSION.dll" at 0000006FFAD00000: builtin
+01ac:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\rpcrt4.dll" at 0000006FFF720000: builtin
+01ac:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\combase.dll" at 0000006FFDD80000: builtin
+01ac:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\coml2.dll" at 0000006FFDD40000: builtin
+01ac:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ole32.dll" at 0000006FFDE20000: builtin
+01ac:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\oleaut32.dll" at 0000006FFDF70000: builtin
+01ac:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ws2_32.dll" at 0000006FFF830000: builtin
+01ac:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\jsproxy.dll" at 0000006FFAD30000: builtin
+01ac:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\WINHTTP.dll" at 0000006FFAD70000: builtin
+01ac:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\imm32.dll" at 0000006FFF030000: builtin
+01b0:trace:loaddll:build_module Loaded L"c:\\windows\\system32\\winex11.drv" at 0000006FFE400000: builtin
+01ac:fixme:process:SetProcessShutdownParameters (00000100, 00000001): partial stub.
+01b4:fixme:file:NtLockFile I/O completion on lock not implemented yet
+01b0:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\uxtheme.dll" at 0000006FFE380000: builtin
+0154:fixme:seh:WerRegisterRuntimeExceptionModule (L"C:\\Games\\SovereignTower\\crashpad_wer.dll", 0000006FFAF24250) stub
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\hostfxr.dll" at 0000006FFAB00000: native
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\hostpolicy.dll" at 0000006FFAA80000: native
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\coreclr.dll" at 0000006FFA590000: native
+0154:fixme:process:GetProcessGroupAffinity (FFFFFFFFFFFFFFFF,000000000081ED34,0000000000000000): stub
+0154:fixme:heap:GetNumaHighestNodeNumber semi-stub: 000000000081ECD0
+0154:fixme:process:GetProcessGroupAffinity (FFFFFFFFFFFFFFFF,000000000081ECD0,0000000000000000): stub
+0154:fixme:seh:WerRegisterRuntimeExceptionModule (L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\mscordaccore.dll", 0000006FFA590000) stub
+0154:fixme:ntdll:NtQuerySystemInformation info_class SYSTEM_PERFORMANCE_INFORMATION
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\System.Private.CoreLib.dll" at 0000000103200000: native
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\clrjit.dll" at 0000006FFA3C0000: native
+01a4:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\secur32.dll" at 0000006FFA370000: builtin
+01a4:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\Kerberos.dll" at 0000006FFA340000: builtin
+01a4:err:kerberos:kerberos_LsaApInitializePackage no Kerberos support, expect problems
+01a4:trace:loaddll:free_modref Unloaded module L"C:\\windows\\system32\\Kerberos.dll" : builtin
+01a4:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\netutils.dll" at 0000006FFA2D0000: builtin
+01a4:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\netapi32.dll" at 0000006FFA2F0000: builtin
+01a4:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\MSV1_0.dll" at 0000006FFA340000: builtin
+01a4:err:ntlm:ntlm_LsaApInitializePackage no NTLM support, expect problems
+01a4:trace:loaddll:free_modref Unloaded module L"C:\\windows\\system32\\MSV1_0.dll" : builtin
+01a4:trace:loaddll:free_modref Unloaded module L"C:\\windows\\system32\\netapi32.dll" : builtin
+01a4:trace:loaddll:free_modref Unloaded module L"C:\\windows\\system32\\netutils.dll" : builtin
+01a4:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\schannel.dll" at 0000006FFA340000: builtin
+0154:fixme:ntdll:EtwEventSetInformation (deadbeef, 2, 00000001033C5D98, 34) stub
+0154:fixme:ntdll:EtwEventSetInformation (deadbeef, 2, 00000001033C1C40, 38) stub
+0154:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\mscoree.dll" at 0000006FFA2D0000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\Sovereign Tower (VS).dll" at 0000000104090000: native
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\System.Runtime.dll" at 0000000013890000: native
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\System.Runtime.InteropServices.dll" at 00000001040B0000: native
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\Sentry.Godot.dll" at 00000000138A0000: native
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\System.Console.dll" at 00000001040D0000: native
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\Sentry.dll" at 00000000138B0000: native
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\System.Net.Primitives.dll" at 0000000104100000: native
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\System.IO.Compression.dll" at 0000000104140000: native
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\System.Text.Json.dll" at 0000000104180000: native
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\System.Collections.dll" at 00000001042F0000: native
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\System.Linq.dll" at 0000000104330000: native
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\System.Text.RegularExpressions.dll" at 00000001043C0000: native
+0154:fixme:virtual:NtFlushProcessWriteBuffers stub
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\System.Memory.dll" at 00000001044C0000: native
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\System.Reflection.Emit.Lightweight.dll" at 0000000013980000: native
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\System.Threading.dll" at 00000001044F0000: native
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\System.Reflection.Emit.ILGeneration.dll" at 0000000013990000: native
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\System.Reflection.Primitives.dll" at 00000000139A0000: native
+0154:fixme:ntdll:NtQuerySystemInformation (0x000000ce,0x81d2c0,0x00000008,0x0) stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081D170) :semi-stub
+0154:fixme:ntdll:EtwEventSetInformation (deadbeef, 2, 00000001033C1818, 40) stub
+0154:fixme:ntdll:EtwEventSetInformation (deadbeef, 2, 00000001033BAC90, 51) stub
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\System.Private.Uri.dll" at 0000000104B10000: native
+01e8:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\System.Diagnostics.Process.dll" at 0000000104B50000: native
+01e8:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\System.ComponentModel.Primitives.dll" at 0000000104BA0000: native
+01e8:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\Microsoft.Win32.Primitives.dll" at 0000000014AB0000: native
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\System.Diagnostics.StackTrace.dll" at 0000000104DC0000: native
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\System.Net.Http.dll" at 0000000104DD0000: native
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\System.Collections.Immutable.dll" at 0000000104F80000: native
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\System.Collections.Concurrent.dll" at 0000000105050000: native
+01f0:fixme:ntdll:RtlGetCurrentProcessorNumberEx (0000000014AAF6B0) :semi-stub
+0154:fixme:ntdll:RtlGetCurrentProcessorNumberEx (000000000081DD80) :semi-stub
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\System.Diagnostics.DiagnosticSource.dll" at 00000001052A0000: native
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\System.Diagnostics.Tracing.dll" at 0000000015AC0000: native
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\GodotSharp.dll" at 0000000015AD0000: native
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\System.Runtime.Loader.dll" at 0000000016060000: native
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\System.Diagnostics.TraceSource.dll" at 0000000105310000: native
+01a4:fixme:secur32:get_cipher_algid unknown algorithm 23
+01a4:fixme:secur32:get_mac_algid unknown algorithm 200, cipher 23
+01a4:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\rsaenh.dll" at 0000006FFA260000: builtin
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01fc:fixme:kernelbase:AppPolicyGetThreadInitializationType FFFFFFFFFFFFFFFA, 000000000E75FF80
+01fc:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\powrprof.dll" at 0000006FFAB70000: builtin
+01fc:fixme:powrprof:PowerRegisterSuspendResumeNotification (0x00000002,000000000E75FDF0,000000000E75FDE8) stub!
+01fc:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\bcryptprimitives.dll" at 0000006FFA240000: builtin
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\System.Reflection.Metadata.dll" at 0000000105F40000: native
+01a4:fixme:secur32:get_cipher_algid unknown algorithm 23
+01a4:fixme:secur32:get_mac_algid unknown algorithm 200, cipher 23
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\ink-engine-runtime.dll" at 00000000255E0000: native
+0154:trace:loaddll:build_module Loaded L"C:\\Games\\SovereignTower\\data_Sovereign Tower (VS)_windows_x86_64\\netstandard.dll" at 0000000025610000: native
+0218:fixme:kernelbase:AppPolicyGetThreadInitializationType FFFFFFFFFFFFFFFA, 000000002C06FF80
+0154:err:seh:user_callback_handler ignoring exception c0000005
+0154:fixme:uiautomation:UiaReturnRawElementProvider Unsupported object id 4294967292, ignoring.
+0148:fixme:oleacc:find_class_data unhandled window class: L"Button"
+01a4:fixme:secur32:get_cipher_algid unknown algorithm 23
+01a4:fixme:secur32:get_mac_algid unknown algorithm 200, cipher 23
+01a4:fixme:secur32:get_cipher_algid unknown algorithm 23
+01a4:fixme:secur32:get_mac_algid unknown algorithm 200, cipher 23
+01a4:fixme:secur32:get_cipher_algid unknown algorithm 23
+01a4:fixme:secur32:get_mac_algid unknown algorithm 200, cipher 23
+01f4:fixme:ntdll:RtlGetCurrentProcessorNumberEx (00000000152BF540) :semi-stub
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01e8:fixme:thread:NtQueryInformationThread ThreadIsIoPending info class not supported yet
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01f4:fixme:thread:NtQueryInformationThread ThreadIsIoPending info class not supported yet
+01f0:fixme:thread:NtQueryInformationThread ThreadIsIoPending info class not supported yet
+0258:fixme:ntdll:RtlGetCurrentProcessorNumberEx (0000000014AAF550) :semi-stub
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+025c:fixme:ntdll:RtlGetCurrentProcessorNumberEx (00000000152BF550) :semi-stub
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+01ec:fixme:ntdll:NtQuerySystemInformation stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
+X connection to :0 broken (explicit kill or server shutdown).
+X connection to :0 broken (explicit kill or server shutdown).
+X connection to :0 broken (explicit kill or server shutdown).
+X connection to :0 broken (explicit kill or server shutdown).
+../src/vulkan/wsi/wsi_common_x11.c:1918: Swapchain status changed to VK_ERROR_SURFACE_LOST_KHR
+X connection to :0 broken (explicit kill or server shutdown).
+X connection to :0 broken (explicit kill or server shutdown).
+X connection to :0 broken (explicit kill or server shutdown).
+X connection to :0 broken (explicit kill or server shutdown).
+X connection to :0 broken (explicit kill or server shutdown).
