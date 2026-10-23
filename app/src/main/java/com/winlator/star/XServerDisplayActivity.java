@@ -16524,8 +16524,12 @@ return true;
 
     // Turn Wine's win32u display-mode EMULATION off (or back on) in the ACTIVE prefix so games see the
     // discrete refresh rates our RandR extension advertises instead of the emulated {60, current}.
-    // Under HKCU [Software\Wine\X11 Driver], "EmulateModelist"/"EmulateModeset"="Y" DISABLE emulation
-    // (sysparams.c:6201 emulate_modelist = !IS_OPTION_TRUE) — device-proven (Dirt 3 cycled 60→120).
+    // Under HKCU [Software\Wine\X11 Driver], "EmulateModelist"="Y" disables list emulation
+    // (sysparams.c emulate_modelist = !IS_OPTION_TRUE) — device-proven (Dirt 3 cycled 60→120).
+    // "EmulateModeset" is read literally ("N" disables) since Valve's 2026-09-01 win32u fixup, inverted
+    // before it, so its value follows WineRandrSupport.usesLiteralEmulateModeset(). Writing "Y" on a newer
+    // layer turned modeset emulation ON and left a virtual desktop with a 60 Hz-only list (DiRT Showdown on
+    // DroidDeck 11-9.1, 2026-10-23).
     // Written on every launch (idempotent) so it survives a prefix regen (applyGeneralPatches) and
     // retrofits already-created containers; imageFs.getRootDir()+WINEPREFIX resolves through the
     // xuser symlink to the launching container's own .wine. When the toggle is OFF the values are
@@ -16548,7 +16552,8 @@ return true;
         try (WineRegistryEditor registryEditor = new WineRegistryEditor(userRegFile)) {
             if (writeKeys) {
                 registryEditor.setStringValue(x11DriverKey, "EmulateModelist", "Y");
-                registryEditor.setStringValue(x11DriverKey, "EmulateModeset", "Y");
+                registryEditor.setStringValue(x11DriverKey, "EmulateModeset",
+                        com.winlator.star.core.WineRandrSupport.usesLiteralEmulateModeset(wineInfo) ? "N" : "Y");
             }
             else {
                 // Toggle off OR incapable layer: strip the keys so no stale resolution regression lingers.
@@ -16559,7 +16564,8 @@ return true;
         boolean explicit = isRefreshUnlockExplicit();
         Log.d("XServerDisplayActivity", "In-game refresh unlock: setting=" + (unlock ? "unlock" : "locked")
                 + (explicit ? " (explicit)" : " (default)") + " layerXrandrCapable=" + capable
-                + " -> keys " + (writeKeys ? "WRITTEN" : "removed"));
+                + " -> keys " + (writeKeys ? "WRITTEN (EmulateModeset="
+                        + (com.winlator.star.core.WineRandrSupport.usesLiteralEmulateModeset(wineInfo) ? "N" : "Y") + ")" : "removed"));
 
         // The user EXPLICITLY chose a non-Locked rate but the selected layer can't deliver it — tell
         // them why. Suppressed for the untouched default (extra absent) so we never nag users who never
@@ -16691,7 +16697,7 @@ return true;
         // Windows Runtime classes only the 32-bit registry view has (PropertySet: Xbox sign-in), added to the 64-bit view.
         com.winlator.star.store.xbox.XboxWinRt.ensure(getApplicationContext(), new File(imageFs.wineprefix));
         // What the game's MicrosoftGame.config declares (VC14), installed offline when this container lacks it.
-        com.winlator.star.store.xbox.XboxDependencies.ensure(getApplicationContext(), container, id, label -> {
+        com.winlator.star.store.xbox.XboxDependencies.ensure(getApplicationContext(), container, id, wineInfo != null && wineInfo.isArm64EC(), label -> {
             preloaderDialog.step(2, label);
             return kotlin.Unit.INSTANCE;
         });

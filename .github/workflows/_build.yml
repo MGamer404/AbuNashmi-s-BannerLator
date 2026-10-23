@@ -49,15 +49,13 @@ jobs:
   build:
 
     runs-on: ubuntu-22.04
+    timeout-minutes: 120
 
     strategy:
       fail-fast: false          # one flavor failing must NOT cancel the others
       matrix:
         flavor:
           - { id: standard, task: assembleStandardRelease }
-          - { id: ludashi,  task: assembleLudashiRelease  }
-          - { id: pubg,     task: assemblePubgRelease     }
-          - { id: antutu,   task: assembleAntutuRelease   }
 
     name: build (${{ matrix.flavor.id }})
 
@@ -199,7 +197,11 @@ jobs:
             rm -f /tmp/cmdline-tools.zip
           fi
           echo "Installing:$MISSING"
-          yes | "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --install $MISSING
+          for attempt in 1 2 3; do
+            if yes | timeout 480 "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --install $MISSING; then break; fi
+            echo "sdkmanager attempt $attempt failed or timed out"
+            [ "$attempt" = 3 ] && exit 1
+          done
         else
           echo "NDK + cmake already present (cache or runner image) — skipping sdkmanager install"
         fi

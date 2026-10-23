@@ -28,7 +28,8 @@ data class Component(
  * Same source BannerHub's Component Manager uses.
  */
 object ComponentCatalog {
-    const val URL = "https://raw.githubusercontent.com/The412Banner/winlator-contents/main/components.json"
+    // TEST BUILD ONLY: reads the catalog from MGamer404's fork, which has the vcredist2022_arm64 entry.
+    const val URL = "https://raw.githubusercontent.com/MGamer404/winlator-contents/vcredist2022-arm64/components.json"
 
     /** The last catalog [load] read, by name: what an install looks dependencies up in. */
     @Volatile
