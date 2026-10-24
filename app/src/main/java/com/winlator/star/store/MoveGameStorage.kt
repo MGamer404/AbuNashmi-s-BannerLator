@@ -327,6 +327,9 @@ object MoveGameStorage {
             // ── 5. Committed — drop the original. A failure here is cosmetic (wasted space), never
             //       a broken game, so it is logged rather than surfaced as a failed move. ────────
             onProgress(Progress(Phase.CLEANING, plan.sizeBytes, plan.sizeBytes))
+            // The game's Workshop items follow it to the new library (best effort, never throws).
+            SteamForegroundService.setStatusText("Moving $shortName — Workshop items")
+            SteamWorkshop.relocate(plan.appId, plan.source, plan.dest)
             SteamForegroundService.setStatusText("Moving $shortName — freeing the old copy")
             // Another game (a demo / server sharing this installdir) may still use the old folder: keep it.
             if (SteamInstallPaths.isLibraryContainer(plan.source) ||

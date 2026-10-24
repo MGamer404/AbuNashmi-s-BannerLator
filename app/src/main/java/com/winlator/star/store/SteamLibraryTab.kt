@@ -606,6 +606,8 @@ fun SteamLibraryTab(
             mark = {
                 if (imported) SteamLibraryImport.releaseImported(ctx, game.appId)
                 else SteamAppManifest.removeFor(game.installDir, game.appId)
+                // The game's Workshop items go with it (not for another client's library).
+                if (!imported) SteamWorkshop.removeAllFor(game.installDir, game.appId)
                 runCatching { SteamRepository.getInstance().database.markUninstalled(game.appId) }
             },
             // Another game (a demo / server sharing this installdir) still uses the folder: keep it.

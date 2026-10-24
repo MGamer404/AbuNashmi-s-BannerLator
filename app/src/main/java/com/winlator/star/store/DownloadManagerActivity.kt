@@ -329,6 +329,8 @@ class DownloadManagerActivity : ComponentActivity() {
                     entry.id.toIntOrNull()?.let {
                         if (imported) SteamLibraryImport.releaseImported(this, it)
                         else SteamAppManifest.removeFor(entry.installPath, it)
+                        // The game's Workshop items go with it (not for another client's library).
+                        if (!imported) SteamWorkshop.removeAllFor(entry.installPath, it)
                         SteamRepository.getInstance().database.markUninstalled(it)
                     }
                 }

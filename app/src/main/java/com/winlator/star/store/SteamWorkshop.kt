@@ -2,6 +2,7 @@ package com.winlator.star.store
 
 import android.content.Context
 import com.winlator.star.container.Container
+import com.winlator.star.core.FileUtils
 import com.winlator.star.core.WinePath
 import com.winlator.star.store.blsteam.BlSteamEngine
 import com.winlator.star.store.blsteam.CaBundleExtractor
@@ -367,6 +368,158 @@ object SteamWorkshop {
     fun remove(contentDir: File, id: Long) {
         File(contentDir, id.toString()).deleteRecursively()
         File(contentDir, "$id$PARTIAL").deleteRecursively()
+        writeAppWorkshopManifest(contentDir)
+    }
+
+    // ── Real Steam client (SteamLite), moving and uninstalling ───────────────────────────────
+
+    /** The folder that holds `content/` and `appworkshop_<appid>.acf` for the game installed at [installDir]. */
+    private fun workshopBase(installDir: File, appId: Int): File =
+        contentDir(installDir, appId).parentFile!!.parentFile!!
+
+    /**
+     * Writes the `appworkshop_<appid>.acf` a real Steam keeps next to `content/`, listing the installed
+     * items, so the genuine client SteamLite runs counts them as installed instead of fetching them
+     * again. A manifest that was not written by us (the client's own) is never touched. [contentDir] is
+     * the `…/content/<appid>` folder. Best effort: never throws.
+     */
+    fun writeAppWorkshopManifest(contentDir: File) {
+        try {
+            val appId = contentDir.name.toIntOrNull() ?: return
+            val base = contentDir.parentFile?.parentFile ?: return
+            if (!base.isDirectory) return
+            val acf = File(base, "appworkshop_$appId.acf")
+            val ours = File(base, "appworkshop_$appId.acf.bannerlator")
+            if (acf.isFile && !ours.isFile) return // the real client's own: leave it
+
+            val stamps = installed(contentDir)
+            val byId = installedItems(contentDir, appId).associateBy { it.id }
+            val now = System.currentTimeMillis() / 1000
+            var total = 0L
+            val installedBlock = StringBuilder()
+            val detailsBlock = StringBuilder()
+            for ((id, stamp) in stamps) {
+                val dir = File(contentDir, id.toString())
+                val size = payloadFiles(dir).sumOf { it.length() }
+                val manifest = byId[id]?.manifestId ?: 0L
+                total += size
+                installedBlock.append("\t\t\"$id\"\n\t\t{\n\t\t\t\"size\"\t\t\"$size\"\n\t\t\t\"timeupdated\"\t\t\"$stamp\"\n\t\t\t\"manifest\"\t\t\"$manifest\"\n\t\t}\n")
+                detailsBlock.append(
+                    "\t\t\"$id\"\n\t\t{\n\t\t\t\"manifest\"\t\t\"$manifest\"\n\t\t\t\"timeupdated\"\t\t\"$stamp\"\n" +
+                        "\t\t\t\"timetouched\"\t\t\"$now\"\n\t\t\t\"latest_timeupdated\"\t\t\"$stamp\"\n" +
+                        "\t\t\t\"latest_manifest\"\t\t\"$manifest\"\n\t\t}\n",
+                )
+            }
+            val text = "\"AppWorkshop\"\n{\n\t\"appid\"\t\t\"$appId\"\n\t\"SizeOnDisk\"\t\t\"$total\"\n" +
+                "\t\"NeedsUpdate\"\t\t\"0\"\n\t\"NeedsDownload\"\t\t\"0\"\n\t\"TimeLastUpdated\"\t\t\"$now\"\n" +
+                "\t\"TimeLastAppRan\"\t\t\"0\"\n\t\"LastBuildID\"\t\t\"0\"\n" +
+                "\t\"WorkshopItemsInstalled\"\n\t{\n$installedBlock\t}\n" +
+                "\t\"WorkshopItemDetails\"\n\t{\n$detailsBlock\t}\n}\n"
+            acf.writeText(text)
+            ours.writeText("written by Bannerlator\n")
+        } catch (t: Throwable) {
+            note("writeAppWorkshopManifest failed for ${contentDir.path}", t)
+        }
+    }
+
+    /**
+     * Lets the genuine Steam client SteamLite runs see the game's Workshop items: the prefix's
+     * `steamapps/workshop` becomes a link to the game's Workshop folder in its library (the same way
+     * `steamapps/common/<game>` links to the game), holding a manifest for the installed items.
+     * Anything the client downloads for subscribed items then lands in the library too. A real folder
+     * with files already in it is left alone. Best effort: never throws.
+     */
+    fun linkForSteamLite(installDir: File, prefixSteamapps: File, appId: Int) {
+        try {
+            if (!installDir.isAbsolute) return
+            val base = workshopBase(installDir, appId)
+            base.mkdirs()
+            if (!base.isDirectory) {
+                note("SteamLite: couldn't create ${base.path} — Workshop items not linked")
+                return
+            }
+            writeAppWorkshopManifest(contentDir(installDir, appId))
+            val link = File(prefixSteamapps, "workshop")
+            when {
+                FileUtils.isSymlink(link) -> FileUtils.delete(link) // re-point: the library may have moved
+                link.isDirectory && link.walkTopDown().none { it.isFile && !it.name.endsWith(".acf") } ->
+                    link.deleteRecursively()
+                link.exists() -> {
+                    note("SteamLite: ${link.path} is a real folder with files in it — left alone, so the client will not use the library's items")
+                    return
+                }
+            }
+            FileUtils.symlink(base.absolutePath, link.absolutePath)
+            note("SteamLite: steamapps/workshop -> ${base.path} (linked=${FileUtils.isSymlink(link)})")
+        } catch (t: Throwable) {
+            note("linkForSteamLite failed for app $appId", t)
+        }
+    }
+
+    /**
+     * Carries a game's finished Workshop items to the new library when the game moves. An item that
+     * can't be copied stays where it was. Best effort: never throws.
+     */
+    fun relocate(appId: Int, oldInstallDir: File, newInstallDir: File) {
+        try {
+            if (!oldInstallDir.isAbsolute || !newInstallDir.isAbsolute) return
+            val from = contentDir(oldInstallDir, appId)
+            val to = contentDir(newInstallDir, appId)
+            if (!from.isDirectory || from.canonicalPath == to.canonicalPath) return
+            to.mkdirs()
+            var moved = 0
+            for (id in installed(from).keys) {
+                val src = File(from, id.toString())
+                val dst = File(to, id.toString())
+                try {
+                    dst.deleteRecursively()
+                    src.copyRecursively(dst, overwrite = true)
+                    src.deleteRecursively()
+                    moved++
+                } catch (e: Exception) {
+                    dst.deleteRecursively()
+                    note("relocate: item $id stays in ${from.path}", e)
+                }
+            }
+            writeAppWorkshopManifest(to)
+            writeAppWorkshopManifest(from)
+            pruneEmpty(from, appId)
+            note("relocate: app $appId moved $moved item(s) ${from.path} -> ${to.path}")
+        } catch (t: Throwable) {
+            note("relocate failed for app $appId", t)
+        }
+    }
+
+    /**
+     * Deletes everything we keep for [appId] when its game is uninstalled, like a real Steam does.
+     * Not for games found in another Steam client's library: that content is the client's.
+     */
+    fun removeAllFor(installDir: String?, appId: Int) {
+        try {
+            val dir = installDir?.takeIf { it.isNotBlank() }?.let(::File) ?: return
+            if (!dir.isAbsolute) return
+            val content = contentDir(dir, appId)
+            content.deleteRecursively()
+            pruneEmpty(content, appId)
+            note("uninstall: removed Workshop items for app $appId (${content.path})")
+        } catch (t: Throwable) {
+            note("removeAllFor failed for app $appId", t)
+        }
+    }
+
+    /** Drops our manifest for [appId] once its content folder holds nothing, then any folder left empty above it. */
+    private fun pruneEmpty(contentDir: File, appId: Int) {
+        val base = contentDir.parentFile?.parentFile ?: return
+        if (contentDir.isDirectory && contentDir.list().isNullOrEmpty()) contentDir.delete()
+        val acf = File(base, "appworkshop_$appId.acf")
+        val ours = File(base, "appworkshop_$appId.acf.bannerlator")
+        if (ours.isFile && !contentDir.exists()) {
+            acf.delete()
+            ours.delete()
+        }
+        val content = contentDir.parentFile
+        if (content != null && content.isDirectory && content.list().isNullOrEmpty()) content.delete()
+        if (base.isDirectory && base.list().isNullOrEmpty()) base.delete()
     }
 
     /** Free-space shortfall message for downloading [item] into [contentDir], or null when it fits. */
@@ -449,6 +602,7 @@ object SteamWorkshop {
                     return@withContext WorkshopInstallResult(false, "Couldn't move the finished download into place.")
                 }
                 File(itemDir, MARKER).writeText(item.timeUpdated.toString())
+                writeAppWorkshopManifest(contentDir)
                 onProgress(item.sizeBytes, item.sizeBytes)
                 WorkshopInstallResult(true, "")
             } catch (e: kotlinx.coroutines.CancellationException) {

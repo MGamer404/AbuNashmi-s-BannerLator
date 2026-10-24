@@ -1202,6 +1202,8 @@ class SteamGameDetailActivity : ComponentActivity(), SteamRepository.SteamEventL
                         // that names this folder, only for a steamapps library), then the DB state.
                         if (imported) SteamLibraryImport.releaseImported(this, appId)
                         else SteamAppManifest.removeFor(installDir, appId)
+                        // The game's Workshop items go with it (not for another client's library).
+                        if (!imported) SteamWorkshop.removeAllFor(installDir, appId)
                         SteamRepository.getInstance().database.markUninstalled(appId)
                     },
                     // Another game (a demo / server sharing this installdir) still uses the folder: keep it.

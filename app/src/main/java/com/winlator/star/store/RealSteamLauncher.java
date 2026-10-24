@@ -306,6 +306,9 @@ public final class RealSteamLauncher {
                     return null;
                 }
             }
+            // The game's Workshop items: link the library's Workshop folder into this Steam folder so the
+            // genuine client sees them (best effort — never blocks the launch).
+            SteamWorkshop.INSTANCE.linkForSteamLite(new File(hostInstallDir), steamappsDir, appId);
             writeAppManifest(acf, appId, displayName, canonicalName, steamId64);
 
             // ── 3c. Per-game spec: line1 = full Windows exe path UNDER steamapps\common (so the agent's
