@@ -33,6 +33,13 @@ impl CPublishedFileGetUserFilesRequest {
         w.uint32_field(5, self.numperpage);
         w.string_field(6, &self.request_type);
         w.uint32_field(14, self.filetype);
+        // Votes and the short description come back by default; tags, previews, children and the
+        // item's metadata only when asked for, and games read all of them from the item.
+        w.bool_field(20, true);
+        w.bool_field(22, true);
+        w.bool_field(23, true);
+        w.bool_field(28, true);
+        w.bool_field(32, true);
         out
     }
 }
@@ -113,8 +120,8 @@ impl CPublishedFileQueryFilesRequest {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct CPublishedFileSubscriptionRequest {
     pub publishedfileid: u64,
-    /// The `list_type` Steam expects for the subscribed list. Not published in Valve's protobuf
-    /// files, so the caller supplies it (0 = leave unset).
+    /// `EUCMListType`: 1 = the subscribed list (2 = favorites). Left unset (0), Steam answers OK
+    /// and changes nothing, so callers must send 1.
     pub list_type: u32,
     pub appid: i32,
     /// Ask Steam to tell any other client logged in as this account (a desktop Steam, SteamLite).
@@ -174,6 +181,8 @@ pub struct PublishedFileDetails {
     pub vote_score: f32,
     pub votes_up: u32,
     pub votes_down: u32,
+    /// The free-form metadata string the item's creator attached (games use it to describe a mod).
+    pub metadata: String,
 }
 
 fn parse_tag(body: &[u8]) -> Option<PublishedFileTag> {
@@ -378,6 +387,10 @@ impl PublishedFileDetails {
                         msg.votes_up = up;
                         msg.votes_down = down;
                     }
+                    true
+                }
+                (58, WireType::LengthDelimited) => {
+                    msg.metadata = reader.string()?;
                     true
                 }
                 _ => false,
@@ -618,6 +631,7 @@ mod tests {
             w.submessage_field(52, &tag);
             w.submessage_field(53, &child);
             w.submessage_field(55, &votes);
+            w.string_field(58, "creator-metadata");
         }
         let mut body = Vec::new();
         {
@@ -648,5 +662,26 @@ mod tests {
         assert_eq!(item.children, vec![555]);
         assert_eq!((item.votes_up, item.votes_down), (90, 10));
         assert!((item.vote_score - 0.75).abs() < f32::EPSILON);
+        assert_eq!(item.metadata, "creator-metadata");
+    }
+
+    #[test]
+    fn user_files_request_asks_for_tags_previews_children_and_metadata() {
+        let request = CPublishedFileGetUserFilesRequest {
+            steamid: 1,
+            appid: 480,
+            page: 1,
+            numperpage: 100,
+            request_type: "mysubscriptions".to_string(),
+            filetype: u32::MAX,
+        };
+        let body = request.serialize();
+        let has = |needle: &[u8]| body.windows(needle.len()).any(|w| w == needle);
+        assert!(has(&[0xa0, 0x01, 1])); // return_tags = 20
+        assert!(has(&[0xb0, 0x01, 1])); // return_previews = 22
+        assert!(has(&[0xb8, 0x01, 1])); // return_children = 23
+        assert!(has(&[0xe0, 0x01, 1])); // return_metadata = 28
+        assert!(has(&[0x80, 0x02, 1])); // strip_description_bbcode = 32
+        assert!(has(&[0x70, 0xff, 0xff, 0xff, 0xff, 0x0f])); // filetype = 14, all types
     }
 }

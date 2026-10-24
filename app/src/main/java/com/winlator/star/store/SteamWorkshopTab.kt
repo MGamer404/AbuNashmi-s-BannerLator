@@ -95,7 +95,10 @@ fun SteamWorkshopTab(appId: Int, signedIn: Boolean) {
         loadingSubs = true
         val list = if (signedIn) SteamWorkshop.subscribed(appId) else null
         subscribedFailed = list == null
-        if (list != null) subscribed = list
+        if (list != null) {
+            subscribed = list
+            contentDir?.let { dir -> withContext(Dispatchers.IO) { SteamWorkshop.refreshMetadata(dir, list) } }
+        }
         loadingSubs = false
     }
 
@@ -148,10 +151,12 @@ fun SteamWorkshopTab(appId: Int, signedIn: Boolean) {
                 notice = "Couldn't subscribe to ${item.title}: ${result.message}"
             } else {
                 // The subscription list is what carries the download info, so use its copy of the item.
-                reloadSubscriptions()
-                val listed = subscribed.firstOrNull { it.id == item.id }
+                // Steam can take a moment to show a new subscription, so wait for it to appear.
+                val list = SteamWorkshop.awaitSubscription(appId, item.id, present = true)
+                if (list != null) subscribed = list
+                val listed = list?.firstOrNull { it.id == item.id }
                 when {
-                    listed == null -> notice = "Subscribed to ${item.title}. Steam hasn't listed it yet — pull it from Subscribed in a moment."
+                    listed == null -> notice = "Steam accepted the subscription to ${item.title}, but it isn't in your list yet. Reopen this tab in a moment."
                     !listed.downloadable -> notice = "Subscribed to ${item.title}, but it has no downloadable files."
                     else -> install(listed)
                 }
@@ -167,12 +172,18 @@ fun SteamWorkshopTab(appId: Int, signedIn: Boolean) {
             if (!result.ok) {
                 notice = "Couldn't unsubscribe from ${item.title}: ${result.message}"
             } else {
-                contentDir?.let { dir ->
-                    withContext(Dispatchers.IO) { SteamWorkshop.remove(dir, item.id) }
-                    installedStamps = withContext(Dispatchers.IO) { SteamWorkshop.installed(dir) }
-                    installedItems = withContext(Dispatchers.IO) { SteamWorkshop.installedItems(dir, appId) }
+                // Only delete the files once Steam's own list shows the item gone.
+                val list = SteamWorkshop.awaitSubscription(appId, item.id, present = false)
+                if (list != null) subscribed = list
+                when {
+                    list == null -> notice = "Couldn't confirm the change with Steam, so ${item.title} was kept on this device."
+                    list.any { it.id == item.id } -> notice = "Steam accepted the request but still lists ${item.title} as subscribed, so it was kept."
+                    else -> contentDir?.let { dir ->
+                        withContext(Dispatchers.IO) { SteamWorkshop.remove(dir, item.id) }
+                        installedStamps = withContext(Dispatchers.IO) { SteamWorkshop.installed(dir) }
+                        installedItems = withContext(Dispatchers.IO) { SteamWorkshop.installedItems(dir, appId) }
+                    }
                 }
-                reloadSubscriptions()
             }
             working.remove(item.id)
         }

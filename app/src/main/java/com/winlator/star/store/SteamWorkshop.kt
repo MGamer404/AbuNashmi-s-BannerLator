@@ -1,7 +1,6 @@
 package com.winlator.star.store
 
 import android.content.Context
-import android.util.Log
 import com.winlator.star.container.Container
 import com.winlator.star.core.WinePath
 import com.winlator.star.store.blsteam.BlSteamEngine
@@ -53,7 +52,12 @@ data class WorkshopItem(
     val banned: Boolean,
     val previews: List<String>,
     val children: List<Long>,
+    /** Tag labels for display. */
     val tags: List<String>,
+    /** Steam's own tag names, which games compare against; same order as [tags]. */
+    val rawTags: List<String> = emptyList(),
+    /** The free-form metadata string the item's creator attached; some games read it. */
+    val metadata: String = "",
 ) {
     /** The item has something we can fetch: a depot manifest or a direct file URL. */
     val downloadable: Boolean get() = manifestId != 0L || fileUrl.isNotEmpty()
@@ -74,16 +78,26 @@ data class WorkshopItem(
         .put("votesUp", votesUp)
         .put("votesDown", votesDown)
         .put("voteScore", voteScore.toDouble())
-        .put("tags", JSONArray().apply { tags.forEach { put(JSONObject().put("tag", it)) } })
+        .put("metadata", metadata)
+        .put("tags", JSONArray().apply {
+            tags.forEachIndexed { i, label ->
+                put(JSONObject().put("tag", rawTags.getOrElse(i) { label }).put("displayName", label))
+            }
+        })
 
     companion object {
         fun fromJson(o: JSONObject, fallbackAppId: Int): WorkshopItem {
             val tagList = ArrayList<String>()
+            val rawTagList = ArrayList<String>()
             o.optJSONArray("tags")?.let { arr ->
                 for (i in 0 until arr.length()) {
                     val t = arr.optJSONObject(i) ?: continue
-                    val label = t.optString("displayName").ifEmpty { t.optString("tag") }
-                    if (label.isNotEmpty()) tagList.add(label)
+                    val raw = t.optString("tag")
+                    val label = t.optString("displayName").ifEmpty { raw }
+                    if (label.isNotEmpty()) {
+                        tagList.add(label)
+                        rawTagList.add(raw.ifEmpty { label })
+                    }
                 }
             }
             val previewList = ArrayList<String>()
@@ -117,6 +131,8 @@ data class WorkshopItem(
                 previews = previewList,
                 children = childList,
                 tags = tagList,
+                rawTags = rawTagList,
+                metadata = o.optString("metadata"),
             )
         }
     }
@@ -163,7 +179,6 @@ data class WorkshopDownload(val done: Long, val total: Long, val active: Boolean
  * All functions that touch the network or the disk are blocking or suspending: call them off the UI thread.
  */
 object SteamWorkshop {
-    private const val TAG = "BL_WORKSHOP"
     private const val PAGE_SIZE = 30
     private const val MARKER = ".workshop_complete"
     private const val META = ".workshop_item.json"
@@ -206,10 +221,10 @@ object SteamWorkshop {
         val session = BlSteamEngine.session() ?: return@withContext null
         val json = session.getSubscribedWorkshopItems(appId)
         if (json == null) {
-            Log.w(TAG, "subscriptions app=$appId: Steam did not answer")
+            note("subscriptions app=$appId: Steam did not answer")
             return@withContext null
         }
-        parseItems(JSONArray(json), appId).also { Log.i(TAG, "subscriptions app=$appId: ${it.size} item(s)") }
+        parseItems(JSONArray(json), appId).also { note("subscriptions app=$appId: ${it.size} item(s)") }
     }
 
     /** One page of [appId]'s Workshop, ranked by [sort], or by text relevance when [search] is set. */
@@ -226,38 +241,57 @@ object SteamWorkshop {
         val days = if (text.isNotEmpty()) 0 else sort.days
         val json = session.queryWorkshopItems(appId, queryType, page, PAGE_SIZE, text, tags.joinToString(","), days)
         if (json == null) {
-            Log.w(TAG, "browse app=$appId type=$queryType page=$page: Steam did not answer")
+            note("browse app=$appId type=$queryType page=$page: Steam did not answer")
             return@withContext null
         }
         val o = JSONObject(json)
         WorkshopPage(o.optInt("total"), parseItems(o.optJSONArray("items") ?: JSONArray(), appId)).also {
-            Log.i(TAG, "browse app=$appId type=$queryType page=$page: ${it.items.size} of ${it.total}")
+            note("browse app=$appId type=$queryType page=$page: ${it.items.size} of ${it.total}")
         }
     }
 
     /**
-     * Subscribes to / unsubscribes from [item] on the account. Steam's protocol files don't say which
-     * `list_type` its subscribed list is, so an unset one is tried first and then 1, the value the
-     * subscribed list uses in the client; the codes are logged so a device log shows which one took.
+     * Subscribes to / unsubscribes from [item] on the account, in Steam's "subscribed" list. Steam
+     * answers OK to a request with no list type without changing anything, so the type is always sent.
+     * Use [awaitSubscription] afterwards to confirm that Steam really applied it.
      */
     suspend fun setSubscribed(appId: Int, item: WorkshopItem, subscribe: Boolean): WorkshopSubscribeResult =
         withContext(Dispatchers.IO) {
             val session = BlSteamEngine.session()
                 ?: return@withContext WorkshopSubscribeResult(false, -1, "Not signed in to Steam.")
-            var last = -1
-            for (listType in intArrayOf(0, 1)) {
-                last = session.setWorkshopSubscription(appId, item.id, subscribe, listType)
-                Log.i(TAG, "subscribe=$subscribe item=${item.id} app=$appId list_type=$listType -> eresult=$last")
-                if (last == 1) return@withContext WorkshopSubscribeResult(true, 1, "")
-                if (last <= 0) break // no session / no answer: a second try would only wait again
+            val code = session.setWorkshopSubscription(appId, item.id, subscribe, LIST_TYPE_SUBSCRIBED)
+            note("${if (subscribe) "subscribe" else "unsubscribe"} item=${item.id} app=$appId list_type=$LIST_TYPE_SUBSCRIBED -> eresult=$code")
+            when (code) {
+                1 -> WorkshopSubscribeResult(true, 1, "")
+                0 -> WorkshopSubscribeResult(false, 0, "Steam did not answer in time.")
+                -1 -> WorkshopSubscribeResult(false, -1, "Not signed in to Steam.")
+                else -> WorkshopSubscribeResult(false, code, "Steam refused it (code $code).")
             }
-            val why = when (last) {
-                0 -> "Steam did not answer in time."
-                -1 -> "Not signed in to Steam."
-                else -> "Steam refused it (code $last)."
-            }
-            WorkshopSubscribeResult(false, last, why)
         }
+
+    /**
+     * Re-reads the subscriptions until [id] is in them ([present] = true) or gone from them, for up to
+     * about five seconds: Steam can take a moment to show a change. Returns the last list read, which
+     * may still disagree if Steam never caught up, or null when it never answered.
+     */
+    suspend fun awaitSubscription(appId: Int, id: Long, present: Boolean): List<WorkshopItem>? {
+        var last: List<WorkshopItem>? = null
+        for (attempt in 1..4) {
+            val list = subscribed(appId)
+            if (list != null) {
+                last = list
+                if (list.any { it.id == id } == present) return list
+            }
+            if (attempt < 4) delay(1500)
+        }
+        note("subscription check: item=$id app=$appId expected ${if (present) "subscribed" else "unsubscribed"} but Steam's list disagrees after retries (answered=${last != null})")
+        return last
+    }
+
+    /** EUCMListType.Subscribed. (2 is Favorites, so the type must not be left unset or guessed.) */
+    private const val LIST_TYPE_SUBSCRIBED = 1
+
+    private fun note(message: String, error: Throwable? = null) = WorkshopDiag.log(message, error)
 
     /** EPublishedFileQueryType.RankedByTextSearch. */
     private const val QUERY_TEXT_SEARCH = 12
@@ -316,6 +350,19 @@ object SteamWorkshop {
                 WorkshopItem.fromJson(JSONObject(File(File(contentDir, id.toString()), META).readText()), appId)
             }.getOrNull()
         }
+
+    /**
+     * Rewrites the saved details of installed items from Steam's current [items], without touching
+     * their files or the downloaded-version marker. Keeps what Goldberg is told (tags, owner…) in
+     * step with what the app knows, including for items installed by an older build.
+     */
+    fun refreshMetadata(contentDir: File, items: List<WorkshopItem>) {
+        val installedIds = installed(contentDir).keys
+        for (item in items) {
+            if (item.id !in installedIds) continue
+            runCatching { File(File(contentDir, item.id.toString()), META).writeText(item.toJson().toString()) }
+        }
+    }
 
     fun remove(contentDir: File, id: Long) {
         File(contentDir, id.toString()).deleteRecursively()
@@ -407,7 +454,7 @@ object SteamWorkshop {
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Throwable) {
-                Log.w(TAG, "install failed for item ${item.id}", e)
+                note("install failed for item ${item.id}", e)
                 WorkshopInstallResult(false, e.message ?: e.javaClass.simpleName)
             }
         }
@@ -432,7 +479,7 @@ object SteamWorkshop {
             val written = withContext(Dispatchers.IO) {
                 session.downloadWorkshopItem(item.appId, item.manifestId, partial.absolutePath, ca)
             }
-            Log.i(TAG, "depot download item=${item.id} manifest=${item.manifestId} -> $written bytes")
+            note("depot download item=${item.id} manifest=${item.manifestId} -> $written bytes")
             if (written < 0L) "Steam would not give out this item's files (are you subscribed, and do you own the game?)" else null
         } finally {
             poller.cancel()
@@ -500,7 +547,7 @@ object SteamWorkshop {
                 conn.disconnect()
             }
         } catch (e: Exception) {
-            Log.w(TAG, "preview for item ${item.id} failed: $e")
+            note("preview for item ${item.id} failed: $e")
         }
     }
 
@@ -535,10 +582,13 @@ object SteamWorkshop {
                     runCatching { WinePath.resolveWindowsPath(container, dir.absolutePath) }.getOrNull()
                 } else null
                 if (winPath == null) {
-                    Log.w(TAG, "mods.json: no Windows path for item $id — container missing or no free drive letter")
+                    note("mods.json: no Windows path for item $id — container missing or no free drive letter")
                     continue
                 }
-                mods.put(id.toString(), modsEntry(dir, id, appId, winPath))
+                val entry = modsEntry(dir, id, appId, winPath)
+                mods.put(id.toString(), entry)
+                note("mods.json item=$id path=$winPath primary=${entry.optString("primary_filename")} " +
+                    "files=${payloadFiles(dir).count()} size=${entry.optLong("total_files_sizes")}")
             }
             var written = 0
             for (t in targets) {
@@ -550,7 +600,7 @@ object SteamWorkshop {
                     continue
                 }
                 if (file.isFile && !isOurs(file)) {
-                    Log.w(TAG, "mods.json beside ${t.dll.name} is not ours — left alone")
+                    note("mods.json beside ${t.dll.name} is not ours — left alone")
                     continue
                 }
                 settings.mkdirs()
@@ -563,10 +613,10 @@ object SteamWorkshop {
                 copyPreviews(contentDir, mods, File(settings, "mod_images"))
                 written = mods.length()
             }
-            Log.i(TAG, "mods.json: $written item(s) for app $appId in ${targets.size} folder(s)")
+            note("mods.json: $written item(s) for app $appId in ${targets.size} folder(s)")
             return written
         } catch (e: Throwable) {
-            Log.w(TAG, "syncGoldbergMods failed for app $appId", e)
+            note("syncGoldbergMods failed for app $appId", e)
             return 0
         }
     }
@@ -590,7 +640,11 @@ object SteamWorkshop {
         previewOf(dir)?.let { entry.put("preview_filename", it.name) }
         if (meta != null) {
             if (meta.shortDescription.isNotEmpty()) entry.put("description", meta.shortDescription)
-            if (meta.tags.isNotEmpty()) entry.put("tags", meta.tags.joinToString(","))
+            // Steam's own tag names, comma-separated: games filter on these, not on the display labels.
+            val rawTags = meta.rawTags.ifEmpty { meta.tags }
+            if (rawTags.isNotEmpty()) entry.put("tags", rawTags.joinToString(","))
+            if (meta.creator != 0L) entry.put("steam_id_owner", meta.creator)
+            if (meta.metadata.isNotEmpty()) entry.put("metadata", meta.metadata)
             if (meta.previewUrl.isNotEmpty()) entry.put("preview_url", meta.previewUrl)
             entry.put("upvotes", meta.votesUp)
             entry.put("downvotes", meta.votesDown)

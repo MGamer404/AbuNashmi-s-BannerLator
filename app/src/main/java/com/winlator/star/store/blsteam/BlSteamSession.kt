@@ -291,7 +291,7 @@ class BlSteamSession : AutoCloseable {
      * Blocking subscribe / unsubscribe on the signed-in account. Returns Steam's EResult (1 = OK),
      * 0 when Steam did not answer in time, -1 when there is no usable session.
      */
-    fun setWorkshopSubscription(appId: Int, publishedFileId: Long, subscribe: Boolean, listType: Int = 0): Int {
+    fun setWorkshopSubscription(appId: Int, publishedFileId: Long, subscribe: Boolean, listType: Int): Int {
         val h = nativeHandle.get(); if (h == 0L) return -1
         return try { nativeSetWorkshopSubscription(h, appId, publishedFileId, subscribe, listType) }
                catch (_: UnsatisfiedLinkError) { -1 }

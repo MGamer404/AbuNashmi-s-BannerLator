@@ -1730,6 +1730,7 @@ fn workshop_item_json(
         "voteScore": detail.vote_score,
         "numChildren": detail.num_children,
         "fileType": detail.file_type,
+        "metadata": detail.metadata,
         "banned": detail.banned,
         "previews": detail.previews,
         "children": detail.children,
