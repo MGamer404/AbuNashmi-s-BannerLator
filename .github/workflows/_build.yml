@@ -55,9 +55,6 @@ jobs:
       matrix:
         flavor:
           - { id: standard, task: assembleStandardRelease }
-          - { id: ludashi,  task: assembleLudashiRelease  }
-          - { id: pubg,     task: assemblePubgRelease     }
-          - { id: antutu,   task: assembleAntutuRelease   }
 
     name: build (${{ matrix.flavor.id }})
 
