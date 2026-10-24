@@ -361,7 +361,7 @@ object SteamWorkshop {
         val installedIds = installed(contentDir).keys
         for (item in items) {
             if (item.id !in installedIds) continue
-            runCatching { File(File(contentDir, item.id.toString()), META).writeText(item.toJson().toString()) }
+            runCatching { writeMeta(File(contentDir, item.id.toString()), item) }
         }
     }
 
@@ -400,7 +400,7 @@ object SteamWorkshop {
             val detailsBlock = StringBuilder()
             for ((id, stamp) in stamps) {
                 val dir = File(contentDir, id.toString())
-                val size = payloadFiles(dir).sumOf { it.length() }
+                val size = payloadStats(dir, byId[id]?.fileName).bytes
                 val manifest = byId[id]?.manifestId ?: 0L
                 total += size
                 installedBlock.append("\t\t\"$id\"\n\t\t{\n\t\t\t\"size\"\t\t\"$size\"\n\t\t\t\"timeupdated\"\t\t\"$stamp\"\n\t\t\t\"manifest\"\t\t\"$manifest\"\n\t\t}\n")
@@ -432,13 +432,11 @@ object SteamWorkshop {
     fun linkForSteamLite(installDir: File, prefixSteamapps: File, appId: Int) {
         try {
             if (!installDir.isAbsolute) return
+            // Only games that use Workshop here get a link: no folders or work for the rest.
+            val content = contentDir(installDir, appId)
+            if (!content.isDirectory || installed(content).isEmpty()) return
             val base = workshopBase(installDir, appId)
-            base.mkdirs()
-            if (!base.isDirectory) {
-                note("SteamLite: couldn't create ${base.path} — Workshop items not linked")
-                return
-            }
-            writeAppWorkshopManifest(contentDir(installDir, appId))
+            if (!File(base, "appworkshop_$appId.acf").isFile) writeAppWorkshopManifest(content)
             val link = File(prefixSteamapps, "workshop")
             when {
                 FileUtils.isSymlink(link) -> FileUtils.delete(link) // re-point: the library may have moved
@@ -592,7 +590,7 @@ object SteamWorkshop {
                     partial.deleteRecursively()
                     return@withContext WorkshopInstallResult(false, "The download finished but left no files.")
                 }
-                File(partial, META).writeText(item.toJson().toString())
+                writeMeta(partial, item)
                 downloadPreview(item, partial)
                 // Swap in the finished copy. The old one (an update) goes only now, so a failure above
                 // never costs the files that already worked.
@@ -715,6 +713,40 @@ object SteamWorkshop {
     private fun previewOf(dir: File): File? =
         dir.listFiles()?.firstOrNull { it.isFile && it.nameWithoutExtension == "preview" }
 
+    /** What launch-time code needs to know about an item's files, without walking them every time. */
+    private class PayloadStats(val bytes: Long, val primary: String, val primarySize: Long)
+
+    private fun computeStats(dir: File, fileName: String?): PayloadStats {
+        val files = payloadFiles(dir).toList()
+        val wanted = fileName?.substringAfterLast('/')?.takeIf { it.isNotEmpty() }
+        val primary = files.firstOrNull { wanted != null && it.name == wanted }
+            ?: files.minByOrNull { it.relativeTo(dir).path }
+        return PayloadStats(
+            files.sumOf { it.length() },
+            primary?.relativeTo(dir)?.path?.replace('\\', '/').orEmpty(),
+            primary?.length() ?: 0L,
+        )
+    }
+
+    /** The stats saved in the item's `.workshop_item.json` when it was installed, or null for an older install. */
+    private fun cachedStats(dir: File): PayloadStats? = runCatching {
+        val o = JSONObject(File(dir, META).readText())
+        if (o.has("_payloadBytes")) PayloadStats(o.getLong("_payloadBytes"), o.optString("_primary"), o.optLong("_primarySize")) else null
+    }.getOrNull()
+
+    private fun payloadStats(dir: File, fileName: String?): PayloadStats =
+        cachedStats(dir) ?: computeStats(dir, fileName)
+
+    /** Saves [item]'s details beside its files, with the file stats so a launch never has to walk them. */
+    private fun writeMeta(dir: File, item: WorkshopItem) {
+        val stats = payloadStats(dir, item.fileName)
+        val json = item.toJson()
+            .put("_payloadBytes", stats.bytes)
+            .put("_primary", stats.primary)
+            .put("_primarySize", stats.primarySize)
+        File(dir, META).writeText(json.toString())
+    }
+
     // ── Goldberg ─────────────────────────────────────────────────────────────────────────────
 
     /**
@@ -723,10 +755,9 @@ object SteamWorkshop {
      * are. A `mods.json` that is not ours is never touched, and ours is removed when no item is installed.
      * Local files only: safe to run on every launch. Returns how many items were written.
      */
-    fun syncGoldbergMods(ctx: Context, container: Container?, appId: Int, installRoot: File): Int {
+    fun syncGoldbergMods(ctx: Context, container: Container?, appId: Int, installRoot: File, dirs: List<File>): Int {
         try {
-            val targets = GoldbergPatcher.analyze(installRoot)
-            if (targets.isEmpty()) return 0
+            if (dirs.isEmpty()) return 0
             val contentDir = contentDir(installRoot, appId)
             val installedIds = installed(contentDir).keys
             val mods = JSONObject()
@@ -742,19 +773,22 @@ object SteamWorkshop {
                 val entry = modsEntry(dir, id, appId, winPath)
                 mods.put(id.toString(), entry)
                 note("mods.json item=$id path=$winPath primary=${entry.optString("primary_filename")} " +
-                    "files=${payloadFiles(dir).count()} size=${entry.optLong("total_files_sizes")}")
+                    "size=${entry.optLong("total_files_sizes")}")
             }
             var written = 0
-            for (t in targets) {
-                val settings = File(t.dir, "steam_settings")
+            for (d in dirs) {
+                val settings = File(d, "steam_settings")
                 val file = File(settings, "mods.json")
                 if (mods.length() == 0) {
-                    if (file.isFile && isOurs(file)) file.delete()
-                    File(settings, "mod_images").takeIf { it.isDirectory }?.deleteRecursively()
+                    // Nothing installed: remove what we wrote before (and only that).
+                    if (file.isFile && isOurs(file)) {
+                        file.delete()
+                        File(settings, "mod_images").takeIf { it.isDirectory }?.deleteRecursively()
+                    }
                     continue
                 }
                 if (file.isFile && !isOurs(file)) {
-                    note("mods.json beside ${t.dll.name} is not ours — left alone")
+                    note("mods.json in ${d.name} is not ours — left alone")
                     continue
                 }
                 settings.mkdirs()
@@ -767,7 +801,7 @@ object SteamWorkshop {
                 copyPreviews(contentDir, mods, File(settings, "mod_images"))
                 written = mods.length()
             }
-            note("mods.json: $written item(s) for app $appId in ${targets.size} folder(s)")
+            if (written > 0 || installedIds.isNotEmpty()) note("mods.json: $written item(s) for app $appId in ${dirs.size} folder(s)")
             return written
         } catch (e: Throwable) {
             note("syncGoldbergMods failed for app $appId", e)
@@ -777,17 +811,15 @@ object SteamWorkshop {
 
     private fun modsEntry(dir: File, id: Long, appId: Int, winPath: String): JSONObject {
         val meta = runCatching { WorkshopItem.fromJson(JSONObject(File(dir, META).readText()), appId) }.getOrNull()
-        val files = payloadFiles(dir).toList()
-        val primary = files.firstOrNull { it.name == meta?.fileName?.substringAfterLast('/') }
-            ?: files.minByOrNull { it.relativeTo(dir).path }
+        val stats = payloadStats(dir, meta?.fileName)
         val entry = JSONObject()
         entry.put("title", meta?.title ?: id.toString())
-        if (primary != null) {
-            entry.put("primary_filename", primary.relativeTo(dir).path.replace('\\', '/'))
-            entry.put("primary_filesize", primary.length())
+        if (stats.primary.isNotEmpty()) {
+            entry.put("primary_filename", stats.primary)
+            entry.put("primary_filesize", stats.primarySize)
         }
         // Numbers must stay JSON numbers: gbe_fork skips the whole entry on a string where it wants one.
-        entry.put("total_files_sizes", files.sumOf { it.length() })
+        entry.put("total_files_sizes", stats.bytes)
         if (meta != null && meta.timeUpdated > 0L) entry.put("time_updated", meta.timeUpdated)
         if (meta != null && meta.timeCreated > 0L) entry.put("time_created", meta.timeCreated)
         entry.put("path", winPath)

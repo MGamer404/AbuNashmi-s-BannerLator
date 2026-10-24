@@ -7035,7 +7035,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
                             }
                             GoldbergPatcher.ensureAchievementSchema(appCtx, appId, dirs, GoldbergPatcher.SCHEMA_TIMEOUT_MS);
                             // Tell gbe_fork where the game's installed Workshop items are (local files only).
-                            SteamWorkshop.INSTANCE.syncGoldbergMods(appCtx, container, appId, installRoot);
+                            SteamWorkshop.INSTANCE.syncGoldbergMods(appCtx, container, appId, installRoot, dirs);
                         }
                     } else {
                         Log.i("BH_STEAM_ACHV", "achievement seed: Goldberg OFF for appId=" + appId + " — no seed");
