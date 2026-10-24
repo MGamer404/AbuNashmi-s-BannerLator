@@ -1621,6 +1621,7 @@ private enum class DetailTab(val label: String) {
     ACHIEVEMENTS("Achievements"),
     DLC("DLC"),
     CLOUD("Cloud saves"),
+    WORKSHOP("Workshop"),
     /** Store screenshots + trailers; only in the strip once the appdetails fetch found any. */
     MEDIA("Media"),
 }
@@ -2215,6 +2216,9 @@ private fun SteamGameDetailScreen(
                     }
                 }
             }
+
+            // Workshop = subscribed items + a browser for the game's Workshop (see SteamWorkshopTab).
+            DetailTab.WORKSHOP -> SteamWorkshopTab(appId = appId, signedIn = signedIn)
 
             // Media = the shared store Media tab (trailers + screenshots, viewer, playback handoff).
             DetailTab.MEDIA -> MediaTab(

@@ -54,7 +54,10 @@ use crate::pb::cplayer::{
     CPlayerGetFavoriteBadgeRequest, CPlayerGetOwnedGamesRequest,
     CPlayerGetProfileItemsEquippedRequest, CPlayerSetRichPresenceKv, CPlayerSetRichPresenceRequest,
 };
-use crate::pb::cpublishedfile::CPublishedFileGetUserFilesRequest;
+use crate::pb::cpublishedfile::{
+    CPublishedFileGetUserFilesRequest, CPublishedFileQueryFilesRequest,
+    CPublishedFileSubscriptionRequest,
+};
 use crate::pb::cuseraccount::CUserAccountCreateFriendInviteTokenRequest;
 use crate::proto_envelope::encode_proto_envelope;
 use crate::ticket_cache::BlTicketCache;
@@ -1172,6 +1175,28 @@ impl CMClientCore {
             }
             .serialize(),
         )
+    }
+
+    pub fn build_published_file_query_call(
+        &self,
+        request: &CPublishedFileQueryFilesRequest,
+        job_id: u64,
+    ) -> Option<OutboundServiceCall> {
+        self.build_authed_service_call("PublishedFile.QueryFiles#1", job_id, request.serialize())
+    }
+
+    pub fn build_published_file_subscription_call(
+        &self,
+        request: &CPublishedFileSubscriptionRequest,
+        subscribe: bool,
+        job_id: u64,
+    ) -> Option<OutboundServiceCall> {
+        let method = if subscribe {
+            "PublishedFile.Subscribe#1"
+        } else {
+            "PublishedFile.Unsubscribe#1"
+        };
+        self.build_authed_service_call(method, job_id, request.serialize(subscribe))
     }
 
     pub fn build_cloud_user_quota_call(&self, job_id: u64) -> Option<OutboundServiceCall> {
@@ -2480,6 +2505,40 @@ mod tests {
             .request_body
             .windows(6)
             .any(|w| w == [0x70, 0xff, 0xff, 0xff, 0xff, 0x0f]));
+    }
+
+    #[test]
+    fn workshop_browse_and_subscription_builders_use_service_method_names() {
+        let core = logged_on_core();
+
+        let query = CPublishedFileQueryFilesRequest {
+            appid: 480,
+            ..Default::default()
+        };
+        assert_eq!(
+            core.build_published_file_query_call(&query, 14)
+                .unwrap()
+                .method_name,
+            "PublishedFile.QueryFiles#1"
+        );
+
+        let request = CPublishedFileSubscriptionRequest {
+            publishedfileid: 1234,
+            appid: 480,
+            ..Default::default()
+        };
+        assert_eq!(
+            core.build_published_file_subscription_call(&request, true, 15)
+                .unwrap()
+                .method_name,
+            "PublishedFile.Subscribe#1"
+        );
+        assert_eq!(
+            core.build_published_file_subscription_call(&request, false, 16)
+                .unwrap()
+                .method_name,
+            "PublishedFile.Unsubscribe#1"
+        );
     }
 
     #[test]

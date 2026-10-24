@@ -72,6 +72,7 @@ import com.winlator.star.store.SteamPrefs;
 import com.winlator.star.store.SteamInstallPaths;
 import com.winlator.star.store.SteamCloudSaveManager;
 import com.winlator.star.store.SteamDatabase;
+import com.winlator.star.store.SteamWorkshop;
 import com.winlator.star.store.SteamRepository;
 import com.winlator.star.store.RealSteamLauncher;
 import com.winlator.star.store.SteamLiteComponent;
@@ -7033,6 +7034,8 @@ public class XServerDisplayActivity extends AppCompatActivity {
                                 dirs.add(target.getDir());
                             }
                             GoldbergPatcher.ensureAchievementSchema(appCtx, appId, dirs, GoldbergPatcher.SCHEMA_TIMEOUT_MS);
+                            // Tell gbe_fork where the game's installed Workshop items are (local files only).
+                            SteamWorkshop.INSTANCE.syncGoldbergMods(appCtx, container, appId, installRoot);
                         }
                     } else {
                         Log.i("BH_STEAM_ACHV", "achievement seed: Goldberg OFF for appId=" + appId + " — no seed");

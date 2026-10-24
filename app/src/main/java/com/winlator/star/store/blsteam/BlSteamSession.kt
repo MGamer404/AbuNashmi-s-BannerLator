@@ -268,6 +268,35 @@ class BlSteamSession : AutoCloseable {
         return nativeGetSubscribedWorkshopItems(h, appId)
     }
 
+    /**
+     * Blocking Workshop browse page: `{"total":N,"items":[…]}` (items have the same shape as
+     * [getSubscribedWorkshopItems]), or null when Steam did not answer. [queryType] is Steam's
+     * `EPublishedFileQueryType`; [requiredTags] is comma-separated.
+     */
+    fun queryWorkshopItems(
+        appId: Int,
+        queryType: Int,
+        page: Int,
+        perPage: Int,
+        searchText: String,
+        requiredTags: String,
+        days: Int,
+    ): String? {
+        val h = nativeHandle.get(); if (h == 0L) return null
+        return try { nativeQueryWorkshopItems(h, appId, queryType, page, perPage, searchText, requiredTags, days) }
+               catch (_: UnsatisfiedLinkError) { null }
+    }
+
+    /**
+     * Blocking subscribe / unsubscribe on the signed-in account. Returns Steam's EResult (1 = OK),
+     * 0 when Steam did not answer in time, -1 when there is no usable session.
+     */
+    fun setWorkshopSubscription(appId: Int, publishedFileId: Long, subscribe: Boolean, listType: Int = 0): Int {
+        val h = nativeHandle.get(); if (h == 0L) return -1
+        return try { nativeSetWorkshopSubscription(h, appId, publishedFileId, subscribe, listType) }
+               catch (_: UnsatisfiedLinkError) { -1 }
+    }
+
     // Blocking Workshop item depot download; returns bytes written or -1.
     fun downloadWorkshopItem(
         appId: Int,
@@ -966,6 +995,23 @@ class BlSteamSession : AutoCloseable {
             handle: Long,
             appId: Int,
         ): String?
+        @JvmStatic private external fun nativeQueryWorkshopItems(
+            handle: Long,
+            appId: Int,
+            queryType: Int,
+            page: Int,
+            perPage: Int,
+            searchText: String,
+            requiredTags: String,
+            days: Int,
+        ): String?
+        @JvmStatic private external fun nativeSetWorkshopSubscription(
+            handle: Long,
+            appId: Int,
+            publishedFileId: Long,
+            subscribe: Boolean,
+            listType: Int,
+        ): Int
         @JvmStatic private external fun nativeDownloadWorkshopItem(
             handle: Long,
             appId: Int,

@@ -1625,6 +1625,121 @@ fn request_subscribed_workshop_page(
     rx.recv_timeout(timeout).ok().flatten()
 }
 
+fn request_workshop_query_page(
+    runtime: &Arc<CMClientRuntime>,
+    request: &crate::pb::cpublishedfile::CPublishedFileQueryFilesRequest,
+    timeout: Duration,
+) -> Option<crate::pb::cpublishedfile::CPublishedFileQueryFilesResponse> {
+    if request.appid == 0
+        || request.page == 0
+        || request.numperpage == 0
+        || runtime.core().state() != ClientState::LoggedOn
+    {
+        return None;
+    }
+    let job_id = runtime.next_job_id();
+    let call = runtime
+        .core()
+        .build_published_file_query_call(request, job_id)?;
+    let (tx, rx) = mpsc::channel();
+    let app_id = request.appid;
+    let page = request.page;
+    runtime.track_job(
+        job_id,
+        move |job| {
+            let response = if job.synthetic_failure || job.eresult != 1 {
+                None
+            } else {
+                crate::pb::cpublishedfile::CPublishedFileQueryFilesResponse::deserialize(&job.body)
+            };
+            android_log(
+                "BL_WORKSHOP",
+                &format!(
+                    "QueryFiles app={app_id} page={page} synthetic={} eresult={} body={}B parsed={}",
+                    job.synthetic_failure,
+                    job.eresult,
+                    job.body.len(),
+                    response.is_some()
+                ),
+            );
+            let _ = tx.send(response);
+        },
+        Some(timeout),
+    );
+    if !runtime.core().enqueue_wire(call.wire) {
+        return None;
+    }
+    runtime.flush_outbound();
+    rx.recv_timeout(timeout).ok().flatten()
+}
+
+/// Sends an authed service call and returns Steam's EResult for it (1 = OK). None when the call
+/// could not be sent or Steam did not answer in time.
+fn request_authed_service_eresult<F>(
+    runtime: &Arc<CMClientRuntime>,
+    timeout: Duration,
+    build: F,
+) -> Option<i32>
+where
+    F: FnOnce(&CMClientCore, u64) -> Option<OutboundServiceCall>,
+{
+    if runtime.core().state() != ClientState::LoggedOn {
+        return None;
+    }
+    let job_id = runtime.next_job_id();
+    let call = build(runtime.core(), job_id)?;
+    let (tx, rx) = mpsc::channel();
+    runtime.track_job(
+        job_id,
+        move |job| {
+            let _ = tx.send((!job.synthetic_failure).then_some(job.eresult));
+        },
+        Some(timeout),
+    );
+    if !runtime.core().enqueue_wire(call.wire) {
+        return None;
+    }
+    runtime.flush_outbound();
+    rx.recv_timeout(timeout).ok().flatten()
+}
+
+/// One Workshop item as the Kotlin side reads it (subscriptions and browse results share this shape).
+fn workshop_item_json(
+    detail: &crate::pb::cpublishedfile::PublishedFileDetails,
+    app_id: u32,
+) -> serde_json::Value {
+    json!({
+        "publishedFileId": detail.publishedfileid,
+        "appId": if detail.consumer_appid != 0 { detail.consumer_appid } else { app_id },
+        "title": detail.title,
+        "fileName": detail.filename,
+        "fileUrl": detail.file_url,
+        "previewUrl": detail.preview_url,
+        "fileSizeBytes": detail.file_size,
+        "hcontentFile": detail.hcontent_file,
+        "timeUpdated": detail.time_updated,
+        "timeCreated": detail.time_created,
+        "creator": detail.creator,
+        "shortDescription": detail.short_description,
+        "description": detail.file_description,
+        "subscriptions": detail.subscriptions,
+        "lifetimeSubscriptions": detail.lifetime_subscriptions,
+        "views": detail.views,
+        "votesUp": detail.votes_up,
+        "votesDown": detail.votes_down,
+        "voteScore": detail.vote_score,
+        "numChildren": detail.num_children,
+        "fileType": detail.file_type,
+        "banned": detail.banned,
+        "previews": detail.previews,
+        "children": detail.children,
+        "tags": detail.tags.iter().map(|tag| json!({
+            "tag": tag.tag,
+            "displayName": tag.display_name,
+        })).collect::<Vec<_>>(),
+    })
+}
+
 struct QrPollState {
     runtime: Arc<CMClientRuntime>,
     qr_callback: GlobalRef,
@@ -4318,20 +4433,112 @@ pub extern "system" fn Java_com_winlator_star_store_blsteam_BlSteamSession_nativ
     }
     let value = json!(all
         .iter()
-        .map(|detail| json!({
-            "publishedFileId": detail.publishedfileid,
-            "appId": if detail.consumer_appid != 0 { detail.consumer_appid } else { app_id },
-            "title": detail.title,
-            "fileName": detail.filename,
-            "fileUrl": detail.file_url,
-            "previewUrl": detail.preview_url,
-            "fileSizeBytes": detail.file_size,
-            "hcontentFile": detail.hcontent_file,
-            "timeUpdated": detail.time_updated,
-        }))
+        .map(|detail| workshop_item_json(detail, app_id))
         .collect::<Vec<_>>())
     .to_string();
     new_string_or_null(&mut env, &value)
+}
+
+/// One page of the Workshop browse list for [app_id]: `{"total":N,"items":[…]}`, or null when Steam
+/// did not answer. `query_type` is an `EPublishedFileQueryType` (0 popular, 1 newest, 3 trending,
+/// 9 most subscribed, 12 text search, 21 recently updated); `required_tags` is comma-separated.
+#[no_mangle]
+pub extern "system" fn Java_com_winlator_star_store_blsteam_BlSteamSession_nativeQueryWorkshopItems(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    app_id: jint,
+    query_type: jint,
+    page: jint,
+    per_page: jint,
+    search_text: JString,
+    required_tags: JString,
+    days: jint,
+) -> jstring {
+    let Some(handle) = (unsafe { from_session_handle_mut(handle) }) else {
+        return ptr::null_mut();
+    };
+    let Some(runtime) = handle.connected_runtime() else {
+        return ptr::null_mut();
+    };
+    let app_id = app_id.max(0) as u32;
+    let search_text = jstring_to_string(&mut env, &search_text).unwrap_or_default();
+    let required_tags = jstring_to_string(&mut env, &required_tags).unwrap_or_default();
+    let request = crate::pb::cpublishedfile::CPublishedFileQueryFilesRequest {
+        query_type: query_type.max(0) as u32,
+        page: page.max(1) as u32,
+        numperpage: per_page.clamp(1, 100) as u32,
+        appid: app_id,
+        required_tags: required_tags
+            .split(',')
+            .map(str::trim)
+            .filter(|tag| !tag.is_empty())
+            .map(str::to_string)
+            .collect(),
+        search_text: search_text.trim().to_string(),
+        days: days.max(0) as u32,
+        ..Default::default()
+    };
+    let Some(response) = request_workshop_query_page(&runtime, &request, Duration::from_secs(30))
+    else {
+        return ptr::null_mut();
+    };
+    let value = json!({
+        "total": response.total,
+        "items": response
+            .publishedfiledetails
+            .iter()
+            .map(|detail| workshop_item_json(detail, app_id))
+            .collect::<Vec<_>>(),
+    })
+    .to_string();
+    new_string_or_null(&mut env, &value)
+}
+
+/// Subscribes to / unsubscribes from a Workshop item on the signed-in account. Returns Steam's
+/// EResult (1 = OK), 0 when Steam did not answer in time, -1 when there is no usable session.
+#[no_mangle]
+pub extern "system" fn Java_com_winlator_star_store_blsteam_BlSteamSession_nativeSetWorkshopSubscription(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    app_id: jint,
+    published_file_id: jlong,
+    subscribe: jboolean,
+    list_type: jint,
+) -> jint {
+    let Some(handle) = (unsafe { from_session_handle_mut(handle) }) else {
+        return -1;
+    };
+    let Some(runtime) = handle.connected_runtime() else {
+        return -1;
+    };
+    if app_id <= 0 || published_file_id <= 0 {
+        return -1;
+    }
+    let subscribe = subscribe != JNI_FALSE;
+    let request = crate::pb::cpublishedfile::CPublishedFileSubscriptionRequest {
+        publishedfileid: published_file_id as u64,
+        list_type: list_type.max(0) as u32,
+        appid: app_id,
+        notify_client: true,
+        include_dependencies: subscribe,
+    };
+    let eresult = request_authed_service_eresult(&runtime, Duration::from_secs(30), |core, job_id| {
+        core.build_published_file_subscription_call(&request, subscribe, job_id)
+    })
+    .unwrap_or(0);
+    android_log(
+        "BL_WORKSHOP",
+        &format!(
+            "{} item={} app={} list_type={} -> eresult={eresult}",
+            if subscribe { "Subscribe" } else { "Unsubscribe" },
+            published_file_id,
+            app_id,
+            list_type
+        ),
+    );
+    eresult
 }
 
 #[no_mangle]
