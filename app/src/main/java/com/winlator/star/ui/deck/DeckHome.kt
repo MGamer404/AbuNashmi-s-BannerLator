@@ -1,6 +1,7 @@
 package com.winlator.star.ui.deck
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animateFloatAsState
@@ -54,6 +55,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Schedule
@@ -114,6 +116,8 @@ import androidx.preference.PreferenceManager
 import com.winlator.star.androidgames.AndroidGames
 import com.winlator.star.container.Shortcut
 import com.winlator.star.store.SteamFriendsAction
+import com.winlator.star.store.SteamFriendsActivity
+import com.winlator.star.store.SteamPrefs
 import com.winlator.star.ui.DeckDialogBars
 import com.winlator.star.ui.DeckDialogScaled
 import com.winlator.star.ui.theme.AppThemeState
@@ -236,11 +240,16 @@ internal fun DeckHome(
     // The Deck home is the library this shell lands on, so it picks that up the same way the Games screen does.
     LaunchedEffect(shortcuts) { launcher.resumePendingRelaunch(shortcuts) }
 
+    // The XMB home's Friends card shows only while signed in to Steam (the same check as the friends button), re-read on resume.
+    var steamSignedIn by remember { mutableStateOf(runCatching { SteamPrefs.isLoggedIn }.getOrDefault(false)) }
     // Refresh whenever the app resumes, as the Games screen does, so playtime and new games show up.
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) vm.refresh()
+            if (event == Lifecycle.Event.ON_RESUME) {
+                vm.refresh()
+                steamSignedIn = runCatching { SteamPrefs.isLoggedIn }.getOrDefault(steamSignedIn)
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
@@ -275,15 +284,14 @@ internal fun DeckHome(
         ?: shortcuts.firstOrNull()
     var menuFor by remember { mutableStateOf<Shortcut?>(null) }
 
-    // X / Start on this page = the focused game's menu. The XMB home has every game option in its own column,
-    // so there it opens the library menu instead: the shelf toolbar's buttons (filter, add games...) have no other place.
+    // X / Start on this page = the focused game's menu. The XMB home has none: every game option is in its own column.
     val deckActions = LocalDeckActions.current
     val focusedNow by rememberUpdatedState(focused)
-    var libraryMenuOpen by remember { mutableStateOf(false) }
     DisposableEffect(deckActions, xmbHome) {
-        val open: () -> Unit = if (xmbHome) ({ libraryMenuOpen = true }) else ({ focusedNow?.let { menuFor = it } })
+        if (xmbHome) return@DisposableEffect onDispose {}
+        val open: () -> Unit = { focusedNow?.let { menuFor = it } }
         deckActions.options.value = open
-        deckActions.optionsLabel.value = if (xmbHome) "Library" else "Game options"
+        deckActions.optionsLabel.value = "Game options"
         onDispose { if (deckActions.options.value === open) deckActions.options.value = null }
     }
 
@@ -351,6 +359,14 @@ internal fun DeckHome(
         // Steam (Linux) entry, whose settings aren't XMB rows, opens the Deck editor.
         xmbGameActions(context, s, xmbHost, openSettings = { actions.perform(GameMenuAction.SETTINGS, it) }, settingsAsColumns = true)
     }
+    // XMB home: Up from a game lifts the row of library cards above the games (what the shelf toolbar offers elsewhere).
+    val xmbUpperRow: List<XmbAction> = if (!xmbHome) emptyList() else listOfNotNull(
+        if (steamSignedIn) XmbAction("Friends", Icons.Filled.People, "Steam friends and chat") {
+            runCatching { context.startActivity(Intent(context, SteamFriendsActivity::class.java)) }
+        } else null,
+        XmbAction("Community configs", Icons.Filled.Public, "Shared settings for your games") { actions.showCommunityBrowser = true },
+        XmbAction("Add game", Icons.Filled.Add, "Add games to your library") { onAddGame() },
+    )
 
     val shelfScroll = rememberScrollState()
     val heroScope = rememberCoroutineScope()
@@ -492,11 +508,13 @@ internal fun DeckHome(
                     onReloadGames = { vm.refresh() },
                     onFocusedChange = onFocus,
                     // Full screen: the XMB hides the system bars in landscape and keeps L1/R1 for its jumps.
-                    // The XMB home sits inside the shell instead: the shell keeps the bars and takes L1/R1 for its tabs,
-                    // draws the clock itself, and Up from the first option moves to the tab bar (Down comes back).
+                    // The XMB home sits inside the shell instead: the shell keeps the bars hidden, takes L1/R1 for its tabs
+                    // and floats its own tabs, status and Search over the XMB, so the XMB drops its hints and clock.
+                    // Up from the first option lifts the library cards (upperRow) above the games.
                     inDeckShell = xmbHome,
                     showClock = !xmbHome,
-                    onUpAtTop = { deckActions.focusTabs.value?.invoke() ?: false },
+                    showHints = !xmbHome,
+                    upperRow = xmbUpperRow,
                     takeFocus = { !deckActions.navHold.value },
                     focusTick = deckActions.enterTick.intValue,
                 )
@@ -504,16 +522,6 @@ internal fun DeckHome(
         }
     }
     if (showWrapperManager) WrapperManagerDialog(onDismiss = { showWrapperManager = false })
-
-    if (libraryMenuOpen) {
-        LibraryMenuDialog(
-            onDismiss = { libraryMenuOpen = false },
-            onFilter = { libraryMenuOpen = false; filterOpen = true },
-            onAddGame = { libraryMenuOpen = false; onAddGame() },
-            onCommunity = { libraryMenuOpen = false; actions.showCommunityBrowser = true },
-            onBigPicture = { libraryMenuOpen = false; onBigPicture() },
-        )
-    }
 
     if (filterOpen) {
         LibraryFilterDialog(
@@ -587,52 +595,6 @@ private fun LibraryToolbar(
             SteamFriendsAction(tint = cs.onSurface)
         }
         IconTile(Icons.Filled.Tv, "Big Picture", onBigPicture)
-    }
-}
-
-/** The XMB home's library menu (X / Start): what the shelf toolbar offers, as a short controller-friendly list. */
-@Composable
-private fun LibraryMenuDialog(
-    onDismiss: () -> Unit,
-    onFilter: () -> Unit,
-    onAddGame: () -> Unit,
-    onCommunity: () -> Unit,
-    onBigPicture: () -> Unit,
-) {
-    val cs = MaterialTheme.colorScheme
-    val firstRequester = remember { FocusRequester() }
-    LaunchedEffect(Unit) {
-        withFrameNanos { }
-        runCatching { firstRequester.requestFocus() }
-    }
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        DeckDialogBars()
-        DeckDialogScaled {
-            val shape = RoundedCornerShape(26.dp)
-            Column(
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier
-                    .padding(16.dp)
-                    .widthIn(max = 420.dp)
-                    .fillMaxWidth()
-                    .clip(shape)
-                    .background(cs.surfaceContainerHigh)
-                    .border(1.dp, deckLine(), shape)
-                    .verticalScroll(rememberScrollState())
-                    .padding(22.dp),
-            ) {
-                Text("Library", color = cs.onSurface, fontFamily = SoraFamily, fontWeight = FontWeight.Bold, fontSize = 22.sp)
-                DeckButton("Filter & sort", Icons.Filled.FilterList, onFilter, modifier = Modifier.fillMaxWidth().focusRequester(firstRequester))
-                DeckButton("Add games", Icons.Filled.Add, onAddGame, modifier = Modifier.fillMaxWidth())
-                DeckButton("Community configs", Icons.Filled.Public, onCommunity, modifier = Modifier.fillMaxWidth())
-                DeckButton("Big Picture", Icons.Filled.Tv, onBigPicture, modifier = Modifier.fillMaxWidth())
-                // Steam friends and chat; renders only while signed in to Steam.
-                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxWidth()) {
-                    SteamFriendsAction(tint = cs.onSurface)
-                }
-                DeckButton("Done", null, onDismiss, modifier = Modifier.align(Alignment.End), primary = true, glyph = "B")
-            }
-        }
     }
 }
 

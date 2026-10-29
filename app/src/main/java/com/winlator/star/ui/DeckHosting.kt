@@ -71,6 +71,16 @@ object DeckWindow {
 
     /** Whether [activity] is the one whose navigation bar the Deck shell hides (its dialogs follow it). */
     fun hidesNavBarIn(activity: Activity?): Boolean = activity != null && hiddenIn?.get() === activity
+
+    private var statusHidden by mutableStateOf(false)
+
+    /** True while the Deck shell hides the status bar too (the XMB home); its dialogs then hide both bars. */
+    val statusBarHidden: Boolean get() = statusHidden && navBarHidden
+
+    /** Set by the Deck shell alongside [setNavBarHidden]. */
+    fun setStatusBarHidden(hidden: Boolean) {
+        statusHidden = hidden
+    }
 }
 
 /**
@@ -83,18 +93,20 @@ fun DeckDialogBars() {
     // Only dialogs of the Deck shell's own activity: a store or game activity keeps its own bars.
     val view = LocalView.current
     val hidden = DeckWindow.hidesNavBarIn(view.context.findActivity())
+    // The XMB home hides the status bar as well, so a dialog over it must not bring that one back either.
+    val both = hidden && DeckWindow.statusBarHidden
     val dialogWindow = (view.parent as? DialogWindowProvider)?.window
-    DisposableEffect(hidden, dialogWindow, view) {
+    DisposableEffect(hidden, both, dialogWindow, view) {
         if (hidden) {
             if (dialogWindow != null) {
                 val controller = WindowCompat.getInsetsController(dialogWindow, dialogWindow.decorView)
                 controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                controller.hide(WindowInsetsCompat.Type.navigationBars())
+                controller.hide(if (both) WindowInsetsCompat.Type.systemBars() else WindowInsetsCompat.Type.navigationBars())
             } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 // A bottom sheet's window has no Window object; its view's own controller reaches it.
                 view.windowInsetsController?.let {
                     it.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                    it.hide(WindowInsets.Type.navigationBars())
+                    it.hide(if (both) WindowInsets.Type.systemBars() else WindowInsets.Type.navigationBars())
                 }
             }
         }

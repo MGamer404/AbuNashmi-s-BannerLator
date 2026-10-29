@@ -110,8 +110,8 @@ fun AppearanceScreen() {
             SectionLabel("Deck Mode")
             DrawerToggleRow(
                 title = "XMB home",
-                subtitle = "Home opens as the XMB, and the tabs sit in a bar across the top of every page. " +
-                    "Press Up from the XMB's first option to reach the bar, and Down to go back in.",
+                subtitle = "Home opens as a full-screen XMB, and the tabs sit across the top of every page. " +
+                    "Switch tabs with L1/R1 or by touch. Up from a game shows Friends, Community configs and Add game.",
                 checked = xmbHome,
                 onCheckedChange = { AppThemeState.setDeckXmbHome(it) },
             )
