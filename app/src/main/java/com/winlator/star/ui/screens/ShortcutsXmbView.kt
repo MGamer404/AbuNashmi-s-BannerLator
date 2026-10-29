@@ -910,13 +910,12 @@ private fun XmbUpperRow(
                         modifier = Modifier.size(min(36f, tH * 0.3f).dp),
                     )
                     Spacer(Modifier.height(8.dp))
-                    // The chosen card's text that doesn't fit scrolls right to left after a short pause, starting
-                    // over each time the card is chosen; the others stay still, cut with an ellipsis.
+                    // The name stays still (two lines at most); only the chosen card's subtitle, when it doesn't fit,
+                    // scrolls right to left after a short pause, starting over each time the card is chosen.
                     Text(
                         c.label, color = if (on) Color.White else Color.White.copy(alpha = 0.7f),
                         fontSize = 14.sp, fontWeight = if (on) FontWeight.Normal else FontWeight.Light,
-                        textAlign = TextAlign.Center, maxLines = if (on) 1 else 2, overflow = TextOverflow.Ellipsis,
-                        modifier = if (on) Modifier.basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = XMB_MARQUEE_DELAY) else Modifier,
+                        textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis,
                     )
                     val sub = c.subtitle
                     if (on && sub != null) {
