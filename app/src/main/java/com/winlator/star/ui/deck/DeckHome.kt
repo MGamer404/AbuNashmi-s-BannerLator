@@ -272,7 +272,11 @@ internal fun DeckHome(
     val recentlyAdded = remember(shortcuts) {
         shortcuts.sortedByDescending { runCatching { it.file.lastModified() }.getOrDefault(0L) }.take(12)
     }
-    val visible = remember(shortcuts, stats, filter) { applyFilter(shortcuts, filter, stats) }
+    // The XMB home always runs from the last game played (far left) back; never-played games follow by name.
+    // The saved sort is left alone for the other views.
+    val visible = remember(shortcuts, stats, filter, xmbHome) {
+        applyFilter(shortcuts, if (xmbHome) filter.copy(sort = LibrarySort.RECENT) else filter, stats)
+    }
     val storeShelves = remember(visible) {
         STORE_SHELVES.map { (label, test) -> label to visible.filter(test) }
             .filter { (_, list) -> list.isNotEmpty() && list.size < visible.size }
