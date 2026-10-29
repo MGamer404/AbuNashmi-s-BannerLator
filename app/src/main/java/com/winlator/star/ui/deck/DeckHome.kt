@@ -327,8 +327,8 @@ internal fun DeckHome(
         prefs.edit().putString(PREF_MODE, m.name).apply()
     }
     // The XMB is full screen, like the Classic one: the shell hides its rails, bars and legend while it shows.
-    // Back (or B on the XMB's first option) leaves it for the previous view. The XMB home is not full screen:
-    // the shell's tab bar stays above it and Up from the first option reaches it.
+    // Back (or B on the XMB's first option) leaves it for the previous view. The XMB home is not this full-screen view:
+    // it is Home itself, with the shell's floating tab bar over it.
     val xmbFull = mode == LibraryMode.XMB && visible.isNotEmpty() && !xmbHome
     DisposableEffect(xmbFull, deckActions) {
         deckActions.fullscreen.value = xmbFull

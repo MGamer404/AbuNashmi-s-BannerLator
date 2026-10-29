@@ -154,8 +154,8 @@ internal data class XmbAction(
  * Every size is derived from the content box, so portrait and landscape are the same code; a
  * rotation only re-measures. Touch: swipe the bar (with fling), tap a cover to focus it, tap the
  * focused cover to launch, swipe or tap the column. Controller / D-pad: Left/Right games, Up/Down
- * options, A select, B back to Play, L1/R1 jump 5. Up on Play opens [upperRow] when there is one;
- * otherwise it is left unhandled, so focus can climb to the top bar.
+ * options, A select, B back to Play, L1/R1 jump 5. Up on Play is left unhandled, so focus can
+ * climb to the top bar. [centeredHome] turns it into the Deck's PS4-style home (see there).
  */
 @Composable
 internal fun ShortcutsXmbView(
@@ -184,8 +184,8 @@ internal fun ShortcutsXmbView(
     /** The top-right "n / N" counter and clock. Off when the host draws its own floating status there. */
     showClock: Boolean = true,
     /**
-     * Cards for the row above the games (PS4 home): Up on Play opens it, the games slide down half off
-     * the screen, Left/Right pick a card, A runs it, Down or B go back. Empty = no row (Up is left unhandled).
+     * [centeredHome] only: cards for the row above the games. Up from the centred row opens it, the games slide
+     * down half off the screen, Left/Right pick a card, A runs it, Down or B go back. Empty = no row.
      */
     upperRow: List<XmbAction> = emptyList(),
     /**
@@ -195,7 +195,7 @@ internal fun ShortcutsXmbView(
     centeredHome: Boolean = false,
     /** Asked before the view takes D-pad focus (entry, resume): false leaves focus where it is. */
     takeFocus: () -> Boolean = { true },
-    /** Changes when the host wants the view to take focus again (Down from the Deck shell's tab bar). */
+    /** Changes when the host wants the view to take focus again (the Deck shell, when a page should take its first focus). */
     focusTick: Int = 0,
 ) {
     if (shortcuts.isEmpty()) return
@@ -438,7 +438,6 @@ internal fun ShortcutsXmbView(
                         Key.DirectionUp -> when {
                             actIdx > 0 -> { act = actIdx - 1; true }
                             centeredHome -> { closeOpts(); true }
-                            upperRow.isNotEmpty() && !selectionMode -> { upOpen = true; true }
                             else -> false
                         }
                         Key.ButtonA, Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> { runAction(actions[actIdx]); true }
@@ -641,23 +640,19 @@ internal fun ShortcutsXmbView(
                     }
                 }
                 }
-                if (upperRow.isNotEmpty() && (upperOpen || upT > 0.01f || peekT > 0.01f)) {
+                if (centeredHome && upperRow.isNotEmpty() && (upperOpen || upT > 0.01f || peekT > 0.01f)) {
                     // A tap anywhere off the cards (the lowered games included) goes back to them.
                     if (upperOpen) {
                         val back = remember { MutableInteractionSource() }
                         Box(Modifier.fillMaxSize().xmbClick(back) { closeUpper() })
                     }
                     val onCard: (Int) -> Unit = { i -> upSel = i; if (upperOpen) runUpper(upperRow[i]) else upOpen = true }
-                    if (centeredHome) {
-                        // Centred home: the cards peek above the row, their top half cut off under the host's floating tab bar.
-                        Box(Modifier.fillMaxSize().padding(top = XMB_PEEK_CLIP.dp).clipToBounds()) {
-                            XmbUpperRow(
-                                upperRow, if (upperOpen) upIdx else -1, upT, m, accent,
-                                enabled = upperOpen || centered, peek = peekT, clipTop = XMB_PEEK_CLIP, onTap = onCard,
-                            )
-                        }
-                    } else {
-                        XmbUpperRow(upperRow, upIdx, upT, m, accent, enabled = upperOpen, onTap = onCard)
+                    // The cards peek above the centred row, their top half cut off under the host's floating tab bar.
+                    Box(Modifier.fillMaxSize().padding(top = XMB_PEEK_CLIP.dp).clipToBounds()) {
+                        XmbUpperRow(
+                            upperRow, if (upperOpen) upIdx else -1, upT, m, accent,
+                            enabled = upperOpen || centered, peek = peekT, clipTop = XMB_PEEK_CLIP, onTap = onCard,
+                        )
                     }
                 }
                 if (nested) {
@@ -836,8 +831,8 @@ private const val XMB_PEEK_CLIP = 50f
 private const val XMB_MARQUEE_DELAY = 700
 
 // The row above the games: translucent cards in the XMB's colours where the game row was, the chosen one
-// larger with an accent ring and glow (like the focused cover). [t] is the open animation, 0..1. [peek] (centred
-// home) is the resting state: the cards sit half above [clipTop], which the caller clips at, dimmed.
+// larger with an accent ring and glow (like the focused cover). [t] is the open animation, 0..1. [peek] is the
+// resting state: the cards sit half above [clipTop], which the caller clips at, dimmed.
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun XmbUpperRow(
@@ -847,8 +842,8 @@ private fun XmbUpperRow(
     m: XmbMetrics,
     accent: Color,
     enabled: Boolean,
-    peek: Float = 0f,
-    clipTop: Float = 0f,
+    peek: Float,
+    clipTop: Float,
     onTap: (Int) -> Unit,
 ) {
     val k = cards.size
@@ -858,18 +853,12 @@ private fun XmbUpperRow(
     val yOpen = m.top + (m.fH - tH) / 2f
     // Peeking: the cards' middle line sits on the clip edge, so only their lower half shows.
     val yPeek = clipTop - tH / 2f
-    val peeking = clipTop > 0f
     Row(
         Modifier
-            .offset(m.cross.dp, (if (peeking) yPeek - clipTop else yOpen).dp)
+            .offset(m.cross.dp, (yPeek - clipTop).dp)
             .graphicsLayer {
-                if (peeking) {
-                    alpha = max(t, 0.5f * peek)
-                    translationY = (t * (yOpen - yPeek)).dp.toPx()
-                } else {
-                    alpha = t
-                    translationY = (1f - t) * -24.dp.toPx()
-                }
+                alpha = max(t, 0.5f * peek)
+                translationY = (t * (yOpen - yPeek)).dp.toPx()
             },
         horizontalArrangement = Arrangement.spacedBy(gap.dp),
         verticalAlignment = Alignment.CenterVertically,

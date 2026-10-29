@@ -763,174 +763,174 @@ private fun DeckLandscapeCard(
     }
 
     androidx.compose.runtime.CompositionLocalProvider(LocalTouchOnlyChrome provides true) {
-    // Not fillMaxSize: the box wraps the card, so a tap outside it still dismisses the dialog as before.
-    BoxWithConstraints(contentAlignment = Alignment.Center) {
-        val w = if (constraints.hasBoundedWidth) maxWidth * 0.92f else (cfg.screenWidthDp * 0.92f).dp
-        val h = if (constraints.hasBoundedHeight) maxHeight * 0.88f else (cfg.screenHeightDp * 0.88f).dp
-        // A short card drops the shared options' one-line subtitles so the right column still fits unscrolled.
-        val roomy = h >= 340.dp
-        Surface(
-            modifier = Modifier.width(w).height(h),
-            shape = RoundedCornerShape(20.dp),
-            color = cs.surface,
-            contentColor = cs.onSurface,
-            border = BorderStroke(1.dp, cs.outline),
-            shadowElevation = 26.dp,
-        ) {
-            Box(Modifier.fillMaxSize()) {
-                Column(Modifier.fillMaxSize()) {
-                    // Header: cover + name + source subline + close ✕ (as in portrait).
-                    Row(
-                        Modifier.fillMaxWidth().padding(start = 16.dp, top = 12.dp, end = 14.dp, bottom = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        GameCover(shortcut, accent, 36.dp, 48.dp)
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(shortcut.name, style = MaterialTheme.typography.titleMedium, color = cs.onSurface,
-                                fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(sourceSubline(source, appId), style = MaterialTheme.typography.labelMedium, color = cs.onSurfaceVariant)
+        // Not fillMaxSize: the box wraps the card, so a tap outside it still dismisses the dialog as before.
+        BoxWithConstraints(contentAlignment = Alignment.Center) {
+            val w = if (constraints.hasBoundedWidth) maxWidth * 0.92f else (cfg.screenWidthDp * 0.92f).dp
+            val h = if (constraints.hasBoundedHeight) maxHeight * 0.88f else (cfg.screenHeightDp * 0.88f).dp
+            // A short card drops the shared options' one-line subtitles so the right column still fits unscrolled.
+            val roomy = h >= 340.dp
+            Surface(
+                modifier = Modifier.width(w).height(h),
+                shape = RoundedCornerShape(20.dp),
+                color = cs.surface,
+                contentColor = cs.onSurface,
+                border = BorderStroke(1.dp, cs.outline),
+                shadowElevation = 26.dp,
+            ) {
+                Box(Modifier.fillMaxSize()) {
+                    Column(Modifier.fillMaxSize()) {
+                        // Header: cover + name + source subline + close ✕ (as in portrait).
+                        Row(
+                            Modifier.fillMaxWidth().padding(start = 16.dp, top = 12.dp, end = 14.dp, bottom = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            GameCover(shortcut, accent, 36.dp, 48.dp)
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(shortcut.name, style = MaterialTheme.typography.titleMedium, color = cs.onSurface,
+                                    fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(sourceSubline(source, appId), style = MaterialTheme.typography.labelMedium, color = cs.onSurfaceVariant)
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            CloseButton(onDismiss)
                         }
-                        Spacer(Modifier.width(8.dp))
-                        CloseButton(onDismiss)
+                        HorizontalDivider(color = cs.outline)
+
+                        Row(Modifier.weight(1f).fillMaxWidth()) {
+                            // Left: the methods. One focus stop; Up/Down move the selection, Right goes on into its settings.
+                            Column(
+                                Modifier
+                                    .weight(0.27f)
+                                    .fillMaxHeight()
+                                    .padding(start = 14.dp, top = 12.dp, end = 12.dp, bottom = 12.dp)
+                                    .focusRequester(railRequester)
+                                    .onFocusChanged { railFocused = it.isFocused }
+                                    .onPreviewKeyEvent { e ->
+                                        if (e.type != KeyEventType.KeyDown) false
+                                        else when (e.key) {
+                                            Key.DirectionUp -> { step(-1); true }
+                                            Key.DirectionDown -> { step(1); true }
+                                            else -> false
+                                        }
+                                    }
+                                    .focusable(),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    MicroLabel("Launch with")
+                                    Spacer(Modifier.width(6.dp))
+                                    HelpDot(accent, highlighted = false, onClick = { toggleHelp(HELP_LAUNCH_WITH) })
+                                }
+                                Spacer(Modifier.height(2.dp))
+                                shown.forEach { m ->
+                                    DeckMethodRow(
+                                        emoji = methodEmoji(m, rawLabel),
+                                        label = methodLabel(m, rawLabel),
+                                        selected = m == method,
+                                        enabled = m in enabledMethods,
+                                        focused = railFocused && m == method,
+                                        accent = accent,
+                                        onClick = { onMethod(m) },
+                                        onHelp = { toggleHelp(methodHelp(m)) },
+                                    )
+                                }
+                            }
+                            VerticalDivider(color = cs.outline)
+
+                            // Middle: the selected method and its own settings.
+                            Column(
+                                Modifier
+                                    .weight(0.40f)
+                                    .fillMaxHeight()
+                                    .verticalScroll(rememberScrollState())
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                            ) {
+                                MicroLabel(methodLabel(method, rawLabel))
+                                Spacer(Modifier.height(6.dp))
+                                MethodDesc(method, source, detectedVac == true)
+                                if (method == LaunchMethod.STEAMLITE && steamLiteClient != null) {
+                                    SteamLiteClientBlock(steamLiteClient, accent, compact = false, toggleHelp, doLaunch)
+                                }
+                                if (method == LaunchMethod.APPSTEAM) {
+                                    AppSteamClientBlock(appSteamClient, accent, compact = false, toggleHelp)
+                                }
+                                if (method == LaunchMethod.STEAMLITE && isSteam) {
+                                    Spacer(Modifier.height(10.dp))
+                                    DeckOptionRow(
+                                        title = "Controller passthrough", badge = "NEW",
+                                        subtitle = "Send the pad straight to the game. For classic games (HL2, CS:S).",
+                                        accent = accent, onHelp = { toggleHelp(HELP_PASS) }, onClick = { onPassthrough(!passthrough) },
+                                    ) { DeckPill(passthrough, accent) }
+                                    DeckOptionRow(
+                                        title = "Steam Input", badge = "NEW",
+                                        subtitle = "Only for games that see pads through Steam alone (No Man's Sky). Keep OFF for games that already use a pad.",
+                                        accent = accent, onHelp = { toggleHelp(HELP_STEAMINPUT) }, onClick = { onSteamInput(!steamInput) },
+                                    ) { DeckPill(steamInput, accent) }
+                                    DeckOptionRow(
+                                        title = "Requires secure (VAC) launch", badge = "NEW",
+                                        subtitle = when (detectedVac) {
+                                            true -> "Detected: VAC-secured. Steam must start it (up to ~60 s wait)."
+                                            false -> "Detected: no VAC. Direct start after ~15 s is fine."
+                                            null -> "Auto-detected from Steam's app info."
+                                        },
+                                        accent = accent, onHelp = { toggleHelp(HELP_VAC) }, onClick = { onSecureLaunch(!secureLaunch) },
+                                    ) { DeckPill(secureLaunch, accent) }
+                                }
+                                if (method == LaunchMethod.GOLDBERG) {
+                                    Spacer(Modifier.height(12.dp))
+                                    DeckGoldbergList(goldbergMode, accent, onGoldbergMode, toggleHelp)
+                                }
+                            }
+                            VerticalDivider(color = cs.outline)
+
+                            // Right: options every method shares; Cancel and Launch at the bottom.
+                            Column(
+                                Modifier
+                                    .weight(0.33f)
+                                    .fillMaxHeight()
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                MicroLabel("Options")
+                                if (hasDetails) {
+                                    DeckOptionRow(
+                                        title = "Full details & achievements", badge = null,
+                                        subtitle = if (roomy) "Details, achievements, DLC and cloud saves." else null,
+                                        accent = accent, onHelp = { toggleHelp(HELP_DETAILS) }, onClick = openDetails,
+                                    ) {
+                                        Icon(Icons.Filled.ChevronRight, contentDescription = "Open details", tint = accent, modifier = Modifier.size(20.dp))
+                                    }
+                                }
+                                DeckOptionRow(
+                                    title = "Remember my choice", badge = null,
+                                    subtitle = if (roomy) "Skip this popup next time for ${shortcut.name}." else null,
+                                    accent = accent, onHelp = { toggleHelp(HELP_REMEMBER) }, onClick = { onRemember(!rememberChoice) },
+                                ) { DeckPill(rememberChoice, accent) }
+                                // Steam-only game-files maintenance.
+                                if (isSteam && appId > 0 && (onVerifyFiles != null || onUpdateFiles != null)) {
+                                    Spacer(Modifier.height(4.dp))
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        val shape = RoundedCornerShape(9.dp)
+                                        if (onVerifyFiles != null) {
+                                            MaintButton("Verify files", Icons.Filled.Refresh, accent, compact = true,
+                                                Modifier.weight(1f).deckFocusRing(shape, scaleTo = 1f), onVerifyFiles)
+                                        }
+                                        if (onUpdateFiles != null) {
+                                            MaintButton("Check for updates", Icons.Filled.Download, accent, compact = true,
+                                                Modifier.weight(1f).deckFocusRing(shape, scaleTo = 1f), onUpdateFiles)
+                                        }
+                                    }
+                                }
+                                Spacer(Modifier.weight(1f))
+                                val footer = footerLaunch(method, steamLiteClient, appSteamClient, doLaunch)
+                                DeckFooter(accent, onDismiss, footer.second, footer.first)
+                            }
+                        }
                     }
-                    HorizontalDivider(color = cs.outline)
-
-                    Row(Modifier.weight(1f).fillMaxWidth()) {
-                        // Left: the methods. One focus stop; Up/Down move the selection, Right goes on into its settings.
-                        Column(
-                            Modifier
-                                .weight(0.27f)
-                                .fillMaxHeight()
-                                .padding(start = 14.dp, top = 12.dp, end = 12.dp, bottom = 12.dp)
-                                .focusRequester(railRequester)
-                                .onFocusChanged { railFocused = it.isFocused }
-                                .onPreviewKeyEvent { e ->
-                                    if (e.type != KeyEventType.KeyDown) false
-                                    else when (e.key) {
-                                        Key.DirectionUp -> { step(-1); true }
-                                        Key.DirectionDown -> { step(1); true }
-                                        else -> false
-                                    }
-                                }
-                                .focusable(),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                MicroLabel("Launch with")
-                                Spacer(Modifier.width(6.dp))
-                                HelpDot(accent, highlighted = false, onClick = { toggleHelp(HELP_LAUNCH_WITH) })
-                            }
-                            Spacer(Modifier.height(2.dp))
-                            shown.forEach { m ->
-                                DeckMethodRow(
-                                    emoji = methodEmoji(m, rawLabel),
-                                    label = methodLabel(m, rawLabel),
-                                    selected = m == method,
-                                    enabled = m in enabledMethods,
-                                    focused = railFocused && m == method,
-                                    accent = accent,
-                                    onClick = { onMethod(m) },
-                                    onHelp = { toggleHelp(methodHelp(m)) },
-                                )
-                            }
-                        }
-                        VerticalDivider(color = cs.outline)
-
-                        // Middle: the selected method and its own settings.
-                        Column(
-                            Modifier
-                                .weight(0.40f)
-                                .fillMaxHeight()
-                                .verticalScroll(rememberScrollState())
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
-                        ) {
-                            MicroLabel(methodLabel(method, rawLabel))
-                            Spacer(Modifier.height(6.dp))
-                            MethodDesc(method, source, detectedVac == true)
-                            if (method == LaunchMethod.STEAMLITE && steamLiteClient != null) {
-                                SteamLiteClientBlock(steamLiteClient, accent, compact = false, toggleHelp, doLaunch)
-                            }
-                            if (method == LaunchMethod.APPSTEAM) {
-                                AppSteamClientBlock(appSteamClient, accent, compact = false, toggleHelp)
-                            }
-                            if (method == LaunchMethod.STEAMLITE && isSteam) {
-                                Spacer(Modifier.height(10.dp))
-                                DeckOptionRow(
-                                    title = "Controller passthrough", badge = "NEW",
-                                    subtitle = "Send the pad straight to the game. For classic games (HL2, CS:S).",
-                                    accent = accent, onHelp = { toggleHelp(HELP_PASS) }, onClick = { onPassthrough(!passthrough) },
-                                ) { DeckPill(passthrough, accent) }
-                                DeckOptionRow(
-                                    title = "Steam Input", badge = "NEW",
-                                    subtitle = "Only for games that see pads through Steam alone (No Man's Sky). Keep OFF for games that already use a pad.",
-                                    accent = accent, onHelp = { toggleHelp(HELP_STEAMINPUT) }, onClick = { onSteamInput(!steamInput) },
-                                ) { DeckPill(steamInput, accent) }
-                                DeckOptionRow(
-                                    title = "Requires secure (VAC) launch", badge = "NEW",
-                                    subtitle = when (detectedVac) {
-                                        true -> "Detected: VAC-secured. Steam must start it (up to ~60 s wait)."
-                                        false -> "Detected: no VAC. Direct start after ~15 s is fine."
-                                        null -> "Auto-detected from Steam's app info."
-                                    },
-                                    accent = accent, onHelp = { toggleHelp(HELP_VAC) }, onClick = { onSecureLaunch(!secureLaunch) },
-                                ) { DeckPill(secureLaunch, accent) }
-                            }
-                            if (method == LaunchMethod.GOLDBERG) {
-                                Spacer(Modifier.height(12.dp))
-                                DeckGoldbergList(goldbergMode, accent, onGoldbergMode, toggleHelp)
-                            }
-                        }
-                        VerticalDivider(color = cs.outline)
-
-                        // Right: options every method shares; Cancel and Launch at the bottom.
-                        Column(
-                            Modifier
-                                .weight(0.33f)
-                                .fillMaxHeight()
-                                .padding(horizontal = 14.dp, vertical = 12.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            MicroLabel("Options")
-                            if (hasDetails) {
-                                DeckOptionRow(
-                                    title = "Full details & achievements", badge = null,
-                                    subtitle = if (roomy) "Details, achievements, DLC and cloud saves." else null,
-                                    accent = accent, onHelp = { toggleHelp(HELP_DETAILS) }, onClick = openDetails,
-                                ) {
-                                    Icon(Icons.Filled.ChevronRight, contentDescription = "Open details", tint = accent, modifier = Modifier.size(20.dp))
-                                }
-                            }
-                            DeckOptionRow(
-                                title = "Remember my choice", badge = null,
-                                subtitle = if (roomy) "Skip this popup next time for ${shortcut.name}." else null,
-                                accent = accent, onHelp = { toggleHelp(HELP_REMEMBER) }, onClick = { onRemember(!rememberChoice) },
-                            ) { DeckPill(rememberChoice, accent) }
-                            // Steam-only game-files maintenance.
-                            if (isSteam && appId > 0 && (onVerifyFiles != null || onUpdateFiles != null)) {
-                                Spacer(Modifier.height(4.dp))
-                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    val shape = RoundedCornerShape(9.dp)
-                                    if (onVerifyFiles != null) {
-                                        MaintButton("Verify files", Icons.Filled.Refresh, accent, compact = true,
-                                            Modifier.weight(1f).deckFocusRing(shape, scaleTo = 1f), onVerifyFiles)
-                                    }
-                                    if (onUpdateFiles != null) {
-                                        MaintButton("Check for updates", Icons.Filled.Download, accent, compact = true,
-                                            Modifier.weight(1f).deckFocusRing(shape, scaleTo = 1f), onUpdateFiles)
-                                    }
-                                }
-                            }
-                            Spacer(Modifier.weight(1f))
-                            val footer = footerLaunch(method, steamLiteClient, appSteamClient, doLaunch)
-                            DeckFooter(accent, onDismiss, footer.second, footer.first)
-                        }
-                    }
+                    if (helpText != null) HelpTip(helpText, dismissHelp)
                 }
-                if (helpText != null) HelpTip(helpText, dismissHelp)
             }
         }
-    }
     }
 }
 

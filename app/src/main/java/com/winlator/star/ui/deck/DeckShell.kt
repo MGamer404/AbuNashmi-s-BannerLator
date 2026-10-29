@@ -237,7 +237,6 @@ private fun DeckShellContent(
     // XMB home: the main tabs run across a top bar in landscape too, instead of down a side rail. The page's own tab rail stays.
     val xmbHome by AppThemeState.deckXmbHome.collectAsState()
     val topTabs = rails && xmbHome
-    val topTabsNow by rememberUpdatedState(topTabs)
     val xmbHomeNow by rememberUpdatedState(xmbHome)
     val sideLists = remember { DeckSideLists() }
     val topBarActionsState = remember { topBarActionsState() }
@@ -270,9 +269,7 @@ private fun DeckShellContent(
     }
     // Down from the top bar (Right from the side rail): the page takes its own first focus; a page without one (a classic screen) gets the nearest control below (to the right).
     val enterContent: () -> Unit = {
-        val into = if (railsNow && !topTabsNow) FocusDirection.Right else FocusDirection.Down
-        // The page's own tab rail sits beside the content in landscape, so past it is always Right there.
-        val pastStrip = if (railsNow) FocusDirection.Right else FocusDirection.Down
+        val into = if (railsNow) FocusDirection.Right else FocusDirection.Down
         deckActions.navHold.value = false
         deckActions.enterTick.intValue++
         scope.launch {
@@ -281,7 +278,7 @@ private fun DeckShellContent(
             // The page's own tabs move with L2/R2 from anywhere, so entering goes past them into the page.
             if (deckActions.stripFocused.value) {
                 withFrameNanos { }
-                focusManager.moveFocus(pastStrip)
+                focusManager.moveFocus(into)
             }
         }
     }
@@ -529,15 +526,15 @@ private fun DeckShellContent(
                         onAccount = onAccount,
                         onSearch = openSearch,
                         height = 50.dp,
-                        // Framed: the bar's glass runs to the screen edges, its contents stay inside the frame.
-                        startInset = cutoutStart + frame,
-                        endInset = cutoutEnd + frame,
+                        // The bar's glass runs to the screen edges, its contents stay inside the frame.
+                        startInset = frame,
+                        endInset = frame,
                         dpad = false,
                     )
                 }
                 // Landscape is rails | content (or, with the XMB home, the page rail | content under the top bar); portrait keeps the top bar over the content. The NavHost stays in one slot either way.
                 // Framed, only this middle part sits inside the frame: the top bar and the legend sandwich it edge to edge.
-                Row(modifier = Modifier.weight(1f).fillMaxWidth().padding(start = (if (topTabs && !homeBleed) cutoutStart else 0.dp) + frame, end = frame)) {
+                Row(modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = frame)) {
                     if (rails && !full) {
                         if (!topTabs) {
                             DeckSideRail(
