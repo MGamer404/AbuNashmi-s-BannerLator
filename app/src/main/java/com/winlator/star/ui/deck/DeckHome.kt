@@ -510,11 +510,13 @@ internal fun DeckHome(
                     // Full screen: the XMB hides the system bars in landscape and keeps L1/R1 for its jumps.
                     // The XMB home sits inside the shell instead: the shell keeps the bars hidden, takes L1/R1 for its tabs
                     // and floats its own tabs, status and Search over the XMB, so the XMB drops its hints and clock.
-                    // Up from the first option lifts the library cards (upperRow) above the games.
+                    // The games rest centred with the library cards (upperRow) peeking above; A opens a game's options,
+                    // Up lifts the cards fully into view.
                     inDeckShell = xmbHome,
                     showClock = !xmbHome,
                     showHints = !xmbHome,
                     upperRow = xmbUpperRow,
+                    centeredHome = xmbHome,
                     takeFocus = { !deckActions.navHold.value },
                     focusTick = deckActions.enterTick.intValue,
                 )

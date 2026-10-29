@@ -43,6 +43,7 @@ import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SportsEsports
@@ -121,6 +122,8 @@ import com.winlator.star.ui.screens.ContainerDetailViewModel
 import com.winlator.star.ui.screens.GameMenuAction
 import com.winlator.star.ui.screens.DeckGameActionsHost
 import com.winlator.star.ui.screens.GamesScreenRequests
+import com.winlator.star.core.AppOrientation
+import com.winlator.star.ui.findActivity
 import com.winlator.star.ui.theme.AppThemeState
 import com.winlator.star.ui.topBarActionsState
 import kotlinx.coroutines.delay
@@ -341,6 +344,12 @@ private fun DeckShellContent(
     // and it is hidden again whenever this one resumes. The status bar stays.
     val activity = context as? android.app.Activity
     val lifecycleOwner = LocalLifecycleOwner.current
+    // The Deck style locks the app to its own orientation (AppOrientation.deckMode); switching back to Classic disposes
+    // the shell after the style pref has changed, so applying again there hands the window back to Classic's choice.
+    DisposableEffect(activity) {
+        activity?.let { AppOrientation.apply(it) }
+        onDispose { activity?.let { AppOrientation.apply(it) } }
+    }
     // Re-run when the full-screen XMB closes: it shows the system bars again on its way out.
     val xmbShown = deckActions.fullscreen.value
     // XMB home: the status bar goes too, on every tab and in both orientations, like a console.
@@ -877,6 +886,7 @@ private fun DeckTopBar(
             DeckBumperButton("R1", dpad) { onCycle(1) }
         }
         DeckSearchButton(onSearch, dpad)
+        DeckRotateButton()
         DeckStatus(avatarUrl = avatarUrl, showBattery = true, onAccount = onAccount, dpad = dpad)
     }
 }
@@ -910,6 +920,7 @@ private fun DeckCompactTopBar(tab: DeckTab, avatarUrl: String?, onAccount: () ->
             modifier = Modifier.weight(1f),
         )
         DeckSearchButton(onSearch, dpad)
+        DeckRotateButton()
         DeckStatus(avatarUrl = avatarUrl, showBattery = showBattery, onAccount = onAccount, dpad = dpad)
     }
 }
@@ -927,6 +938,25 @@ private fun DeckSearchButton(onSearch: () -> Unit, dpad: Boolean = true) {
             .size(40.dp),
     ) {
         Icon(Icons.Filled.Search, contentDescription = "Search", tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(24.dp))
+    }
+}
+
+/**
+ * Flips the Deck orientation lock (landscape by default, portrait after a tap) and applies it at once. Touch only:
+ * it never takes D-pad focus, on any bar. [tint] and [size] let the XMB home's floating bar mute it.
+ */
+@Composable
+private fun DeckRotateButton(tint: Color = MaterialTheme.colorScheme.onSurface, size: Dp = 40.dp, iconSize: Dp = 24.dp) {
+    val context = LocalContext.current
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .clip(CircleShape)
+            .dpadFocus(false)
+            .clickable { context.findActivity()?.let { AppOrientation.toggleDeck(it) } }
+            .size(size),
+    ) {
+        Icon(Icons.Filled.ScreenRotation, contentDescription = "Rotate screen", tint = tint, modifier = Modifier.size(iconSize))
     }
 }
 
@@ -1105,6 +1135,7 @@ private fun DeckFloatingBar(
         }
         FloatingBumper("R1") { onCycle(1) }
         Spacer(Modifier.weight(1f))
+        DeckRotateButton(tint = Color(0xFFAAAAAA), size = if (portrait) 28.dp else 34.dp, iconSize = if (portrait) 16.dp else 18.dp)
         Box(modifier = Modifier.alpha(0.75f)) { com.winlator.star.store.SteamConnectionPill(compact = true) }
         Text(clock, color = Color(0xFFDDDDDD), fontSize = if (portrait) 12.sp else 15.sp, fontWeight = FontWeight.Light, maxLines = 1)
         if (battery >= 0) {
@@ -1276,6 +1307,7 @@ private fun DeckSideRail(
             }
             Spacer(Modifier.height(6.dp))
             DeckSearchButton(onSearch)
+            DeckRotateButton()
             DeckRailStatus(avatarUrl = avatarUrl, showAvatar = roomy, showBattery = !short, onAccount = onAccount)
         }
     }

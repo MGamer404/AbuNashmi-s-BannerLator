@@ -198,31 +198,42 @@ fun AppearanceScreen() {
             fontSize = 12.sp,
         )
         Spacer(Modifier.height(6.dp))
-        var orientationMode by remember { mutableStateOf(AppOrientation.mode(context)) }
-        val orientationOptions = listOf(
-            AppOrientation.AUTO to "Auto",
-            AppOrientation.PORTRAIT to "Portrait",
-            AppOrientation.LANDSCAPE to "Landscape",
-        )
-        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-            orientationOptions.forEachIndexed { index, (mode, label) ->
-                SegmentedButton(
-                    selected = orientationMode == mode,
-                    onClick = {
-                        orientationMode = mode
-                        AppOrientation.setMode(context, mode)
-                        (context as? android.app.Activity)?.let { AppOrientation.apply(it) }
-                    },
-                    shape = SegmentedButtonDefaults.itemShape(index, orientationOptions.size),
-                ) { Text(label) }
+        // The Deck interface keeps its own lock (landscape, or portrait from the rotate button in its bars);
+        // the setting below is Classic's and comes back with it.
+        if (uiStyle == AppThemeState.UI_STYLE_DECK) {
+            Text(
+                text = "The Deck interface stays in landscape and never turns with the device. " +
+                    "Use the rotate button in its top bar to switch to portrait and back.",
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 14.sp,
+            )
+        } else {
+            var orientationMode by remember { mutableStateOf(AppOrientation.mode(context)) }
+            val orientationOptions = listOf(
+                AppOrientation.AUTO to "Auto",
+                AppOrientation.PORTRAIT to "Portrait",
+                AppOrientation.LANDSCAPE to "Landscape",
+            )
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                orientationOptions.forEachIndexed { index, (mode, label) ->
+                    SegmentedButton(
+                        selected = orientationMode == mode,
+                        onClick = {
+                            orientationMode = mode
+                            AppOrientation.setMode(context, mode)
+                            (context as? android.app.Activity)?.let { AppOrientation.apply(it) }
+                        },
+                        shape = SegmentedButtonDefaults.itemShape(index, orientationOptions.size),
+                    ) { Text(label) }
+                }
             }
+            Text(
+                text = "Auto follows device rotation (default).",
+                color = OnSurfaceVariant,
+                fontSize = 11.sp,
+                modifier = Modifier.padding(top = 4.dp),
+            )
         }
-        Text(
-            text = "Auto follows device rotation (default).",
-            color = OnSurfaceVariant,
-            fontSize = 11.sp,
-            modifier = Modifier.padding(top = 4.dp),
-        )
 
         Spacer(Modifier.height(4.dp))
         Box(Modifier.fillMaxWidth().height(1.dp).background(Divider))

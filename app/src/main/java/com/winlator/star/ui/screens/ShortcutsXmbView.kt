@@ -186,6 +186,11 @@ internal fun ShortcutsXmbView(
      * the screen, Left/Right pick a card, A runs it, Down or B go back. Empty = no row (Up is left unhandled).
      */
     upperRow: List<XmbAction> = emptyList(),
+    /**
+     * PS4-style home: the games rest centred with no options and the [upperRow] cards peeking above them.
+     * A (or a tap on the focused cover) shows the options; B, Up on Play or moving to another game hides them again.
+     */
+    centeredHome: Boolean = false,
     /** Asked before the view takes D-pad focus (entry, resume): false leaves focus where it is. */
     takeFocus: () -> Boolean = { true },
     /** Changes when the host wants the view to take focus again (Down from the Deck shell's tab bar). */
@@ -205,6 +210,9 @@ internal fun ShortcutsXmbView(
     val pos = remember { mutableFloatStateOf(target.toFloat()) } // visual position, fractional mid-swipe
     var act by remember { mutableIntStateOf(0) }
     var settleJob by remember { mutableStateOf<Job?>(null) }
+    // Centred home: whether the focused game's options are showing. They belong to one game, so moving closes them.
+    var optsOpen by remember { mutableStateOf(false) }
+    val centered = centeredHome && !optsOpen
 
     LaunchedEffect(shortcuts) {
         val i = shortcuts.indexOfFirst { it.file.path == focusedPath }
@@ -222,7 +230,7 @@ internal fun ShortcutsXmbView(
     // Moving to another game always lands back on Play, so A launches (like tapping a card).
     fun settleTo(i: Int) {
         val t = i.coerceIn(0, n - 1)
-        if (t != target) { target = t; act = 0 }
+        if (t != target) { target = t; act = 0; optsOpen = false }
         settleJob?.cancel()
         settleJob = scope.launch {
             animate(pos.floatValue, t.toFloat(), animationSpec = spring(dampingRatio = 0.9f, stiffness = 420f)) { v, _ ->
@@ -277,6 +285,11 @@ internal fun ShortcutsXmbView(
     fun runUpper(a: XmbAction) { closeUpper(); runAction(a) }
     LaunchedEffect(nested) { if (nested) upOpen = false }
     BackHandler(enabled = upperOpen) { closeUpper() }
+    fun closeOpts() { optsOpen = false; act = 0 }
+    BackHandler(enabled = centeredHome && optsOpen && !nested && !upperOpen) { closeOpts() }
+    // 1 = centred (no options), 0 = the options layout; the cards peek above the centred row.
+    val cT by animateFloatAsState(if (centered) 1f else 0f, tween(300), label = "xmbCentred")
+    val peekT by animateFloatAsState(if (centered && upperRow.isNotEmpty() && !upperOpen && !nested) 1f else 0f, tween(300), label = "xmbPeek")
 
     // Take D-pad focus on entry and again whenever the app comes back (e.g. after a game exits).
     val focusRequester = remember { FocusRequester() }
@@ -341,11 +354,11 @@ internal fun ShortcutsXmbView(
             val p = (pos.floatValue - delta / pitchPx).coerceIn(-0.45f, n - 1 + 0.45f)
             pos.floatValue = p
             val r = p.roundToInt().coerceIn(0, n - 1)
-            if (r != target) { target = r; act = 0 }
+            if (r != target) { target = r; act = 0; optsOpen = false }
         }
         var vAcc by remember { mutableFloatStateOf(0f) }
         val vDrag = rememberDraggableState { d ->
-            if (nav.depth > 0 || upperOpen) return@rememberDraggableState
+            if (nav.depth > 0 || upperOpen || centered) return@rememberDraggableState
             vAcc += d
             val step = rowPx * 0.9f
             while (vAcc <= -step) { vAcc += step; act = (act + 1).coerceAtMost(actions.lastIndex) }
@@ -393,6 +406,20 @@ internal fun ShortcutsXmbView(
                             else -> false
                         }
                     }
+                    // Centred home, no options showing: A shows them, Up lifts the cards, Down has nowhere to go.
+                    if (centered) {
+                        return@onPreviewKeyEvent when (e.key) {
+                            Key.DirectionLeft -> { settleTo(target - 1); true }
+                            Key.DirectionRight -> { settleTo(target + 1); true }
+                            Key.ButtonL1 -> if (inDeckShell) false else { settleTo(target - 5); true }
+                            Key.ButtonR1 -> if (inDeckShell) false else { settleTo(target + 5); true }
+                            Key.DirectionDown -> true
+                            Key.DirectionUp -> if (upperRow.isNotEmpty() && !selectionMode) { upOpen = true; true } else false
+                            Key.ButtonA, Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> { optsOpen = true; act = 0; true }
+                            Key.ButtonB -> if (selectionMode) { onExitSelection(); true } else false
+                            else -> false
+                        }
+                    }
                     when (e.key) {
                         Key.DirectionLeft -> { settleTo(target - 1); true }
                         Key.DirectionRight -> { settleTo(target + 1); true }
@@ -401,11 +428,13 @@ internal fun ShortcutsXmbView(
                         Key.DirectionDown -> { act = (actIdx + 1).coerceAtMost(actions.lastIndex); true }
                         Key.DirectionUp -> when {
                             actIdx > 0 -> { act = actIdx - 1; true }
+                            centeredHome -> { closeOpts(); true }
                             upperRow.isNotEmpty() && !selectionMode -> { upOpen = true; true }
                             else -> false
                         }
                         Key.ButtonA, Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> { runAction(actions[actIdx]); true }
                         Key.ButtonB -> when {
+                            centeredHome -> { closeOpts(); true }
                             actIdx > 0 -> { act = 0; true }
                             selectionMode -> { onExitSelection(); true }
                             else -> false
@@ -472,7 +501,7 @@ internal fun ShortcutsXmbView(
                         }
                         if (hi.sections) XmbKeyHint("L1 R1", "Section", hs)
                     } else if (hasPad) {
-                        XmbHint("A", Color(0xFF3DDC84), if (upperOpen) upperRow[upIdx].label else actions[actIdx].label, hs)
+                        XmbHint("A", Color(0xFF3DDC84), if (upperOpen) upperRow[upIdx].label else if (centered) "Options" else actions[actIdx].label, hs)
                         XmbHint("B", Color(0xFFFF5252), "Back", hs)
                         if (!m.port && m.w >= 600f) {
                             XmbKeyHint("◀ ▶", "Games", hs); XmbKeyHint("▲ ▼", "Options", hs); XmbKeyHint("L1 R1", if (inDeckShell) "Tabs" else "Jump", hs)
@@ -490,7 +519,14 @@ internal fun ShortcutsXmbView(
                 val rootAlpha by animateFloatAsState(if (nested) 0f else 1f, tween(260), label = "xmbRootAlpha")
                 // With the upper row open the games drop until only the top half of the row shows at the bottom edge.
                 val lower = (m.h - m.fH * 0.5f - m.top).coerceAtLeast(0f)
-                Box(Modifier.fillMaxSize().graphicsLayer { alpha = rootAlpha; translationY = (1f - rootAlpha) * -12.dp.toPx() + upT * lower.dp.toPx() }) {
+                // Centred home: the row rests in the middle of the screen until the options open under it.
+                val centreShift = (m.h - m.fH) / 2f - m.top
+                // Everything that belongs to the options layout fades out while centred or with the cards up.
+                val optsA = (1f - upT) * (1f - cT)
+                Box(Modifier.fillMaxSize().graphicsLayer {
+                    alpha = rootAlpha
+                    translationY = (1f - rootAlpha) * -12.dp.toPx() + (cT * centreShift * (1f - upT) + upT * lower).dp.toPx()
+                }) {
                 // The bar. Only covers near the cross are composed; each one's placement is read from
                 // `pos` in its graphics layer, so a swipe re-draws without recomposing.
                 val baseIdx by remember { derivedStateOf { floor(pos.floatValue).toInt() } }
@@ -501,7 +537,14 @@ internal fun ShortcutsXmbView(
                         XmbCover(
                             shortcut = s, index = i, pos = pos, m = m, accent = accent,
                             focused = i == target, selectionMode = selectionMode, selected = s.file.path in selectedPaths,
-                            onClick = { if (nav.depth == 0) { if (i == target) { if (selectionMode) onToggleSelect(s) else onPlay(s) } else settleTo(i) } },
+                            onClick = {
+                                if (nav.depth == 0) when {
+                                    i != target -> settleTo(i)
+                                    selectionMode -> onToggleSelect(s)
+                                    centered -> { optsOpen = true; act = 0 }
+                                    else -> onPlay(s)
+                                }
+                            },
                         )
                     }
                 }
@@ -542,7 +585,7 @@ internal fun ShortcutsXmbView(
                         .offset(m.colX.dp, m.colTop.dp)
                         .width((m.iconBox + 12f + m.labelW).dp)
                         .height((m.nVis * m.rowH + m.extra).dp)
-                        .graphicsLayer { alpha = 1f - upT }
+                        .graphicsLayer { alpha = optsA }
                         .draggable(vDrag, Orientation.Vertical, onDragStarted = { vAcc = 0f }),
                 ) {
                     actions.forEachIndexed { i, a ->
@@ -556,7 +599,7 @@ internal fun ShortcutsXmbView(
                                 action = a, selected = d == 0, accent = accent, iconBox = m.iconBox,
                                 modifier = Modifier
                                     .graphicsLayer { translationY = y.dp.toPx(); alpha = a2 }
-                                    .then(if (vis && !nested && !upperOpen) Modifier.xmbClick(src) { act = i; runAction(a) } else Modifier),
+                                    .then(if (vis && !nested && !upperOpen && !centered) Modifier.xmbClick(src) { act = i; runAction(a) } else Modifier),
                             )
                         }
                     }
@@ -564,19 +607,30 @@ internal fun ShortcutsXmbView(
 
                 if (m.infoW >= 120f && m.infoH >= 40f) {
                     Column(
-                        Modifier.offset(m.infoX.dp, m.infoY.dp).width(m.infoW.dp).height(m.infoH.dp).graphicsLayer { alpha = 1f - upT }.clipToBounds(),
+                        Modifier.offset(m.infoX.dp, m.infoY.dp).width(m.infoW.dp).height(m.infoH.dp).graphicsLayer { alpha = optsA }.clipToBounds(),
                     ) {
                         XmbInfo(focused, playtime, if (m.port) 6 else 3, storeBadges)
                     }
                 }
                 }
-                if (upperRow.isNotEmpty() && (upperOpen || upT > 0.01f)) {
+                if (upperRow.isNotEmpty() && (upperOpen || upT > 0.01f || peekT > 0.01f)) {
                     // A tap anywhere off the cards (the lowered games included) goes back to them.
                     if (upperOpen) {
                         val back = remember { MutableInteractionSource() }
                         Box(Modifier.fillMaxSize().xmbClick(back) { closeUpper() })
                     }
-                    XmbUpperRow(upperRow, upIdx, upT, m, accent, enabled = upperOpen) { i -> upSel = i; runUpper(upperRow[i]) }
+                    val onCard: (Int) -> Unit = { i -> upSel = i; if (upperOpen) runUpper(upperRow[i]) else upOpen = true }
+                    if (centeredHome) {
+                        // Centred home: the cards peek above the row, their top half cut off under the host's floating tab bar.
+                        Box(Modifier.fillMaxSize().padding(top = XMB_PEEK_CLIP.dp).clipToBounds()) {
+                            XmbUpperRow(
+                                upperRow, if (upperOpen) upIdx else -1, upT, m, accent,
+                                enabled = upperOpen || centered, peek = peekT, clipTop = XMB_PEEK_CLIP, onTap = onCard,
+                            )
+                        }
+                    } else {
+                        XmbUpperRow(upperRow, upIdx, upT, m, accent, enabled = upperOpen, onTap = onCard)
+                    }
                 }
                 if (nested) {
                     XmbNestedLayer(nav, xmbScope, m.w, m.h, m.port, accent, focused.name, focused.icon, actions.map { it.icon }, actIdx)
@@ -747,8 +801,12 @@ private fun XmbActionRow(action: XmbAction, selected: Boolean, accent: Color, ic
     }
 }
 
+/** Centred home: the cards' peek is cut off this far (dp) from the top, clear of the host's floating tab bar. */
+private const val XMB_PEEK_CLIP = 50f
+
 // The row above the games: translucent cards in the XMB's colours where the game row was, the chosen one
-// larger with an accent ring and glow (like the focused cover). [t] is the open animation, 0..1.
+// larger with an accent ring and glow (like the focused cover). [t] is the open animation, 0..1. [peek] (centred
+// home) is the resting state: the cards sit half above [clipTop], which the caller clips at, dimmed.
 @Composable
 private fun XmbUpperRow(
     cards: List<XmbAction>,
@@ -757,17 +815,30 @@ private fun XmbUpperRow(
     m: XmbMetrics,
     accent: Color,
     enabled: Boolean,
+    peek: Float = 0f,
+    clipTop: Float = 0f,
     onTap: (Int) -> Unit,
 ) {
     val k = cards.size
     val gap = m.gap * 2f
     val tH = m.sH
     val tW = min(tH * 1.3f, (m.w - m.cross - 16f - gap * (k - 1)) / k).coerceAtLeast(64f)
-    val y = m.top + (m.fH - tH) / 2f
+    val yOpen = m.top + (m.fH - tH) / 2f
+    // Peeking: the cards' middle line sits on the clip edge, so only their lower half shows.
+    val yPeek = clipTop - tH / 2f
+    val peeking = clipTop > 0f
     Row(
         Modifier
-            .offset(m.cross.dp, y.dp)
-            .graphicsLayer { alpha = t; translationY = (1f - t) * -24.dp.toPx() },
+            .offset(m.cross.dp, (if (peeking) yPeek - clipTop else yOpen).dp)
+            .graphicsLayer {
+                if (peeking) {
+                    alpha = max(t, 0.5f * peek)
+                    translationY = (t * (yOpen - yPeek)).dp.toPx()
+                } else {
+                    alpha = t
+                    translationY = (1f - t) * -24.dp.toPx()
+                }
+            },
         horizontalArrangement = Arrangement.spacedBy(gap.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
