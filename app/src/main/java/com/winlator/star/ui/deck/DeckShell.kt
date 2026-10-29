@@ -57,6 +57,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -116,6 +117,7 @@ import com.winlator.star.ui.screens.ContainerDetailViewModel
 import com.winlator.star.ui.screens.GameMenuAction
 import com.winlator.star.ui.screens.DeckGameActionsHost
 import com.winlator.star.ui.screens.GamesScreenRequests
+import com.winlator.star.ui.theme.AppThemeState
 import com.winlator.star.ui.topBarActionsState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -224,6 +226,10 @@ private fun DeckShellContent(
     // Landscape: side rails instead of the top bar (deckRails).
     val rails = deckRails()
     val railsNow by rememberUpdatedState(rails)
+    // XMB home: the main tabs run across a top bar in landscape too, instead of down a side rail. The page's own tab rail stays.
+    val xmbHome by AppThemeState.deckXmbHome.collectAsState()
+    val topTabs = rails && xmbHome
+    val topTabsNow by rememberUpdatedState(topTabs)
     val sideLists = remember { DeckSideLists() }
     val topBarActionsState = remember { topBarActionsState() }
     val topBarTransparentState = remember { mutableStateOf(false) }
@@ -249,7 +255,9 @@ private fun DeckShellContent(
     }
     // Down from the top bar (Right from the side rail): the page takes its own first focus; a page without one (a classic screen) gets the nearest control below (to the right).
     val enterContent: () -> Unit = {
-        val into = if (railsNow) FocusDirection.Right else FocusDirection.Down
+        val into = if (railsNow && !topTabsNow) FocusDirection.Right else FocusDirection.Down
+        // The page's own tab rail sits beside the content in landscape, so past it is always Right there.
+        val pastStrip = if (railsNow) FocusDirection.Right else FocusDirection.Down
         deckActions.navHold.value = false
         deckActions.enterTick.intValue++
         scope.launch {
@@ -258,9 +266,15 @@ private fun DeckShellContent(
             // The page's own tabs move with L2/R2 from anywhere, so entering goes past them into the page.
             if (deckActions.stripFocused.value) {
                 withFrameNanos { }
-                focusManager.moveFocus(into)
+                focusManager.moveFocus(pastStrip)
             }
         }
+    }
+    // The XMB home reaches the tab bar with Up from its first option.
+    DisposableEffect(deckActions, tab) {
+        val toTabs: () -> Boolean = { runCatching { tabRequesters.getValue(tab).requestFocus() }.isSuccess }
+        deckActions.focusTabs.value = toTabs
+        onDispose { if (deckActions.focusTabs.value === toTabs) deckActions.focusTabs.value = null }
     }
     var searchOpen by remember { mutableStateOf(false) }
     val openSearch: () -> Unit = { searchOpen = true }
@@ -441,21 +455,41 @@ private fun DeckShellContent(
                 val goBack = { if (backDispatcher != null) backDispatcher.onBackPressed() else nav.back() }
                 // Home's XMB view takes the whole screen; the XMB has its own hints, menus and game row.
                 val full = deckActions.fullscreen.value && currentRoute == DeckRoutes.HOME
-                // Landscape is rails | content; portrait keeps the top bar over the content. The NavHost stays in one slot either way.
-                Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                // XMB home, landscape: the tabs run across the top of every page; the camera hole's edges are kept clear.
+                if (topTabs && !full) {
+                    DeckTopBar(
+                        current = tab,
+                        wide = cfg.screenWidthDp >= DECK_WIDE_TABS_DP,
+                        tabRequesters = tabRequesters,
+                        avatarUrl = account?.displayAvatarUrl,
+                        onTab = { nav.goTab(it) },
+                        onCycle = { nav.cycle(it) },
+                        onTabsFocus = onTabsFocus,
+                        onEnterContent = enterContent,
+                        onAccount = onAccount,
+                        onSearch = openSearch,
+                        height = 50.dp,
+                        startInset = cutoutStart,
+                        endInset = cutoutEnd,
+                    )
+                }
+                // Landscape is rails | content (or, with the XMB home, the page rail | content under the top bar); portrait keeps the top bar over the content. The NavHost stays in one slot either way.
+                Row(modifier = Modifier.weight(1f).fillMaxWidth().padding(start = if (topTabs) cutoutStart else 0.dp)) {
                     if (rails && !full) {
-                        DeckSideRail(
-                            cutoutStart = cutoutStart,
-                            current = tab,
-                            tabRequesters = tabRequesters,
-                            avatarUrl = account?.displayAvatarUrl,
-                            onTab = { nav.goTab(it) },
-                            onCycle = { nav.cycle(it) },
-                            onTabsFocus = onTabsFocus,
-                            onEnterContent = enterContent,
-                            onAccount = onAccount,
-                            onSearch = openSearch,
-                        )
+                        if (!topTabs) {
+                            DeckSideRail(
+                                cutoutStart = cutoutStart,
+                                current = tab,
+                                tabRequesters = tabRequesters,
+                                avatarUrl = account?.displayAvatarUrl,
+                                onTab = { nav.goTab(it) },
+                                onCycle = { nav.cycle(it) },
+                                onTabsFocus = onTabsFocus,
+                                onEnterContent = enterContent,
+                                onAccount = onAccount,
+                                onSearch = openSearch,
+                            )
+                        }
                         val pageTabs = deckActions.pageTabs.value
                         if (settingsPages) {
                             val pages = listOf(Screen.Settings.route to DeckTabItem("Settings", Icons.Filled.Settings), Screen.Appearance.route to DeckTabItem("Appearance", Icons.Filled.Palette))
@@ -735,6 +769,9 @@ private fun DeckTopBar(
     onEnterContent: () -> Unit,
     onAccount: () -> Unit,
     onSearch: () -> Unit,
+    height: Dp = 58.dp,
+    startInset: Dp = 0.dp,
+    endInset: Dp = 0.dp,
 ) {
     val line = deckLine()
     Row(
@@ -742,10 +779,10 @@ private fun DeckTopBar(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .height(58.dp)
+            .height(height)
             .background(deckGlass())
             .drawBehind { drawRect(line, topLeft = Offset(0f, size.height - 1f), size = Size(size.width, 1f)) }
-            .padding(horizontal = 16.dp),
+            .padding(start = 16.dp + startInset, end = 16.dp + endInset),
     ) {
         DeckMark()
         Row(

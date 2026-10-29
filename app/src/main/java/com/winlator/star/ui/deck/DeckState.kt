@@ -56,6 +56,11 @@ internal class DeckActions {
     val pageTabs: MutableState<DeckPageTabs?> = mutableStateOf(null)
     /** True while Home shows the full-screen XMB: the shell drops its rails, bars and legend (the XMB has its own). */
     val fullscreen: MutableState<Boolean> = mutableStateOf(false)
+    /**
+     * Moves focus onto the current tab in the top bar; false when there is no top bar to take it. The XMB home calls it on
+     * Up from its first option (the way PS4 reaches its top row from a game), and Down brings focus back.
+     */
+    val focusTabs: MutableState<(() -> Boolean)?> = mutableStateOf(null)
 }
 
 /** A Deck page's title and one-line description, shown by the shell's title line in landscape. */

@@ -173,6 +173,14 @@ internal fun ShortcutsXmbView(
      * level fall through to it (they move its tabs, as on every Deck page) instead of jumping five games.
      */
     inDeckShell: Boolean = false,
+    /** Up from the first option (Play). Return true when it took focus elsewhere (the Deck shell's tab bar). */
+    onUpAtTop: () -> Boolean = { false },
+    /** The clock is the host's to draw when it has a status bar of its own. */
+    showClock: Boolean = true,
+    /** Asked before the view takes D-pad focus (entry, resume): false leaves focus where it is. */
+    takeFocus: () -> Boolean = { true },
+    /** Changes when the host wants the view to take focus again (Down from the Deck shell's tab bar). */
+    focusTick: Int = 0,
 ) {
     if (shortcuts.isEmpty()) return
     val context = LocalContext.current
@@ -253,11 +261,12 @@ internal fun ShortcutsXmbView(
     // Take D-pad focus on entry and again whenever the app comes back (e.g. after a game exits).
     val focusRequester = remember { FocusRequester() }
     nav.refocus = { runCatching { focusRequester.requestFocus() } }
-    LaunchedEffect(Unit) { runCatching { focusRequester.requestFocus() } }
+    val mayTakeFocus by rememberUpdatedState(takeFocus)
+    LaunchedEffect(focusTick) { if (mayTakeFocus()) runCatching { focusRequester.requestFocus() } }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) runCatching { focusRequester.requestFocus() }
+            if (event == Lifecycle.Event.ON_RESUME && mayTakeFocus()) runCatching { focusRequester.requestFocus() }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
@@ -356,7 +365,7 @@ internal fun ShortcutsXmbView(
                         Key.ButtonL1 -> if (inDeckShell) false else { settleTo(target - 5); true }
                         Key.ButtonR1 -> if (inDeckShell) false else { settleTo(target + 5); true }
                         Key.DirectionDown -> { act = (actIdx + 1).coerceAtMost(actions.lastIndex); true }
-                        Key.DirectionUp -> if (actIdx > 0) { act = actIdx - 1; true } else false
+                        Key.DirectionUp -> if (actIdx > 0) { act = actIdx - 1; true } else onUpAtTop()
                         Key.ButtonA, Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> { runAction(actions[actIdx]); true }
                         Key.ButtonB -> when {
                             actIdx > 0 -> { act = 0; true }
@@ -428,7 +437,7 @@ internal fun ShortcutsXmbView(
                         XmbHint("A", Color(0xFF3DDC84), actions[actIdx].label, hs)
                         XmbHint("B", Color(0xFFFF5252), "Back", hs)
                         if (!m.port && m.w >= 600f) {
-                            XmbKeyHint("◀ ▶", "Games", hs); XmbKeyHint("▲ ▼", "Options", hs); XmbKeyHint("L1 R1", "Jump", hs)
+                            XmbKeyHint("◀ ▶", "Games", hs); XmbKeyHint("▲ ▼", "Options", hs); XmbKeyHint("L1 R1", if (inDeckShell) "Tabs" else "Jump", hs)
                         }
                     }
                 }
@@ -437,7 +446,7 @@ internal fun ShortcutsXmbView(
                     horizontalArrangement = Arrangement.spacedBy(12.dp * hs),
                 ) {
                     Text("${target + 1} / $n", color = Color(0xFFAAAAAA), fontSize = 12.sp * hs)
-                    Text(clock, color = Color(0xFFDDDDDD), fontSize = 12.sp * hs, fontWeight = FontWeight.Light)
+                    if (showClock) Text(clock, color = Color(0xFFDDDDDD), fontSize = 12.sp * hs, fontWeight = FontWeight.Light)
                 }
 
                 val rootAlpha by animateFloatAsState(if (nested) 0f else 1f, tween(260), label = "xmbRootAlpha")

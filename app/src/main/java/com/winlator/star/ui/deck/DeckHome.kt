@@ -116,6 +116,7 @@ import com.winlator.star.container.Shortcut
 import com.winlator.star.store.SteamFriendsAction
 import com.winlator.star.ui.DeckDialogBars
 import com.winlator.star.ui.DeckDialogScaled
+import com.winlator.star.ui.theme.AppThemeState
 import com.winlator.star.ui.screens.GameMenuAction
 import com.winlator.star.ui.screens.gameMenuOffers
 import com.winlator.star.ui.screens.ShortcutActionDialogs
@@ -246,9 +247,12 @@ internal fun DeckHome(
     }
 
     val prefs = remember { PreferenceManager.getDefaultSharedPreferences(context) }
-    var mode by remember {
+    var savedMode by remember {
         mutableStateOf(runCatching { LibraryMode.valueOf(prefs.getString(PREF_MODE, null) ?: "") }.getOrDefault(LibraryMode.SHELF))
     }
+    // XMB home (Appearance > Deck Mode): Home is the XMB, whatever view was last picked. The picked view is kept for turning it off.
+    val xmbHome by AppThemeState.deckXmbHome.collectAsState()
+    val mode = if (xmbHome) LibraryMode.XMB else savedMode
     var filter by remember {
         mutableStateOf(LibraryFilter(sort = runCatching { LibrarySort.valueOf(prefs.getString(PREF_SORT, null) ?: "") }.getOrDefault(LibrarySort.NAME)))
     }
@@ -271,13 +275,15 @@ internal fun DeckHome(
         ?: shortcuts.firstOrNull()
     var menuFor by remember { mutableStateOf<Shortcut?>(null) }
 
-    // X / Start on this page = the focused game's menu.
+    // X / Start on this page = the focused game's menu. The XMB home has every game option in its own column,
+    // so there it opens the library menu instead: the shelf toolbar's buttons (filter, add games...) have no other place.
     val deckActions = LocalDeckActions.current
     val focusedNow by rememberUpdatedState(focused)
-    DisposableEffect(deckActions) {
-        val open: () -> Unit = { focusedNow?.let { menuFor = it } }
+    var libraryMenuOpen by remember { mutableStateOf(false) }
+    DisposableEffect(deckActions, xmbHome) {
+        val open: () -> Unit = if (xmbHome) ({ libraryMenuOpen = true }) else ({ focusedNow?.let { menuFor = it } })
         deckActions.options.value = open
-        deckActions.optionsLabel.value = "Game options"
+        deckActions.optionsLabel.value = if (xmbHome) "Library" else "Game options"
         onDispose { if (deckActions.options.value === open) deckActions.options.value = null }
     }
 
@@ -305,12 +311,13 @@ internal fun DeckHome(
     var beforeXmb by remember { mutableStateOf(LibraryMode.SHELF) }
     val setMode: (LibraryMode) -> Unit = { m ->
         if (m == LibraryMode.XMB && mode != LibraryMode.XMB) beforeXmb = mode
-        mode = m
+        savedMode = m
         prefs.edit().putString(PREF_MODE, m.name).apply()
     }
     // The XMB is full screen, like the Classic one: the shell hides its rails, bars and legend while it shows.
-    // Back (or B on the XMB's first option) leaves it for the previous view.
-    val xmbFull = mode == LibraryMode.XMB && visible.isNotEmpty()
+    // Back (or B on the XMB's first option) leaves it for the previous view. The XMB home is not full screen:
+    // the shell's tab bar stays above it and Up from the first option reaches it.
+    val xmbFull = mode == LibraryMode.XMB && visible.isNotEmpty() && !xmbHome
     DisposableEffect(xmbFull, deckActions) {
         deckActions.fullscreen.value = xmbFull
         onDispose { deckActions.fullscreen.value = false }
@@ -319,6 +326,7 @@ internal fun DeckHome(
     val toolbar: @Composable () -> Unit = {
         LibraryToolbar(
             mode = mode,
+            showModes = !xmbHome,
             filterCount = filter.activeCount,
             onMode = setMode,
             onBigPicture = onBigPicture,
@@ -484,12 +492,28 @@ internal fun DeckHome(
                     onReloadGames = { vm.refresh() },
                     onFocusedChange = onFocus,
                     // Full screen: the XMB hides the system bars in landscape and keeps L1/R1 for its jumps.
-                    inDeckShell = false,
+                    // The XMB home sits inside the shell instead: the shell keeps the bars and takes L1/R1 for its tabs,
+                    // draws the clock itself, and Up from the first option moves to the tab bar (Down comes back).
+                    inDeckShell = xmbHome,
+                    showClock = !xmbHome,
+                    onUpAtTop = { deckActions.focusTabs.value?.invoke() ?: false },
+                    takeFocus = { !deckActions.navHold.value },
+                    focusTick = deckActions.enterTick.intValue,
                 )
             }
         }
     }
     if (showWrapperManager) WrapperManagerDialog(onDismiss = { showWrapperManager = false })
+
+    if (libraryMenuOpen) {
+        LibraryMenuDialog(
+            onDismiss = { libraryMenuOpen = false },
+            onFilter = { libraryMenuOpen = false; filterOpen = true },
+            onAddGame = { libraryMenuOpen = false; onAddGame() },
+            onCommunity = { libraryMenuOpen = false; actions.showCommunityBrowser = true },
+            onBigPicture = { libraryMenuOpen = false; onBigPicture() },
+        )
+    }
 
     if (filterOpen) {
         LibraryFilterDialog(
@@ -522,6 +546,7 @@ internal fun DeckHome(
 @Composable
 private fun LibraryToolbar(
     mode: LibraryMode,
+    showModes: Boolean,
     filterCount: Int,
     onMode: (LibraryMode) -> Unit,
     onBigPicture: () -> Unit,
@@ -536,19 +561,21 @@ private fun LibraryToolbar(
         // Padding inside the scroll keeps the focus glow from being clipped.
         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(vertical = 6.dp, horizontal = 4.dp),
     ) {
-        // View modes. Big Picture has its own tile at the end of the row.
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .clip(RoundedCornerShape(18.dp))
-                .background(deckCardFill())
-                .border(1.dp, deckLine(), RoundedCornerShape(18.dp))
-                .padding(5.dp),
-        ) {
-            LibraryMode.entries.forEach { m -> ModeButton(m.label, m.icon, selected = m == mode) { onMode(m) } }
+        // View modes. Big Picture has its own tile at the end of the row. The XMB home has no choice to make.
+        if (showModes) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(deckCardFill())
+                    .border(1.dp, deckLine(), RoundedCornerShape(18.dp))
+                    .padding(5.dp),
+            ) {
+                LibraryMode.entries.forEach { m -> ModeButton(m.label, m.icon, selected = m == mode) { onMode(m) } }
+            }
+            Spacer(Modifier.width(8.dp))
         }
-        Spacer(Modifier.width(8.dp))
         DeckButton(if (filterCount > 0) "Filters · $filterCount" else "Filter & sort", Icons.Filled.FilterList, onFilter)
         DeckButton("Add games", Icons.Filled.Add, onAddGame)
         IconTile(Icons.Filled.Public, "Community configs", onCommunity)
@@ -560,6 +587,52 @@ private fun LibraryToolbar(
             SteamFriendsAction(tint = cs.onSurface)
         }
         IconTile(Icons.Filled.Tv, "Big Picture", onBigPicture)
+    }
+}
+
+/** The XMB home's library menu (X / Start): what the shelf toolbar offers, as a short controller-friendly list. */
+@Composable
+private fun LibraryMenuDialog(
+    onDismiss: () -> Unit,
+    onFilter: () -> Unit,
+    onAddGame: () -> Unit,
+    onCommunity: () -> Unit,
+    onBigPicture: () -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    val firstRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        withFrameNanos { }
+        runCatching { firstRequester.requestFocus() }
+    }
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        DeckDialogBars()
+        DeckDialogScaled {
+            val shape = RoundedCornerShape(26.dp)
+            Column(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier
+                    .padding(16.dp)
+                    .widthIn(max = 420.dp)
+                    .fillMaxWidth()
+                    .clip(shape)
+                    .background(cs.surfaceContainerHigh)
+                    .border(1.dp, deckLine(), shape)
+                    .verticalScroll(rememberScrollState())
+                    .padding(22.dp),
+            ) {
+                Text("Library", color = cs.onSurface, fontFamily = SoraFamily, fontWeight = FontWeight.Bold, fontSize = 22.sp)
+                DeckButton("Filter & sort", Icons.Filled.FilterList, onFilter, modifier = Modifier.fillMaxWidth().focusRequester(firstRequester))
+                DeckButton("Add games", Icons.Filled.Add, onAddGame, modifier = Modifier.fillMaxWidth())
+                DeckButton("Community configs", Icons.Filled.Public, onCommunity, modifier = Modifier.fillMaxWidth())
+                DeckButton("Big Picture", Icons.Filled.Tv, onBigPicture, modifier = Modifier.fillMaxWidth())
+                // Steam friends and chat; renders only while signed in to Steam.
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxWidth()) {
+                    SteamFriendsAction(tint = cs.onSurface)
+                }
+                DeckButton("Done", null, onDismiss, modifier = Modifier.align(Alignment.End), primary = true, glyph = "B")
+            }
+        }
     }
 }
 

@@ -104,6 +104,19 @@ fun AppearanceScreen() {
             }
         }
 
+        // ── Deck mode ────────────────────────────────────────────────────
+        if (uiStyle == AppThemeState.UI_STYLE_DECK) {
+            val xmbHome by AppThemeState.deckXmbHome.collectAsState()
+            SectionLabel("Deck Mode")
+            DrawerToggleRow(
+                title = "XMB home",
+                subtitle = "Home opens as the XMB, and the tabs sit in a bar across the top of every page. " +
+                    "Press Up from the XMB's first option to reach the bar, and Down to go back in.",
+                checked = xmbHome,
+                onCheckedChange = { AppThemeState.setDeckXmbHome(it) },
+            )
+        }
+
         Spacer(Modifier.height(4.dp))
         Box(Modifier.fillMaxWidth().height(1.dp).background(Divider))
 
