@@ -382,11 +382,12 @@ private fun DeckShellContent(
         WindowCompat.setDecorFitsSystemWindows(window, false)
         onDispose { WindowCompat.setDecorFitsSystemWindows(window, true) }
     }
-    // Only Home draws into the camera hole; leaving it puts the window back the way it was.
+    // Only Home draws its content into the camera hole, but the window reaches it on every tab, so Android never adds its
+    // own black strip and switching tabs doesn't resize the screen; the other tabs keep clear through the insets below.
     val homeBleed = xmbHome && currentRoute == DeckRoutes.HOME && !compact
-    DisposableEffect(homeBleed, activity) {
+    DisposableEffect(xmbHome, activity) {
         val window = activity?.window
-        if (!homeBleed || window == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return@DisposableEffect onDispose {}
+        if (!xmbHome || window == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return@DisposableEffect onDispose {}
         val before = window.attributes.layoutInDisplayCutoutMode
         window.attributes = window.attributes.also {
             it.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
@@ -479,14 +480,18 @@ private fun DeckShellContent(
             // icons clear of it; on the other side the page background runs under it and only the page, not the legend, keeps clear.
             val dir = LocalLayoutDirection.current
             val cutout = WindowInsets.displayCutout.asPaddingValues()
-            val cutoutStart = if (rails) cutout.calculateStartPadding(dir) else 0.dp
-            val cutoutEnd = if (rails) cutout.calculateEndPadding(dir) else 0.dp
+            // XMB home, landscape, any tab but Home: the page sits in an even frame, as wide as the camera strip on both
+            // sides, filled with the backdrop, so the strip reads as a margin rather than a wall beside the panels.
+            val framed = topTabs && !homeBleed
+            val frame = if (framed) maxOf(cutout.calculateStartPadding(dir), cutout.calculateEndPadding(dir)) else 0.dp
+            val cutoutStart = if (rails && !framed) cutout.calculateStartPadding(dir) else 0.dp
+            val cutoutEnd = if (rails && !framed) cutout.calculateEndPadding(dir) else 0.dp
             val baseInsets = if (rails) WindowInsets.systemBars.union(WindowInsets.displayCutout.only(WindowInsetsSides.Vertical))
                 else WindowInsets.systemBars.union(WindowInsets.displayCutout)
             // Edge to edge (XMB home) the window no longer makes room for the keyboard, so the pages do.
             val insets = if (xmbHome) baseInsets.union(WindowInsets.ime) else baseInsets
             // Home's XMB takes the whole screen, under the camera hole too; the shell floats its tabs and Search over it.
-            Column(modifier = Modifier.fillMaxSize().then(if (homeBleed) Modifier else Modifier.windowInsetsPadding(insets))) {
+            Column(modifier = Modifier.fillMaxSize().then(if (homeBleed) Modifier else Modifier.windowInsetsPadding(insets).padding(horizontal = frame))) {
                 // The My-account sheet opens over the current page (DeckGameActionsHost).
                 val onAccount = { AccountUiBus.requestMyAccount() }
                 val onTabsFocus: (Boolean) -> Unit = { focused ->
