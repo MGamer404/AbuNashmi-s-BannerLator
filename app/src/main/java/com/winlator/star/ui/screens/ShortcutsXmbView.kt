@@ -25,7 +25,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -340,6 +342,12 @@ internal fun ShortcutsXmbView(
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val m = remember(maxWidth, maxHeight, topInset) { XmbMetrics(maxWidth.value, maxHeight.value - topInset.value) }
+        // Centred home: the row is drawn larger while it's the only thing on screen (and under the open cards),
+        // as large as fits between the peeking cards and the bottom edge, at most 1.3x. The options shrink it back.
+        val homeK = if (!centeredHome) 1f
+            else min(1.3f, (m.h / 2f - XMB_PEEK_CLIP - m.sH / 2f - 10f) * 2f / m.fH).coerceAtLeast(1f)
+        // Read where it's used (draw / drag), so the animation doesn't recompose the view.
+        val rowScale = { 1f + (homeK - 1f) * cT }
         val pitchPx = with(density) { m.pitch.dp.toPx() }
         val rowPx = with(density) { m.rowH.dp.toPx() }
         val wPx = with(density) { maxWidth.toPx() }
@@ -351,7 +359,8 @@ internal fun ShortcutsXmbView(
             if (nav.depth > 0) { swipe += delta; return@rememberDraggableState }
             if (upperOpen) return@rememberDraggableState
             settleJob?.cancel()
-            val p = (pos.floatValue - delta / pitchPx).coerceIn(-0.45f, n - 1 + 0.45f)
+            // One cover's step on screen, so the row follows the finger at the larger size too.
+            val p = (pos.floatValue - delta / (pitchPx * rowScale())).coerceIn(-0.45f, n - 1 + 0.45f)
             pos.floatValue = p
             val r = p.roundToInt().coerceIn(0, n - 1)
             if (r != target) { target = r; act = 0; optsOpen = false }
@@ -447,7 +456,7 @@ internal fun ShortcutsXmbView(
                     onDragStarted = { swipe = 0f },
                     onDragStopped = { velocity ->
                         if (nav.depth > 0) { if (swipe > swipeBackPx) nav.pop() }
-                        else if (!upperOpen) settleTo((pos.floatValue - velocity / pitchPx * 0.14f).roundToInt())
+                        else if (!upperOpen) settleTo((pos.floatValue - velocity / (pitchPx * rowScale()) * 0.14f).roundToInt())
                     },
                 ),
         ) {
@@ -531,6 +540,14 @@ internal fun ShortcutsXmbView(
                 // `pos` in its graphics layer, so a swipe re-draws without recomposing.
                 val baseIdx by remember { derivedStateOf { floor(pos.floatValue).toInt() } }
                 val ahead = ceil((m.w - m.cross) / m.pitch).toInt() + 1
+                // Centred home: the covers grow around the focused cover's left edge at the row's middle. A layer
+                // transform, so taps land on the covers as drawn.
+                Box(Modifier.fillMaxSize().graphicsLayer {
+                    val s = rowScale()
+                    scaleX = s
+                    scaleY = s
+                    transformOrigin = TransformOrigin(m.cross / m.w, (m.top + m.fH / 2f) / m.h)
+                }) {
                 for (i in (baseIdx - 3).coerceAtLeast(0)..(baseIdx + ahead + 1).coerceAtMost(n - 1)) {
                     val s = shortcuts[i]
                     key(s.file.path) {
@@ -548,6 +565,7 @@ internal fun ShortcutsXmbView(
                         )
                     }
                 }
+                }
 
                 // Focused game's name + "container · resolution", right of its cover under the rest of the bar.
                 AnimatedContent(
@@ -555,7 +573,17 @@ internal fun ShortcutsXmbView(
                     contentKey = { it.file.path },
                     transitionSpec = { (fadeIn(tween(220)) + slideInVertically(tween(220)) { it / 6 }) togetherWith fadeOut(tween(90)) },
                     label = "xmbTitle",
-                    modifier = Modifier.offset(m.titleX.dp, m.titleY.dp).width(m.titleW.dp).graphicsLayer { alpha = 1f - upT },
+                    // On the centred home it follows the focused cover at its larger size (text kept at its own size),
+                    // narrowed by the cover's extra width so it still ends at the screen edge.
+                    modifier = Modifier
+                        .offset(m.titleX.dp, m.titleY.dp)
+                        .width((m.titleW - (homeK - 1f) * (m.fW + 16f)).coerceAtLeast(80f).dp)
+                        .graphicsLayer {
+                            alpha = 1f - upT
+                            val e = rowScale() - 1f
+                            translationX = (e * (m.titleX - m.cross)).dp.toPx()
+                            translationY = (e * (m.titleY - m.top - m.fH / 2f)).dp.toPx()
+                        },
                 ) { s ->
                     // An Android game has no container/resolution line; its package name stands in.
                     val meta = remember(s) {
@@ -804,9 +832,13 @@ private fun XmbActionRow(action: XmbAction, selected: Boolean, accent: Color, ic
 /** Centred home: the cards' peek is cut off this far (dp) from the top, clear of the host's floating tab bar. */
 private const val XMB_PEEK_CLIP = 50f
 
+/** How long (ms) a chosen card waits before its cut-off text starts scrolling. */
+private const val XMB_MARQUEE_DELAY = 700
+
 // The row above the games: translucent cards in the XMB's colours where the game row was, the chosen one
 // larger with an accent ring and glow (like the focused cover). [t] is the open animation, 0..1. [peek] (centred
 // home) is the resting state: the cards sit half above [clipTop], which the caller clips at, dimmed.
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun XmbUpperRow(
     cards: List<XmbAction>,
@@ -878,16 +910,20 @@ private fun XmbUpperRow(
                         modifier = Modifier.size(min(36f, tH * 0.3f).dp),
                     )
                     Spacer(Modifier.height(8.dp))
+                    // The chosen card's text that doesn't fit scrolls right to left after a short pause, starting
+                    // over each time the card is chosen; the others stay still, cut with an ellipsis.
                     Text(
                         c.label, color = if (on) Color.White else Color.White.copy(alpha = 0.7f),
                         fontSize = 14.sp, fontWeight = if (on) FontWeight.Normal else FontWeight.Light,
-                        textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center, maxLines = if (on) 1 else 2, overflow = TextOverflow.Ellipsis,
+                        modifier = if (on) Modifier.basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = XMB_MARQUEE_DELAY) else Modifier,
                     )
                     val sub = c.subtitle
                     if (on && sub != null) {
                         Text(
                             sub, color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp,
-                            textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            textAlign = TextAlign.Center, maxLines = 1,
+                            modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = XMB_MARQUEE_DELAY),
                         )
                     }
                 }
