@@ -491,7 +491,7 @@ private fun DeckShellContent(
             // Edge to edge (XMB home) the window no longer makes room for the keyboard, so the pages do.
             val insets = if (xmbHome) baseInsets.union(WindowInsets.ime) else baseInsets
             // Home's XMB takes the whole screen, under the camera hole too; the shell floats its tabs and Search over it.
-            Column(modifier = Modifier.fillMaxSize().then(if (homeBleed) Modifier else Modifier.windowInsetsPadding(insets).padding(horizontal = frame))) {
+            Column(modifier = Modifier.fillMaxSize().then(if (homeBleed) Modifier else Modifier.windowInsetsPadding(insets))) {
                 // The My-account sheet opens over the current page (DeckGameActionsHost).
                 val onAccount = { AccountUiBus.requestMyAccount() }
                 val onTabsFocus: (Boolean) -> Unit = { focused ->
@@ -499,6 +499,20 @@ private fun DeckShellContent(
                     deckActions.navHold.value = focused
                 }
                 val goBack = { if (backDispatcher != null) backDispatcher.onBackPressed() else nav.back() }
+                val legend: @Composable (Dp) -> Unit = { endInset ->
+                    DeckLegend(
+                        thin = rails,
+                        endInset = endInset,
+                        atHome = currentRoute == DeckRoutes.HOME,
+                        subTabLabel = if (deckActions.subTab.value != null) deckActions.subTabLabel.value else null,
+                        optionsLabel = if (deckActions.options.value != null) deckActions.optionsLabel.value else null,
+                        onCycle = { switchMenu(1) },
+                        onSubCycle = { deckActions.subTab.value?.invoke(1) },
+                        onBack = goBack,
+                        onOptions = { deckActions.options.value?.invoke() },
+                        onSearch = { (deckActions.search.value ?: openSearch)() },
+                    )
+                }
                 // Home's XMB view takes the whole screen; the XMB has its own hints, menus and game row.
                 val full = deckActions.fullscreen.value && currentRoute == DeckRoutes.HOME
                 // XMB home, landscape: the tabs run across the top of every page; the camera hole's edges are kept clear.
@@ -515,13 +529,15 @@ private fun DeckShellContent(
                         onAccount = onAccount,
                         onSearch = openSearch,
                         height = 50.dp,
-                        startInset = cutoutStart,
-                        endInset = cutoutEnd,
+                        // Framed: the bar's glass runs to the screen edges, its contents stay inside the frame.
+                        startInset = cutoutStart + frame,
+                        endInset = cutoutEnd + frame,
                         dpad = false,
                     )
                 }
                 // Landscape is rails | content (or, with the XMB home, the page rail | content under the top bar); portrait keeps the top bar over the content. The NavHost stays in one slot either way.
-                Row(modifier = Modifier.weight(1f).fillMaxWidth().padding(start = if (topTabs && !homeBleed) cutoutStart else 0.dp)) {
+                // Framed, only this middle part sits inside the frame: the top bar and the legend sandwich it edge to edge.
+                Row(modifier = Modifier.weight(1f).fillMaxWidth().padding(start = (if (topTabs && !homeBleed) cutoutStart else 0.dp) + frame, end = frame)) {
                     if (rails && !full) {
                         if (!topTabs) {
                             DeckSideRail(
@@ -546,6 +562,7 @@ private fun DeckShellContent(
                                 compact = false,
                                 onSelect = { i -> if (pages[i].first != currentRoute) nav.open(pages[i].first) },
                                 onFocus = { deckActions.stripFocused.value = it },
+                                glass = !framed,
                             )
                         } else if (pageTabs != null && isDeckPage(currentRoute) && pageTabs.tabs.isNotEmpty()) {
                             DeckPageTabRail(
@@ -554,6 +571,7 @@ private fun DeckShellContent(
                                 compact = pageTabs.compact || sideLists.count.intValue > 0,
                                 onSelect = { i -> pageTabs.onSelect(i) },
                                 onFocus = { deckActions.stripFocused.value = it },
+                                glass = !framed,
                             )
                         }
                     }
@@ -696,22 +714,11 @@ private fun DeckShellContent(
                         // App-wide minimized progress pill for a running archive unpack (renders nothing when idle).
                         com.winlator.star.ui.UnpackProgressPill()
 
-                        if (!compact && !full && !homeBleed) {
-                            DeckLegend(
-                                thin = rails,
-                                endInset = cutoutEnd,
-                                atHome = currentRoute == DeckRoutes.HOME,
-                                subTabLabel = if (deckActions.subTab.value != null) deckActions.subTabLabel.value else null,
-                                optionsLabel = if (deckActions.options.value != null) deckActions.optionsLabel.value else null,
-                                onCycle = { switchMenu(1) },
-                                onSubCycle = { deckActions.subTab.value?.invoke(1) },
-                                onBack = goBack,
-                                onOptions = { deckActions.options.value?.invoke() },
-                                onSearch = { (deckActions.search.value ?: openSearch)() },
-                            )
-                        }
+                        if (!compact && !full && !homeBleed && !framed) legend(cutoutEnd)
                     }
                 }
+                // Framed: the legend spans the whole width under the page rail and the page, its items where they were.
+                if (framed && !full) legend(frame)
                 if (compact && !full) {
                     DeckBottomBar(current = tab, onTab = { nav.goTab(it) }, dpad = !xmbHome)
                 }
@@ -1437,6 +1444,8 @@ private fun DeckPageTabRail(
     compact: Boolean,
     onSelect: (Int) -> Unit,
     onFocus: (Boolean) -> Unit,
+    // false: no fill of its own, so only its divider line separates it from the page (the framed XMB-home layout).
+    glass: Boolean = true,
 ) {
     val cs = MaterialTheme.colorScheme
     val line = deckLine()
@@ -1448,7 +1457,7 @@ private fun DeckPageTabRail(
         modifier = Modifier
             .width(width)
             .fillMaxHeight()
-            .background(deckGlass().copy(alpha = 0.45f))
+            .then(if (glass) Modifier.background(deckGlass().copy(alpha = 0.45f)) else Modifier)
             .drawBehind { drawRect(line, topLeft = Offset(size.width - 1f, 0f), size = Size(1f, size.height)) }
             .onFocusChanged { onFocus(it.hasFocus) }
             .verticalScroll(rememberScrollState())
