@@ -1,8 +1,11 @@
 package com.winlator.star.ui.deck
 
 import android.content.Context
+import android.content.res.Resources
+import android.graphics.BitmapFactory
 import android.os.Build
 import android.view.WindowManager
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -21,6 +24,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
@@ -30,7 +34,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -53,6 +59,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.winlator.star.ui.findActivity
 import com.winlator.star.ui.theme.AppThemeState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.min
 
 // Shared pieces of the Deck interface's XMB-home mode, for the Deck shell and for the store and download screens,
@@ -73,6 +82,37 @@ internal fun isXmbHome(context: Context): Boolean {
 internal fun rememberXmbHome(): Boolean {
     val context = LocalContext.current
     return remember(context) { isXmbHome(context) }
+}
+
+// Decoded drawables kept for the process: the XMB home draws the store logos (large PNGs) on every visit, and decoding them
+// with painterResource did that on the main thread each time Home opened.
+private val xmbLogoCache = ConcurrentHashMap<Int, ImageBitmap>()
+
+private fun decodeXmbLogo(resources: Resources, res: Int, maxEdge: Int): ImageBitmap? = xmbLogoCache[res] ?: run {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeResource(resources, res, bounds)
+    var sample = 1
+    while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= maxEdge) sample *= 2
+    BitmapFactory.decodeResource(resources, res, BitmapFactory.Options().apply { inSampleSize = sample })
+        ?.asImageBitmap()?.also { xmbLogoCache[res] = it }
+}
+
+/**
+ * [res] decoded off the main thread at no more than [maxEdge] px on its long side. Null until it is ready, and ready at
+ * once on every later visit.
+ */
+@Composable
+internal fun rememberXmbLogo(@DrawableRes res: Int, maxEdge: Int = 512): ImageBitmap? {
+    val resources = LocalContext.current.resources
+    return produceState<ImageBitmap?>(xmbLogoCache[res], res) {
+        if (value == null) value = withContext(Dispatchers.IO) { decodeXmbLogo(resources, res, maxEdge) }
+    }.value
+}
+
+/** Decodes [res] ahead of time so the XMB home's first frame finds its logos ready. */
+internal suspend fun warmXmbLogos(context: Context, res: List<Int>) {
+    val resources = context.resources
+    withContext(Dispatchers.IO) { res.forEach { decodeXmbLogo(resources, it, 512) } }
 }
 
 /**

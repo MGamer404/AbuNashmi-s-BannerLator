@@ -84,37 +84,36 @@ fun AppearanceScreen() {
         SectionLabel("Interface Style")
         Text(
             text = "Classic keeps the side menu. Deck is a console-style layout with tabs across the top, " +
-                "made for controllers. Your theme and accent apply to both.",
+                "made for controllers. XMB is Deck with a full-screen XMB home: the tabs float over every page " +
+                "(switch them with L1/R1 or by touch), and Up from a game shows your stores, Downloads, Friends, " +
+                "Community configs and Add game. Your theme and accent apply to all three.",
             color = OnSurfaceVariant,
             fontSize = 12.sp,
         )
         Spacer(Modifier.height(6.dp))
         val uiStyle by AppThemeState.uiStyle.collectAsState()
-        val styleOptions = listOf(
-            AppThemeState.UI_STYLE_CLASSIC to "Classic",
-            AppThemeState.UI_STYLE_DECK to "Deck",
-        )
+        val xmbHome by AppThemeState.deckXmbHome.collectAsState()
+        // XMB is Deck style with the XMB home on: three choices, one selected at a time.
+        val styleOptions = listOf("Classic", "Deck", "XMB")
+        val selectedStyle = when {
+            uiStyle != AppThemeState.UI_STYLE_DECK -> 0
+            xmbHome -> 2
+            else -> 1
+        }
         SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-            styleOptions.forEachIndexed { index, (style, label) ->
+            styleOptions.forEachIndexed { index, label ->
                 SegmentedButton(
-                    selected = uiStyle == style,
-                    onClick = { AppThemeState.setUiStyle(style) },
+                    selected = selectedStyle == index,
+                    onClick = {
+                        when (index) {
+                            0 -> AppThemeState.setUiStyle(AppThemeState.UI_STYLE_CLASSIC)
+                            1 -> { AppThemeState.setDeckXmbHome(false); AppThemeState.setUiStyle(AppThemeState.UI_STYLE_DECK) }
+                            else -> { AppThemeState.setDeckXmbHome(true); AppThemeState.setUiStyle(AppThemeState.UI_STYLE_DECK) }
+                        }
+                    },
                     shape = SegmentedButtonDefaults.itemShape(index, styleOptions.size),
                 ) { Text(label) }
             }
-        }
-
-        // ── Deck mode ────────────────────────────────────────────────────
-        if (uiStyle == AppThemeState.UI_STYLE_DECK) {
-            val xmbHome by AppThemeState.deckXmbHome.collectAsState()
-            SectionLabel("Deck Mode")
-            DrawerToggleRow(
-                title = "XMB home",
-                subtitle = "Home opens as a full-screen XMB, and the tabs sit across the top of every page. " +
-                    "Switch tabs with L1/R1 or by touch. Up from a game shows Friends, Community configs and Add game.",
-                checked = xmbHome,
-                onCheckedChange = { AppThemeState.setDeckXmbHome(it) },
-            )
         }
 
         Spacer(Modifier.height(4.dp))
@@ -200,8 +199,7 @@ fun AppearanceScreen() {
         Spacer(Modifier.height(6.dp))
         // The XMB home keeps its own lock (landscape, or portrait from the rotate button in its bars);
         // every other mode uses the setting below.
-        val orientationLocked = uiStyle == AppThemeState.UI_STYLE_DECK && AppThemeState.deckXmbHome.collectAsState().value
-        if (orientationLocked) {
+        if (selectedStyle == 2) {
             Text(
                 text = "The XMB home stays in landscape and never turns with the device. " +
                     "Use the rotate button in its top bar to switch to portrait and back.",

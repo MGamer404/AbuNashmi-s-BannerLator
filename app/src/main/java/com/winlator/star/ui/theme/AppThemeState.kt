@@ -116,11 +116,12 @@ object AppThemeState {
         themePrefs.edit().putBoolean("deck_xmb_home", on).apply()
     }
 
-    /** Switch the app shell between Classic and Deck. Takes effect immediately, no restart. */
+    /** Switch the app shell between Classic and Deck. Takes effect immediately, no restart. Leaving Deck leaves the XMB home too. */
     fun setUiStyle(style: String) {
         val v = if (style == UI_STYLE_DECK) UI_STYLE_DECK else UI_STYLE_CLASSIC
         _uiStyle.value = v
         themePrefs.edit().putString("ui_style", v).apply()
+        if (v != UI_STYLE_DECK) setDeckXmbHome(false)
     }
 
     /** Show or hide the drawer's Stores section. Default on, so nothing changes until asked. */

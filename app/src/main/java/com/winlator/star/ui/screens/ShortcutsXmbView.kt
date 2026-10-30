@@ -112,7 +112,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
@@ -128,6 +127,7 @@ import com.winlator.star.container.Shortcut
 import com.winlator.star.inputcontrols.ExternalController
 import com.winlator.star.ui.LocalTopBarOverlayInset
 import com.winlator.star.ui.deck.rememberScreenScale
+import com.winlator.star.ui.deck.rememberXmbLogo
 import com.winlator.star.ui.findActivity
 import com.winlator.star.ui.theme.DangerRed
 import kotlinx.coroutines.Job
@@ -532,11 +532,13 @@ internal fun ShortcutsXmbView(
                         ) {
                             val logo = pic.art.logo
                             if (logo != null) {
-                                Image(
-                                    painterResource(logo), contentDescription = null, contentScale = ContentScale.Fit,
-                                    colorFilter = if (pic.art.tintWhite) ColorFilter.tint(Color.White) else null,
-                                    modifier = Modifier.fillMaxSize(0.6f),
-                                )
+                                rememberXmbLogo(logo)?.let { bmp ->
+                                    Image(
+                                        bmp, contentDescription = null, contentScale = ContentScale.Fit,
+                                        colorFilter = if (pic.art.tintWhite) ColorFilter.tint(Color.White) else null,
+                                        modifier = Modifier.fillMaxSize(0.6f),
+                                    )
+                                }
                             } else {
                                 Icon(pic.icon, contentDescription = null, tint = Color.White, modifier = Modifier.fillMaxSize(0.4f))
                             }
@@ -1048,11 +1050,13 @@ private fun XmbUpperCard(
     ) {
         val logo = art?.logo
         if (logo != null) {
-            Image(
-                painterResource(logo), contentDescription = card.label, contentScale = ContentScale.Fit,
-                colorFilter = if (art?.tintWhite == true) ColorFilter.tint(Color.White) else null,
-                modifier = Modifier.fillMaxSize(0.62f),
-            )
+            rememberXmbLogo(logo)?.let { bmp ->
+                Image(
+                    bmp, contentDescription = card.label, contentScale = ContentScale.Fit,
+                    colorFilter = if (art?.tintWhite == true) ColorFilter.tint(Color.White) else null,
+                    modifier = Modifier.fillMaxSize(0.62f),
+                )
+            }
         } else {
             // Sized from the card, so the chosen (enlarged) card shows the same icon, just bigger.
             Icon(card.icon, contentDescription = card.label, tint = Color.White, modifier = Modifier.size((m.fW * 0.44f).dp))

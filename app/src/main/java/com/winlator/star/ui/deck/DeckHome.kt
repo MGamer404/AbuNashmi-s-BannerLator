@@ -75,6 +75,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -168,6 +169,11 @@ private enum class PlayedFilter(val label: String) { ANY("Any"), PLAYED("Played"
 private const val PREF_MODE = "deck_library_mode"
 private const val PREF_SORT = "deck_library_sort"
 
+// XMB home only. The store sign-in states last read, kept for the process so coming back to Home shows them at once, and the
+// ViewModel Home last opened with, to tell a brand new one (it loads the library in its init) from one that was kept.
+private var lastSignedIn: Map<DeckStore, Boolean>? = null
+private var lastHomeVm: java.lang.ref.WeakReference<ShortcutsViewModel>? = null
+
 /** Filter & sort state. Mode and sort persist; the filters last for the session. */
 private data class LibraryFilter(
     val stores: Set<String> = emptySet(),
@@ -247,20 +253,40 @@ internal fun DeckHome(
     // The Deck home is the library this shell lands on, so it picks that up the same way the Games screen does.
     LaunchedEffect(shortcuts) { launcher.resumePendingRelaunch(shortcuts) }
 
+    // XMB mode (Appearance > Interface Style > XMB): Home is the XMB, whatever view was last picked. The picked view is kept for turning it off.
+    val xmbHome by AppThemeState.deckXmbHome.collectAsState()
     // The XMB home's store cards say whether each store is signed in, and the Friends card shows only while signed in
-    // to Steam; re-read on resume, so coming back from a store's sign-in updates them. Read only in that mode.
-    val readSignedIn = { if (AppThemeState.deckXmbHome.value) DeckStore.entries.associateWith { isSignedIn(context, it) } else emptyMap() }
-    var signedIn by remember { mutableStateOf(readSignedIn()) }
+    // to Steam; re-read on resume, so coming back from a store's sign-in updates them. Read only in that mode, and off the
+    // main thread (it reads each store's credentials): Home starts from the last result, so nothing waits on the read.
+    val readSignedIn = { DeckStore.entries.associateWith { isSignedIn(context, it) } }
+    var signedIn by remember {
+        mutableStateOf<Map<DeckStore, Boolean>>(
+            if (!AppThemeState.deckXmbHome.value) emptyMap() else lastSignedIn ?: readSignedIn().also { lastSignedIn = it },
+        )
+    }
+    var resumes by remember { mutableIntStateOf(0) }
+    LaunchedEffect(xmbHome, resumes) {
+        if (!xmbHome) { signedIn = emptyMap(); return@LaunchedEffect }
+        val read = withContext(Dispatchers.IO) { readSignedIn() }
+        lastSignedIn = read
+        signedIn = read
+    }
     // Refresh whenever the app resumes, as the Games screen does, so playtime and new games show up.
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
+        // A ViewModel Home has just made has already loaded the library in its init. The ON_RESUME replayed to an observer
+        // as it attaches would load it all again on the main thread as Home opens, so the XMB home skips that one.
+        val justCreated = xmbHome && lastHomeVm?.get() !== vm
+        lastHomeVm = java.lang.ref.WeakReference(vm)
+        var attaching = true
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                vm.refresh()
-                signedIn = readSignedIn()
+                if (!(attaching && justCreated)) vm.refresh()
+                resumes++
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
+        attaching = false
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
@@ -268,9 +294,6 @@ internal fun DeckHome(
     var savedMode by remember {
         mutableStateOf(runCatching { LibraryMode.valueOf(prefs.getString(PREF_MODE, null) ?: "") }.getOrDefault(LibraryMode.SHELF))
     }
-    // XMB home (Appearance > Deck Mode): Home is the XMB, whatever view was last picked. The picked view is kept for turning it off.
-    val xmbHome by AppThemeState.deckXmbHome.collectAsState()
-    LaunchedEffect(xmbHome) { signedIn = readSignedIn() }
     val mode = if (xmbHome) LibraryMode.XMB else savedMode
     var filter by remember {
         mutableStateOf(LibraryFilter(sort = runCatching { LibrarySort.valueOf(prefs.getString(PREF_SORT, null) ?: "") }.getOrDefault(LibrarySort.NAME)))
@@ -376,26 +399,36 @@ internal fun DeckHome(
     // XMB home: Up from a game lifts the row of cards above the games: the five stores (they replace the Stores tab),
     // then Downloads and what the shelf toolbar offers elsewhere.
     val downloads by DownloadRegistry.activeCount.collectAsState()
-    val xmbUpperRow: List<XmbAction> = if (!xmbHome) emptyList() else buildList {
-        DeckStore.entries.forEach { store ->
-            val owned = shortcuts.count(store.owns)
-            val games = when (owned) { 0 -> "no games yet"; 1 -> "1 game"; else -> "$owned games" }
-            val details = if (signedIn[store] == true) "Signed in · $games" else "Not signed in · A to sign in"
-            add(XmbAction(store.label, Icons.Filled.Storefront, details, art = storeCardArt(store)) { onLaunchStore(store.screen) })
+    // Built once per change of what it shows, not on every recomposition (it counts each store's games); the callbacks it
+    // calls are tracked separately so the remembered cards never hold a stale one.
+    val launchStore by rememberUpdatedState(onLaunchStore)
+    val addGame by rememberUpdatedState(onAddGame)
+    val xmbUpperRow: List<XmbAction> = remember(xmbHome, shortcuts, signedIn, downloads) {
+        if (!xmbHome) emptyList() else buildList {
+            DeckStore.entries.forEach { store ->
+                val owned = shortcuts.count(store.owns)
+                val games = when (owned) { 0 -> "no games yet"; 1 -> "1 game"; else -> "$owned games" }
+                val details = if (signedIn[store] == true) "Signed in · $games" else "Not signed in · A to sign in"
+                add(XmbAction(store.label, Icons.Filled.Storefront, details, art = storeCardArt(store)) { launchStore(store.screen) })
+            }
+            // The icon cards get dark gradients of their own, each softly tinted, so they sit with the store cards.
+            add(XmbAction("Downloads", Icons.Filled.Download, if (downloads > 0) "$downloads active" else "No downloads",
+                art = XmbCardArt(null, listOf(Color(0xFF1E3A5F), Color(0xFF0F1F33)))) {
+                runCatching { context.startActivity(Intent(context, DownloadManagerActivity::class.java)) }
+            })
+            if (signedIn[DeckStore.STEAM] == true) add(XmbAction("Friends", Icons.Filled.People, "Steam friends and chat",
+                art = XmbCardArt(null, listOf(Color(0xFF134E4A), Color(0xFF0A2B29)))) {
+                runCatching { context.startActivity(Intent(context, SteamFriendsActivity::class.java)) }
+            })
+            add(XmbAction("Community configs", Icons.Filled.Public, "Shared settings for your games",
+                art = XmbCardArt(null, listOf(Color(0xFF2E2A6B), Color(0xFF17153A)))) { actions.showCommunityBrowser = true })
+            add(XmbAction("Add game", Icons.Filled.Add, "Add games to your library",
+                art = XmbCardArt(null, listOf(Color(0xFF2A2D33), Color(0xFF16181C)))) { addGame() })
         }
-        // The icon cards get dark gradients of their own, each softly tinted, so they sit with the store cards.
-        add(XmbAction("Downloads", Icons.Filled.Download, if (downloads > 0) "$downloads active" else "No downloads",
-            art = XmbCardArt(null, listOf(Color(0xFF1E3A5F), Color(0xFF0F1F33)))) {
-            runCatching { context.startActivity(Intent(context, DownloadManagerActivity::class.java)) }
-        })
-        if (signedIn[DeckStore.STEAM] == true) add(XmbAction("Friends", Icons.Filled.People, "Steam friends and chat",
-            art = XmbCardArt(null, listOf(Color(0xFF134E4A), Color(0xFF0A2B29)))) {
-            runCatching { context.startActivity(Intent(context, SteamFriendsActivity::class.java)) }
-        })
-        add(XmbAction("Community configs", Icons.Filled.Public, "Shared settings for your games",
-            art = XmbCardArt(null, listOf(Color(0xFF2E2A6B), Color(0xFF17153A)))) { actions.showCommunityBrowser = true })
-        add(XmbAction("Add game", Icons.Filled.Add, "Add games to your library",
-            art = XmbCardArt(null, listOf(Color(0xFF2A2D33), Color(0xFF16181C)))) { onAddGame() })
+    }
+    // The store logos are big PNGs: decode them now, off the main thread, so the first frame finds them ready.
+    LaunchedEffect(xmbHome) {
+        if (xmbHome) warmXmbLogos(context, DeckStore.entries.mapNotNull { storeCardArt(it).logo })
     }
 
     val shelfScroll = rememberScrollState()

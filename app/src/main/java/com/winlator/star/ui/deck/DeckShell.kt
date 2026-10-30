@@ -642,6 +642,7 @@ private fun DeckShellContent(
                                     startRoute = DeckRoutes.HOME,
                                     modifier = Modifier.fillMaxSize(),
                                     containerEditorRoute = DeckSettingsRoutes::containerEditorFor,
+                                    instantPages = xmbHome,
                                     extraRoutes = {
                                         composable(DeckRoutes.HOME) {
                                             DeckHome(
