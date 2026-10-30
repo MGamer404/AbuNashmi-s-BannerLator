@@ -1,25 +1,31 @@
 package com.winlator.star.ui.deck
 
-import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.ViewGroup
 import android.view.Window
+import android.view.WindowManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Backspace
@@ -34,6 +40,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
@@ -46,6 +53,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -55,27 +63,33 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.coerceIn
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.ui.zIndex
+import androidx.core.view.WindowCompat
 import com.winlator.star.ui.DeckDialogBars
-import com.winlator.star.ui.DeckDialogScaled
+import com.winlator.star.ui.LocalDeckDensity
 import kotlin.math.max
 import kotlin.math.min
 import kotlinx.coroutines.coroutineScope
@@ -89,16 +103,22 @@ import kotlinx.coroutines.launch
 //   R2 or Start = the field's action (Search, Done, Go, Send, Next, or Enter in a multi-line field)
 //   D-pad moves over the keys, A types the focused key, B closes
 //
-// L2 and R2 arrive either as buttons or, on pads that report only analog triggers, as axes (pressed past 0.6,
-// released below 0.3, the same hysteresis as DeckInput.onMotion). The dialog window is a separate window from the
-// activity, so DeckInput never sees its events; the panel hooks the window's own key and motion dispatch.
+// The panel always sits on the bottom edge and is PANEL_HEIGHT of the screen tall, with the same margin on both sides,
+// whatever page or field it opened from: its window covers the whole screen and the panel is placed in it by share.
+// The buttons are read from the dialog's own key events (a separate window, so DeckInput never sees them). L2 and R2
+// also arrive as analog axes on pads that report only that; those come through the window's motion dispatch (pressed
+// past 0.6, released below 0.3, the same hysteresis as DeckInput.onMotion).
 
+private const val PANEL_HEIGHT = 0.45f
+private const val PANEL_SIDE_MARGIN = 0.055f
+private const val PREVIEW_SHARE = 0.14f
 private const val PREVIEW_BEFORE = 40
 private const val PREVIEW_SPAN = 90
 private const val TRIGGER_DOWN = 0.6f
 private const val TRIGGER_UP = 0.3f
 private const val REPEAT_DELAY_MS = 380L
 private const val REPEAT_EVERY_MS = 55L
+private const val KEYS_PER_ROW = 15f
 
 /** What a key does. */
 private enum class Role {
@@ -162,7 +182,7 @@ private class KeyboardState {
     val upper: Boolean get() = shift != caps
 }
 
-/** What every key needs to draw itself, rebuilt when the modifiers change. */
+/** What every key needs to draw itself, rebuilt when the modifiers change. [unit] is the size text and icons are measured in. */
 @Immutable
 private class KeyContext(
     val shift: Boolean,
@@ -172,7 +192,7 @@ private class KeyContext(
     val actionLabel: String,
     val tabEnabled: Boolean,
     val scale: ScreenScale,
-    val keyHeight: Dp,
+    val unit: Dp,
 )
 
 private fun capText(cap: Cap, state: KeyboardState): String =
@@ -194,11 +214,13 @@ internal fun XmbKeyboardPanel(
         type == KeyboardType.Decimal || type == KeyboardType.NumberPassword
     val state = remember { KeyboardState() }
     val clipboard = LocalClipboardManager.current
-    val view = LocalView.current
-    val window = (view.parent as? DialogWindowProvider)?.window
     val singleLine = session.imeOptions.singleLine
     val imeAction = session.imeOptions.imeAction
     val newlineAction = !singleLine && (imeAction == ImeAction.Default || imeAction == ImeAction.None)
+
+    // Drawn at the Deck style's size on every page, so the panel looks the same wherever it opens from.
+    val host = LocalDensity.current
+    val density = LocalDeckDensity.current ?: Density(host.density * DECK_UI_SCALE, host.fontScale)
 
     val currentClose by rememberUpdatedState(onClose)
     val currentSystem by rememberUpdatedState(onSystemKeyboard)
@@ -236,48 +258,25 @@ internal fun XmbKeyboardPanel(
     }
     val latestPerform by rememberUpdatedState(perform)
 
-    // The dialog is its own window: hook its key and motion dispatch for the buttons the keys are bound to.
-    DisposableEffect(window) {
-        val w = window
-        val original = w?.callback
-        if (w == null || original == null) return@DisposableEffect onDispose {}
-        fun handleKey(e: KeyEvent): Boolean {
-            val down = e.action == KeyEvent.ACTION_DOWN
-            val first = down && e.repeatCount == 0
-            return when (e.keyCode) {
-                KeyEvent.KEYCODE_BUTTON_L2 -> { state.shiftKey = down; true }
-                KeyEvent.KEYCODE_BUTTON_THUMBL -> { if (first) state.caps = !state.caps; true }
-                KeyEvent.KEYCODE_BUTTON_X -> { if (down) latestPerform(Role.BACKSPACE, null); true }
-                KeyEvent.KEYCODE_BUTTON_Y -> { if (first) latestPerform(Role.SPACE, null); true }
-                KeyEvent.KEYCODE_BUTTON_L1 -> { if (down) latestPerform(Role.LEFT, null); true }
-                KeyEvent.KEYCODE_BUTTON_R1 -> { if (down) latestPerform(Role.RIGHT, null); true }
-                KeyEvent.KEYCODE_BUTTON_R2, KeyEvent.KEYCODE_BUTTON_START -> { if (first) latestPerform(Role.ACTION, null); true }
-                KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_ESCAPE -> {
-                    if (e.action == KeyEvent.ACTION_UP) latestPerform(Role.CLOSE, null)
-                    true
-                }
-                else -> false
+    /** The controller's own buttons; true when the key is taken (also its release, so no half-handled press leaks out). */
+    fun handleButton(e: KeyEvent): Boolean {
+        val down = e.action == KeyEvent.ACTION_DOWN
+        val first = down && e.repeatCount == 0
+        return when (e.keyCode) {
+            KeyEvent.KEYCODE_BUTTON_L2 -> { state.shiftKey = down; true }
+            KeyEvent.KEYCODE_BUTTON_THUMBL -> { if (first) state.caps = !state.caps; true }
+            KeyEvent.KEYCODE_BUTTON_THUMBR -> true
+            KeyEvent.KEYCODE_BUTTON_X -> { if (down) latestPerform(Role.BACKSPACE, null); true }
+            KeyEvent.KEYCODE_BUTTON_Y -> { if (first) latestPerform(Role.SPACE, null); true }
+            KeyEvent.KEYCODE_BUTTON_L1 -> { if (down) latestPerform(Role.LEFT, null); true }
+            KeyEvent.KEYCODE_BUTTON_R1 -> { if (down) latestPerform(Role.RIGHT, null); true }
+            KeyEvent.KEYCODE_BUTTON_R2, KeyEvent.KEYCODE_BUTTON_START -> { if (first) latestPerform(Role.ACTION, null); true }
+            KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_ESCAPE -> {
+                if (e.action == KeyEvent.ACTION_UP) latestPerform(Role.CLOSE, null)
+                true
             }
+            else -> false
         }
-        fun handleMotion(ev: MotionEvent) {
-            if (ev.action != MotionEvent.ACTION_MOVE) return
-            if ((ev.source and android.view.InputDevice.SOURCE_JOYSTICK) != android.view.InputDevice.SOURCE_JOYSTICK) return
-            val left = max(ev.getAxisValue(MotionEvent.AXIS_LTRIGGER), ev.getAxisValue(MotionEvent.AXIS_BRAKE))
-            val right = max(ev.getAxisValue(MotionEvent.AXIS_RTRIGGER), ev.getAxisValue(MotionEvent.AXIS_GAS))
-            state.shiftAxis = if (state.shiftAxis) left > TRIGGER_UP else left > TRIGGER_DOWN
-            val rightNow = if (state.rightTriggerDown) right > TRIGGER_UP else right > TRIGGER_DOWN
-            if (rightNow && !state.rightTriggerDown) latestPerform(Role.ACTION, null)
-            state.rightTriggerDown = rightNow
-        }
-        val wrapper = object : Window.Callback by original {
-            override fun dispatchKeyEvent(event: KeyEvent): Boolean = handleKey(event) || original.dispatchKeyEvent(event)
-            override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
-                handleMotion(event)
-                return original.dispatchGenericMotionEvent(event)
-            }
-        }
-        w.callback = wrapper
-        onDispose { w.callback = original }
     }
 
     val firstFocus = remember { FocusRequester() }
@@ -288,26 +287,57 @@ internal fun XmbKeyboardPanel(
 
     Dialog(
         onDismissRequest = onClose,
-        properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = true),
+        properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false),
     ) {
         DeckDialogBars()
-        // Hug the bottom edge at the panel's own height, without dimming the page behind.
+        // The window covers the whole screen, edge to edge and clear of insets, with no dim: the panel is placed by share.
         val dialogWindow = (LocalView.current.parent as? DialogWindowProvider)?.window
         SideEffect {
             dialogWindow?.let {
-                it.setGravity(Gravity.BOTTOM)
-                it.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-                it.setDimAmount(0f)
+                WindowCompat.setDecorFitsSystemWindows(it, false)
+                it.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+                it.setGravity(android.view.Gravity.BOTTOM)
+                it.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
+                it.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+                it.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
             }
         }
-        DeckDialogScaled {
-            BoxWithConstraints(Modifier.fillMaxWidth()) {
+        // The analog triggers (pads with no L2/R2 buttons) only arrive as motion events on the window.
+        DisposableEffect(dialogWindow) {
+            val w = dialogWindow
+            val original = w?.callback
+            if (w == null || original == null) return@DisposableEffect onDispose {}
+            val wrapper = object : Window.Callback by original {
+                override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+                    handleTriggers(event, state) { latestPerform(Role.ACTION, null) }
+                    return original.dispatchGenericMotionEvent(event)
+                }
+            }
+            w.callback = wrapper
+            onDispose { w.callback = original }
+        }
+        CompositionLocalProvider(LocalDensity provides density, LocalDeckDensity provides density) {
+            BoxWithConstraints(
+                Modifier
+                    .fillMaxSize()
+                    .onPreviewKeyEvent { handleButton(it.nativeKeyEvent) }
+                    .pointerInput(Unit) { detectTapGestures { currentClose() } },
+            ) {
                 val scale = remember(maxWidth, maxHeight) { ScreenScale(maxWidth.value, maxHeight.value) }
                 val cs = MaterialTheme.colorScheme
                 val roomy = maxWidth >= 560.dp
-                val keyHeight = (if (numeric) 1.15f else 1f).let { boost ->
-                    (min(scale.h(0.10f).value, scale.w(0.085f).value) * boost).dp.coerceIn(34.dp, 58.dp)
+                val rows = remember(numeric, type) {
+                    if (numeric) numberRows(when (type) { KeyboardType.Decimal -> "."; KeyboardType.Phone -> "+"; else -> null })
+                    else QWERTY_ROWS
                 }
+                val panelWidth = maxWidth * (1f - 2f * PANEL_SIDE_MARGIN)
+                val pad = scale.dp(8f)
+                val gap = scale.dp(4f)
+                val inner = maxHeight * PANEL_HEIGHT - pad * 2
+                val previewHeight = inner * PREVIEW_SHARE
+                val keyHeight = (inner - previewHeight - gap) / rows.size
+                // Text and icons follow the smaller of the key's height and its share of the row's width.
+                val unit = min(keyHeight.value, (panelWidth.value - pad.value * 2) / KEYS_PER_ROW * 1.35f).dp
                 val context = KeyContext(
                     shift = state.shift,
                     upper = state.upper,
@@ -316,31 +346,32 @@ internal fun XmbKeyboardPanel(
                     actionLabel = actionLabel(imeAction, newlineAction),
                     tabEnabled = !singleLine,
                     scale = scale,
-                    keyHeight = keyHeight,
+                    unit = unit,
                 )
                 val shape = RoundedCornerShape(topStart = scale.dp(18f), topEnd = scale.dp(18f))
-                val rows = remember(numeric, type) {
-                    if (numeric) numberRows(when (type) { KeyboardType.Decimal -> "."; KeyboardType.Phone -> "+"; else -> null })
-                    else QWERTY_ROWS
-                }
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier
-                        .fillMaxWidth()
+                        .align(Alignment.BottomCenter)
+                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        .width(panelWidth)
+                        .height(maxHeight * PANEL_HEIGHT)
                         .clip(shape)
                         .background(cs.background.copy(alpha = 0.97f))
                         .border(1.dp, deckLine(), shape)
-                        .padding(horizontal = scale.dp(8f), vertical = scale.dp(8f)),
+                        .pointerInput(Unit) { detectTapGestures { } }
+                        .padding(pad),
                 ) {
-                    PreviewStrip(session, scale, keyHeight * 0.85f)
-                    Spacer(Modifier.height(scale.dp(4f)))
+                    PreviewStrip(session, scale, previewHeight, unit)
+                    Spacer(Modifier.height(gap))
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .weight(1f)
                             .then(if (numeric) Modifier.widthIn(max = scale.w(0.6f, max = 460.dp)) else Modifier),
                     ) {
                         rows.forEach { row ->
-                            Row(Modifier.fillMaxWidth()) {
+                            Row(Modifier.fillMaxWidth().weight(1f)) {
                                 row.forEach { cap ->
                                     KeyCap(
                                         cap = cap,
@@ -358,6 +389,18 @@ internal fun XmbKeyboardPanel(
     }
 }
 
+/** Tracks the analog triggers: L2 held is Shift, R2 pressed is the field's action. */
+private fun handleTriggers(ev: MotionEvent, state: KeyboardState, onAction: () -> Unit) {
+    if (ev.action != MotionEvent.ACTION_MOVE) return
+    if ((ev.source and android.view.InputDevice.SOURCE_JOYSTICK) != android.view.InputDevice.SOURCE_JOYSTICK) return
+    val left = max(ev.getAxisValue(MotionEvent.AXIS_LTRIGGER), ev.getAxisValue(MotionEvent.AXIS_BRAKE))
+    val right = max(ev.getAxisValue(MotionEvent.AXIS_RTRIGGER), ev.getAxisValue(MotionEvent.AXIS_GAS))
+    state.shiftAxis = if (state.shiftAxis) left > TRIGGER_UP else left > TRIGGER_DOWN
+    val rightNow = if (state.rightTriggerDown) right > TRIGGER_UP else right > TRIGGER_DOWN
+    if (rightNow && !state.rightTriggerDown) onAction()
+    state.rightTriggerDown = rightNow
+}
+
 private fun actionLabel(action: ImeAction, newline: Boolean): String = when {
     newline -> "Enter"
     action == ImeAction.Search -> "Search"
@@ -368,9 +411,33 @@ private fun actionLabel(action: ImeAction, newline: Boolean): String = when {
     else -> "Done"
 }
 
+/** Key text in one family and weight everywhere, with no font padding so it centres exactly where it is put. */
+@Composable
+private fun KeyText(text: String, size: TextUnit, color: Color, weight: FontWeight, modifier: Modifier = Modifier) {
+    Text(
+        text = text,
+        color = color,
+        fontFamily = NunitoSansFamily,
+        fontWeight = weight,
+        fontSize = size,
+        maxLines = 1,
+        softWrap = false,
+        modifier = modifier,
+        style = TextStyle(
+            lineHeight = size,
+            lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both),
+            platformStyle = PlatformTextStyle(includeFontPadding = false),
+        ),
+    )
+}
+
+/** [unit] (a dp size) as sp, so text sized from a key follows the same density as the key. */
+@Composable
+private fun Dp.asSp(factor: Float): TextUnit = with(LocalDensity.current) { (this@asSp * factor).toSp() }
+
 /** The text being typed with its cursor or selection, so it stays visible even when the field is behind the panel. */
 @Composable
-private fun PreviewStrip(session: XmbKeyboardSession, scale: ScreenScale, height: Dp) {
+private fun PreviewStrip(session: XmbKeyboardSession, scale: ScreenScale, height: Dp, unit: Dp) {
     val cs = MaterialTheme.colorScheme
     val value = session.value
     val type = session.imeOptions.keyboardType
@@ -408,7 +475,9 @@ private fun PreviewStrip(session: XmbKeyboardSession, scale: ScreenScale, height
         Text(
             text = text,
             color = cs.onSurface,
-            fontSize = scale.sp(16f),
+            fontFamily = NunitoSansFamily,
+            fontWeight = FontWeight.Normal,
+            fontSize = (height * 0.45f).asSp(1f),
             maxLines = 1,
             overflow = TextOverflow.Clip,
         )
@@ -448,12 +517,11 @@ private fun RowScope.KeyCap(
         cap.role == Role.TAB && !context.tabEnabled -> cs.onSurface.copy(alpha = 0.4f)
         else -> cs.onSurface
     }
-    Box(Modifier.weight(cap.weight).zIndex(if (focused) 2f else 0f).padding(scale.dp(2.5f))) {
+    Box(Modifier.weight(cap.weight).fillMaxHeight().zIndex(if (focused) 2f else 0f).padding(scale.dp(2.5f))) {
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
-                .fillMaxWidth()
-                .height(context.keyHeight)
+                .fillMaxSize()
                 .onFocusChanged { focused = it.isFocused }
                 .deckFocusRing(shape, scaleTo = 1.1f)
                 .onKeyEvent { event ->
@@ -498,36 +566,41 @@ private fun RowScope.KeyCap(
 
 @Composable
 private fun KeyLabel(cap: Cap, context: KeyContext, ink: Color) {
-    val scale = context.scale
     val glyphs = context.roomy
     when (cap.role) {
         Role.CHAR -> CharLabel(cap, context, ink)
-        Role.BACKSPACE -> IconLabel(Icons.AutoMirrored.Filled.Backspace,"Backspace", null, "X", GlyphKind.X, glyphs, ink, scale)
-        Role.TAB -> IconLabel(null, null, "Tab", null, GlyphKind.PLAIN, false, ink, scale)
-        Role.CAPS -> IconLabel(null, null, "Caps", "L3", GlyphKind.PLAIN, glyphs, ink, scale)
-        Role.ACTION -> IconLabel(null, null, context.actionLabel, "R2", GlyphKind.BUMPER, glyphs, ink, scale)
-        Role.SHIFT -> IconLabel(Icons.Filled.ArrowUpward, "Shift", if (glyphs) "Shift" else null, "L2", GlyphKind.BUMPER, glyphs, ink, scale)
-        Role.SPACE -> IconLabel(Icons.Filled.SpaceBar, "Space", null, "Y", GlyphKind.Y, glyphs, ink, scale)
-        Role.LEFT -> IconLabel(Icons.Filled.KeyboardArrowLeft, "Cursor left", null, "L1", GlyphKind.BUMPER, glyphs, ink, scale)
-        Role.RIGHT -> IconLabel(Icons.Filled.KeyboardArrowRight, "Cursor right", null, "R1", GlyphKind.BUMPER, glyphs, ink, scale)
-        Role.PASTE -> IconLabel(Icons.Filled.ContentPaste, "Paste", if (glyphs) "Paste" else null, null, GlyphKind.PLAIN, false, ink, scale)
-        Role.SYSTEM -> IconLabel(Icons.Filled.Keyboard, "Android keyboard", null, null, GlyphKind.PLAIN, false, ink, scale)
-        Role.CLOSE -> IconLabel(Icons.Filled.KeyboardArrowDown, "Hide keyboard", null, null, GlyphKind.PLAIN, false, ink, scale)
+        Role.BACKSPACE -> IconLabel(Icons.AutoMirrored.Filled.Backspace, "Backspace", null, "X", GlyphKind.X, glyphs, ink, context)
+        Role.TAB -> IconLabel(null, null, "Tab", null, GlyphKind.PLAIN, false, ink, context)
+        Role.CAPS -> IconLabel(null, null, "Caps", "L3", GlyphKind.PLAIN, glyphs, ink, context)
+        Role.ACTION -> IconLabel(null, null, context.actionLabel, "R2", GlyphKind.BUMPER, glyphs, ink, context)
+        Role.SHIFT -> IconLabel(Icons.Filled.ArrowUpward, "Shift", if (glyphs) "Shift" else null, "L2", GlyphKind.BUMPER, glyphs, ink, context)
+        Role.SPACE -> IconLabel(Icons.Filled.SpaceBar, "Space", null, "Y", GlyphKind.Y, glyphs, ink, context)
+        Role.LEFT -> IconLabel(Icons.Filled.KeyboardArrowLeft, "Cursor left", null, "L1", GlyphKind.BUMPER, glyphs, ink, context)
+        Role.RIGHT -> IconLabel(Icons.Filled.KeyboardArrowRight, "Cursor right", null, "R1", GlyphKind.BUMPER, glyphs, ink, context)
+        Role.PASTE -> IconLabel(Icons.Filled.ContentPaste, "Paste", if (glyphs) "Paste" else null, null, GlyphKind.PLAIN, false, ink, context)
+        Role.SYSTEM -> IconLabel(Icons.Filled.Keyboard, "Android keyboard", null, null, GlyphKind.PLAIN, false, ink, context)
+        Role.CLOSE -> IconLabel(Icons.Filled.KeyboardArrowDown, "Hide keyboard", null, null, GlyphKind.PLAIN, false, ink, context)
         Role.BLANK -> Unit
     }
 }
 
-/** A character key: the main character large, its other case or shifted symbol small above it. */
+/**
+ * A character key: the main character centred, its other case or shifted symbol small above it. Both sit at the same
+ * place on every key, set from the key's size, so nothing touches the key's edge or changes with the page.
+ */
 @Composable
 private fun CharLabel(cap: Cap, context: KeyContext, ink: Color) {
-    val scale = context.scale
+    val unit = context.unit
     val main = if (cap.letter) (if (context.upper) cap.shifted else cap.base) else (if (context.shift) cap.shifted else cap.base)
     val hint = if (cap.letter || cap.shifted == cap.base) null else (if (context.shift) cap.base else cap.shifted)
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Box(Modifier.fillMaxSize()) {
         if (hint != null) {
-            Text(hint, color = ink.copy(alpha = 0.55f), fontSize = scale.sp(9.5f), maxLines = 1)
+            KeyText(hint, unit.asSp(0.22f), ink.copy(alpha = 0.55f), FontWeight.Normal, Modifier.align(Alignment.TopCenter).padding(top = unit * 0.14f))
         }
-        Text(main, color = ink, fontSize = scale.sp(if (hint != null) 15f else 17f), fontWeight = FontWeight.SemiBold, maxLines = 1)
+        KeyText(
+            main, unit.asSp(if (hint != null) 0.38f else 0.46f), ink, FontWeight.Normal,
+            Modifier.align(Alignment.Center).padding(top = if (hint != null) unit * 0.2f else 0.dp),
+        )
     }
 }
 
@@ -541,14 +614,15 @@ private fun IconLabel(
     glyphKind: GlyphKind,
     showGlyph: Boolean,
     ink: Color,
-    scale: ScreenScale,
+    context: KeyContext,
 ) {
+    val unit = context.unit
     Row(verticalAlignment = Alignment.CenterVertically) {
-        if (icon != null) Icon(icon, contentDescription = description, tint = ink, modifier = Modifier.size(scale.dp(20f)))
-        if (icon != null && label != null) Spacer(Modifier.size(scale.dp(4f)))
-        if (label != null) Text(label, color = ink, fontSize = scale.sp(12.5f), fontWeight = FontWeight.Bold, maxLines = 1)
+        if (icon != null) Icon(icon, contentDescription = description, tint = ink, modifier = Modifier.size(unit * 0.5f))
+        if (icon != null && label != null) Spacer(Modifier.size(unit * 0.08f))
+        if (label != null) KeyText(label, unit.asSp(0.3f), ink, FontWeight.Bold)
         if (glyph != null && showGlyph) {
-            Spacer(Modifier.size(scale.dp(5f)))
+            Spacer(Modifier.size(unit * 0.1f))
             DeckGlyph(glyph, glyphKind)
         }
     }
