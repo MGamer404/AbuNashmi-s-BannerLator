@@ -7,6 +7,7 @@ import android.app.Activity
 import android.content.res.Configuration
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import com.winlator.star.ui.deck.XmbKeyboardWindow
 import com.winlator.star.ui.deck.XmbTapToEdit
 import com.winlator.star.ui.deck.rememberXmbHome
 import com.winlator.star.util.InAppFilePicker
@@ -999,7 +1000,8 @@ private fun AddFriendDialog(onDismiss: () -> Unit) {
                 Text("Add a friend")
             }
         },
-        text = {
+        // The dialog is a window of its own, so its fields take the XMB keyboard hook here.
+        text = { XmbKeyboardWindow {
             if (landscape) {
                 // Two columns side-by-side: friend code + add-by-code on the left, search + quick invite
                 // on the right. Each column scrolls independently as a safety net for long search results.
@@ -1042,7 +1044,7 @@ private fun AddFriendDialog(onDismiss: () -> Unit) {
                     quickInviteSection()
                 }
             }
-        },
+        } },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
     )
 }

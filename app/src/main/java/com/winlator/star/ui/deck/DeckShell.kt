@@ -214,8 +214,12 @@ internal fun DeckShell(
     onAbout: () -> Unit,
     onLaunchStore: (Screen) -> Unit,
 ) {
+    // The XMB mode can be switched on and off while the shell is up, so the keyboard host follows the live setting.
+    val xmbHome by AppThemeState.deckXmbHome.collectAsState()
     DeckTheme {
-        DeckShellContent(startRoute, pendingRoute, onPendingRouteConsumed, onAbout, onLaunchStore)
+        XmbKeyboardHost(xmbHome) {
+            DeckShellContent(startRoute, pendingRoute, onPendingRouteConsumed, onAbout, onLaunchStore)
+        }
     }
 }
 

@@ -1,0 +1,556 @@
+package com.winlator.star.ui.deck
+
+import android.view.Gravity
+import android.view.KeyEvent
+import android.view.MotionEvent
+import android.view.ViewGroup
+import android.view.Window
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Backspace
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.Keyboard
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.SpaceBar
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.nativeKeyEvent
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.coerceIn
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.compose.ui.zIndex
+import com.winlator.star.ui.DeckDialogBars
+import com.winlator.star.ui.DeckDialogScaled
+import kotlin.math.max
+import kotlin.math.min
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+// The XMB on-screen keyboard (controller first, touch too), laid out like the Steam Deck's:
+// full-width flat keys, shifted symbols small above the main one, no separate symbols page.
+//
+//   X Backspace (held repeats)   Y Space   L1/R1 cursor left/right   L2 held = Shift   L3 = Caps toggle
+//   R2 or Start = the field's action (Search, Done, Go, Send, Next, or Enter in a multi-line field)
+//   D-pad moves over the keys, A types the focused key, B closes
+//
+// L2 and R2 arrive either as buttons or, on pads that report only analog triggers, as axes (pressed past 0.6,
+// released below 0.3, the same hysteresis as DeckInput.onMotion). The dialog window is a separate window from the
+// activity, so DeckInput never sees its events; the panel hooks the window's own key and motion dispatch.
+
+private const val PREVIEW_BEFORE = 40
+private const val PREVIEW_SPAN = 90
+private const val TRIGGER_DOWN = 0.6f
+private const val TRIGGER_UP = 0.3f
+private const val REPEAT_DELAY_MS = 380L
+private const val REPEAT_EVERY_MS = 55L
+
+/** What a key does. */
+private enum class Role {
+    CHAR, TAB, BACKSPACE, CAPS, ACTION, SHIFT, SPACE, LEFT, RIGHT, PASTE, SYSTEM, CLOSE, BLANK
+}
+
+/** One key: [base] is typed unshifted, [shifted] with Shift (or the capital for a [letter]). */
+@Immutable
+private class Cap(
+    val role: Role,
+    val weight: Float = 1f,
+    val base: String = "",
+    val shifted: String = base,
+    val letter: Boolean = false,
+    val firstFocus: Boolean = false,
+)
+
+private fun sym(base: String, shifted: String, weight: Float = 1f) = Cap(Role.CHAR, weight, base, shifted)
+
+private fun letters(chars: String, focusOn: Char? = null): List<Cap> = chars.map {
+    Cap(Role.CHAR, 1f, it.toString(), it.uppercase(), letter = true, firstFocus = it == focusOn)
+}
+
+// Row weights add up to 15 so the rows end on the same edge.
+private val QWERTY_ROWS: List<List<Cap>> = listOf(
+    listOf(
+        sym("`", "~"), sym("1", "!"), sym("2", "@"), sym("3", "#"), sym("4", "$"), sym("5", "%"), sym("6", "^"),
+        sym("7", "&"), sym("8", "*"), sym("9", "("), sym("0", ")"), sym("-", "_"), sym("=", "+"),
+        Cap(Role.BACKSPACE, 2f),
+    ),
+    listOf(Cap(Role.TAB, 1.5f)) + letters("qwertyuiop") + listOf(sym("[", "{"), sym("]", "}"), sym("\\", "|", 1.5f)),
+    listOf(Cap(Role.CAPS, 1.75f)) + letters("asdfghjkl", focusOn = 'g') +
+        listOf(sym(";", ":"), sym("'", "\""), Cap(Role.ACTION, 2.25f)),
+    listOf(Cap(Role.SHIFT, 2.5f)) + letters("zxcvbnm") + listOf(sym(",", "<"), sym(".", ">"), sym("/", "?"), Cap(Role.SHIFT, 2.5f)),
+    listOf(
+        Cap(Role.SYSTEM, 1.6f), Cap(Role.CLOSE, 1.4f), Cap(Role.LEFT, 1.3f), Cap(Role.SPACE, 7f),
+        Cap(Role.RIGHT, 1.3f), Cap(Role.PASTE, 2.4f),
+    ),
+)
+
+/** Digit pad for number, phone and decimal fields; [extra] is the "." or "+" key (a blank when null). */
+private fun numberRows(extra: String?): List<List<Cap>> = listOf(
+    listOf(sym("1", "1"), sym("2", "2"), sym("3", "3"), Cap(Role.BACKSPACE)),
+    listOf(sym("4", "4"), Cap(Role.CHAR, 1f, "5", "5", firstFocus = true), sym("6", "6"), Cap(Role.LEFT)),
+    listOf(sym("7", "7"), sym("8", "8"), sym("9", "9"), Cap(Role.RIGHT)),
+    listOf(if (extra != null) sym(extra, extra) else Cap(Role.BLANK), sym("0", "0"), Cap(Role.SYSTEM), Cap(Role.ACTION)),
+)
+
+/** Modifier and caps state, shared between the keys and the window's key dispatch. */
+@Stable
+private class KeyboardState {
+    var shiftKey by mutableStateOf(false)
+    var shiftAxis by mutableStateOf(false)
+    var shiftOnce by mutableStateOf(false)
+    var caps by mutableStateOf(false)
+    var rightTriggerDown = false
+
+    val shift: Boolean get() = shiftKey || shiftAxis || shiftOnce
+
+    /** Letters come out capital when Shift and Caps differ. */
+    val upper: Boolean get() = shift != caps
+}
+
+/** What every key needs to draw itself, rebuilt when the modifiers change. */
+@Immutable
+private class KeyContext(
+    val shift: Boolean,
+    val upper: Boolean,
+    val caps: Boolean,
+    val roomy: Boolean,
+    val actionLabel: String,
+    val tabEnabled: Boolean,
+    val scale: ScreenScale,
+    val keyHeight: Dp,
+)
+
+private fun capText(cap: Cap, state: KeyboardState): String =
+    if (cap.letter) (if (state.upper) cap.shifted else cap.base) else (if (state.shift) cap.shifted else cap.base)
+
+/**
+ * The XMB keyboard: a bottom panel in its own dialog window, so it gets the controller's keys and the page behind it
+ * stays visible. Everything typed goes through [session]; [onClose] hides the panel (B, tapping outside, the hide key,
+ * or after the field's action), [onSystemKeyboard] is the key that hands typing over to Android's own keyboard.
+ */
+@Composable
+internal fun XmbKeyboardPanel(
+    session: XmbKeyboardSession,
+    onClose: () -> Unit,
+    onSystemKeyboard: () -> Unit,
+) {
+    val type = session.imeOptions.keyboardType
+    val numeric = type == KeyboardType.Number || type == KeyboardType.Phone ||
+        type == KeyboardType.Decimal || type == KeyboardType.NumberPassword
+    val state = remember { KeyboardState() }
+    val clipboard = LocalClipboardManager.current
+    val view = LocalView.current
+    val window = (view.parent as? DialogWindowProvider)?.window
+    val singleLine = session.imeOptions.singleLine
+    val imeAction = session.imeOptions.imeAction
+    val newlineAction = !singleLine && (imeAction == ImeAction.Default || imeAction == ImeAction.None)
+
+    val currentClose by rememberUpdatedState(onClose)
+    val currentSystem by rememberUpdatedState(onSystemKeyboard)
+
+    val perform: (Role, Cap?) -> Unit = { role, cap ->
+        when (role) {
+            Role.CHAR -> if (cap != null) {
+                session.commit(capText(cap, state))
+                state.shiftOnce = false
+            }
+            Role.SPACE -> {
+                session.commit(" ")
+                state.shiftOnce = false
+            }
+            Role.TAB -> if (!singleLine) session.commit("\t")
+            Role.BACKSPACE -> session.backspace()
+            Role.CAPS -> state.caps = !state.caps
+            Role.SHIFT -> state.shiftOnce = !state.shiftOnce
+            Role.LEFT -> session.moveCursor(-1)
+            Role.RIGHT -> session.moveCursor(1)
+            Role.ACTION -> if (newlineAction) {
+                session.commit("\n")
+            } else {
+                session.performAction()
+                if (imeAction != ImeAction.Next && imeAction != ImeAction.Previous) currentClose()
+            }
+            Role.PASTE -> clipboard.getText()?.text?.let { pasted ->
+                session.commit(if (singleLine) pasted.replace("\r", "").replace('\n', ' ') else pasted)
+            }
+            Role.SYSTEM -> currentSystem()
+            Role.CLOSE -> currentClose()
+            Role.BLANK -> Unit
+        }
+        Unit
+    }
+    val latestPerform by rememberUpdatedState(perform)
+
+    // The dialog is its own window: hook its key and motion dispatch for the buttons the keys are bound to.
+    DisposableEffect(window) {
+        val w = window
+        val original = w?.callback
+        if (w == null || original == null) return@DisposableEffect onDispose {}
+        fun handleKey(e: KeyEvent): Boolean {
+            val down = e.action == KeyEvent.ACTION_DOWN
+            val first = down && e.repeatCount == 0
+            return when (e.keyCode) {
+                KeyEvent.KEYCODE_BUTTON_L2 -> { state.shiftKey = down; true }
+                KeyEvent.KEYCODE_BUTTON_THUMBL -> { if (first) state.caps = !state.caps; true }
+                KeyEvent.KEYCODE_BUTTON_X -> { if (down) latestPerform(Role.BACKSPACE, null); true }
+                KeyEvent.KEYCODE_BUTTON_Y -> { if (first) latestPerform(Role.SPACE, null); true }
+                KeyEvent.KEYCODE_BUTTON_L1 -> { if (down) latestPerform(Role.LEFT, null); true }
+                KeyEvent.KEYCODE_BUTTON_R1 -> { if (down) latestPerform(Role.RIGHT, null); true }
+                KeyEvent.KEYCODE_BUTTON_R2, KeyEvent.KEYCODE_BUTTON_START -> { if (first) latestPerform(Role.ACTION, null); true }
+                KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_ESCAPE -> {
+                    if (e.action == KeyEvent.ACTION_UP) latestPerform(Role.CLOSE, null)
+                    true
+                }
+                else -> false
+            }
+        }
+        fun handleMotion(ev: MotionEvent) {
+            if (ev.action != MotionEvent.ACTION_MOVE) return
+            if ((ev.source and android.view.InputDevice.SOURCE_JOYSTICK) != android.view.InputDevice.SOURCE_JOYSTICK) return
+            val left = max(ev.getAxisValue(MotionEvent.AXIS_LTRIGGER), ev.getAxisValue(MotionEvent.AXIS_BRAKE))
+            val right = max(ev.getAxisValue(MotionEvent.AXIS_RTRIGGER), ev.getAxisValue(MotionEvent.AXIS_GAS))
+            state.shiftAxis = if (state.shiftAxis) left > TRIGGER_UP else left > TRIGGER_DOWN
+            val rightNow = if (state.rightTriggerDown) right > TRIGGER_UP else right > TRIGGER_DOWN
+            if (rightNow && !state.rightTriggerDown) latestPerform(Role.ACTION, null)
+            state.rightTriggerDown = rightNow
+        }
+        val wrapper = object : Window.Callback by original {
+            override fun dispatchKeyEvent(event: KeyEvent): Boolean = handleKey(event) || original.dispatchKeyEvent(event)
+            override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+                handleMotion(event)
+                return original.dispatchGenericMotionEvent(event)
+            }
+        }
+        w.callback = wrapper
+        onDispose { w.callback = original }
+    }
+
+    val firstFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        androidx.compose.runtime.withFrameNanos { }
+        runCatching { firstFocus.requestFocus() }
+    }
+
+    Dialog(
+        onDismissRequest = onClose,
+        properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = true),
+    ) {
+        DeckDialogBars()
+        // Hug the bottom edge at the panel's own height, without dimming the page behind.
+        val dialogWindow = (LocalView.current.parent as? DialogWindowProvider)?.window
+        SideEffect {
+            dialogWindow?.let {
+                it.setGravity(Gravity.BOTTOM)
+                it.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                it.setDimAmount(0f)
+            }
+        }
+        DeckDialogScaled {
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val scale = remember(maxWidth, maxHeight) { ScreenScale(maxWidth.value, maxHeight.value) }
+                val cs = MaterialTheme.colorScheme
+                val roomy = maxWidth >= 560.dp
+                val keyHeight = (if (numeric) 1.15f else 1f).let { boost ->
+                    (min(scale.h(0.10f).value, scale.w(0.085f).value) * boost).dp.coerceIn(34.dp, 58.dp)
+                }
+                val context = KeyContext(
+                    shift = state.shift,
+                    upper = state.upper,
+                    caps = state.caps,
+                    roomy = roomy,
+                    actionLabel = actionLabel(imeAction, newlineAction),
+                    tabEnabled = !singleLine,
+                    scale = scale,
+                    keyHeight = keyHeight,
+                )
+                val shape = RoundedCornerShape(topStart = scale.dp(18f), topEnd = scale.dp(18f))
+                val rows = remember(numeric, type) {
+                    if (numeric) numberRows(when (type) { KeyboardType.Decimal -> "."; KeyboardType.Phone -> "+"; else -> null })
+                    else QWERTY_ROWS
+                }
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(shape)
+                        .background(cs.background.copy(alpha = 0.97f))
+                        .border(1.dp, deckLine(), shape)
+                        .padding(horizontal = scale.dp(8f), vertical = scale.dp(8f)),
+                ) {
+                    PreviewStrip(session, scale, keyHeight * 0.85f)
+                    Spacer(Modifier.height(scale.dp(4f)))
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .then(if (numeric) Modifier.widthIn(max = scale.w(0.6f, max = 460.dp)) else Modifier),
+                    ) {
+                        rows.forEach { row ->
+                            Row(Modifier.fillMaxWidth()) {
+                                row.forEach { cap ->
+                                    KeyCap(
+                                        cap = cap,
+                                        context = context,
+                                        requester = if (cap.firstFocus) firstFocus else null,
+                                        onPress = { latestPerform(cap.role, cap) },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun actionLabel(action: ImeAction, newline: Boolean): String = when {
+    newline -> "Enter"
+    action == ImeAction.Search -> "Search"
+    action == ImeAction.Go -> "Go"
+    action == ImeAction.Send -> "Send"
+    action == ImeAction.Next -> "Next"
+    action == ImeAction.Previous -> "Prev"
+    else -> "Done"
+}
+
+/** The text being typed with its cursor or selection, so it stays visible even when the field is behind the panel. */
+@Composable
+private fun PreviewStrip(session: XmbKeyboardSession, scale: ScreenScale, height: Dp) {
+    val cs = MaterialTheme.colorScheme
+    val value = session.value
+    val type = session.imeOptions.keyboardType
+    val masked = type == KeyboardType.Password || type == KeyboardType.NumberPassword
+    val shown = remember(value.text, masked) {
+        if (masked) "•".repeat(value.text.length) else value.text.replace('\n', '↵').replace('\t', '→')
+    }
+    val selStart = value.selection.min.coerceIn(0, shown.length)
+    val selEnd = value.selection.max.coerceIn(0, shown.length)
+    val from = (selEnd - PREVIEW_BEFORE).coerceAtLeast(0)
+    val to = (from + PREVIEW_SPAN).coerceAtMost(shown.length)
+    val text = buildAnnotatedString {
+        if (from > 0) append("…")
+        val selFrom = max(selStart, from)
+        append(shown.substring(from, selFrom))
+        if (selStart == selEnd) {
+            withStyle(SpanStyle(color = cs.primary, fontWeight = FontWeight.Bold)) { append("|") }
+        } else {
+            withStyle(SpanStyle(background = cs.primary.copy(alpha = 0.35f))) { append(shown.substring(selFrom, selEnd)) }
+        }
+        append(shown.substring(selEnd, to))
+        if (to < shown.length) append("…")
+    }
+    val shape = RoundedCornerShape(scale.dp(8f))
+    Box(
+        contentAlignment = Alignment.CenterStart,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(height)
+            .clip(shape)
+            .background(cs.surfaceContainer)
+            .border(1.dp, deckLine(), shape)
+            .padding(horizontal = scale.dp(12f)),
+    ) {
+        Text(
+            text = text,
+            color = cs.onSurface,
+            fontSize = scale.sp(16f),
+            maxLines = 1,
+            overflow = TextOverflow.Clip,
+        )
+    }
+}
+
+@Composable
+private fun RowScope.KeyCap(
+    cap: Cap,
+    context: KeyContext,
+    requester: FocusRequester?,
+    onPress: () -> Unit,
+) {
+    if (cap.role == Role.BLANK) {
+        Spacer(Modifier.weight(cap.weight))
+        return
+    }
+    val cs = MaterialTheme.colorScheme
+    val scale = context.scale
+    val shape = RoundedCornerShape(scale.dp(7f))
+    var focused by remember { mutableStateOf(false) }
+    var pressed by remember { mutableStateOf(false) }
+    val currentPress by rememberUpdatedState(onPress)
+    val repeats = cap.role == Role.BACKSPACE || cap.role == Role.LEFT || cap.role == Role.RIGHT
+    val active = (cap.role == Role.CAPS && context.caps) || (cap.role == Role.SHIFT && context.shift)
+    val plain = cap.role == Role.CHAR || cap.role == Role.SPACE
+    val fill = when {
+        cap.role == Role.ACTION -> cs.primary
+        pressed -> cs.primary.copy(alpha = 0.45f)
+        active -> cs.primary.copy(alpha = 0.28f)
+        plain -> cs.surfaceContainerHigh
+        else -> cs.surfaceContainerHighest
+    }
+    val ink = when {
+        cap.role == Role.ACTION -> cs.onPrimary
+        pressed || active -> cs.primary
+        cap.role == Role.TAB && !context.tabEnabled -> cs.onSurface.copy(alpha = 0.4f)
+        else -> cs.onSurface
+    }
+    Box(Modifier.weight(cap.weight).zIndex(if (focused) 2f else 0f).padding(scale.dp(2.5f))) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(context.keyHeight)
+                .onFocusChanged { focused = it.isFocused }
+                .deckFocusRing(shape, scaleTo = 1.1f)
+                .onKeyEvent { event ->
+                    val confirm = event.key == Key.ButtonA || event.key == Key.Enter ||
+                        event.key == Key.NumPadEnter || event.key == Key.DirectionCenter
+                    if (confirm && event.type == KeyEventType.KeyDown) {
+                        if (repeats || event.nativeKeyEvent.repeatCount == 0) currentPress()
+                    }
+                    confirm
+                }
+                .then(if (requester != null) Modifier.focusRequester(requester) else Modifier)
+                .focusable()
+                .clip(shape)
+                .background(fill, shape)
+                .pointerInput(cap.role) {
+                    detectTapGestures(onPress = {
+                        pressed = true
+                        currentPress()
+                        if (repeats) {
+                            coroutineScope {
+                                val repeater = launch {
+                                    delay(REPEAT_DELAY_MS)
+                                    while (true) {
+                                        currentPress()
+                                        delay(REPEAT_EVERY_MS)
+                                    }
+                                }
+                                tryAwaitRelease()
+                                repeater.cancel()
+                            }
+                        } else {
+                            tryAwaitRelease()
+                        }
+                        pressed = false
+                    })
+                },
+        ) {
+            KeyLabel(cap, context, ink)
+        }
+    }
+}
+
+@Composable
+private fun KeyLabel(cap: Cap, context: KeyContext, ink: Color) {
+    val scale = context.scale
+    val glyphs = context.roomy
+    when (cap.role) {
+        Role.CHAR -> CharLabel(cap, context, ink)
+        Role.BACKSPACE -> IconLabel(Icons.AutoMirrored.Filled.Backspace,"Backspace", null, "X", GlyphKind.X, glyphs, ink, scale)
+        Role.TAB -> IconLabel(null, null, "Tab", null, GlyphKind.PLAIN, false, ink, scale)
+        Role.CAPS -> IconLabel(null, null, "Caps", "L3", GlyphKind.PLAIN, glyphs, ink, scale)
+        Role.ACTION -> IconLabel(null, null, context.actionLabel, "R2", GlyphKind.BUMPER, glyphs, ink, scale)
+        Role.SHIFT -> IconLabel(Icons.Filled.ArrowUpward, "Shift", if (glyphs) "Shift" else null, "L2", GlyphKind.BUMPER, glyphs, ink, scale)
+        Role.SPACE -> IconLabel(Icons.Filled.SpaceBar, "Space", null, "Y", GlyphKind.Y, glyphs, ink, scale)
+        Role.LEFT -> IconLabel(Icons.Filled.KeyboardArrowLeft, "Cursor left", null, "L1", GlyphKind.BUMPER, glyphs, ink, scale)
+        Role.RIGHT -> IconLabel(Icons.Filled.KeyboardArrowRight, "Cursor right", null, "R1", GlyphKind.BUMPER, glyphs, ink, scale)
+        Role.PASTE -> IconLabel(Icons.Filled.ContentPaste, "Paste", if (glyphs) "Paste" else null, null, GlyphKind.PLAIN, false, ink, scale)
+        Role.SYSTEM -> IconLabel(Icons.Filled.Keyboard, "Android keyboard", null, null, GlyphKind.PLAIN, false, ink, scale)
+        Role.CLOSE -> IconLabel(Icons.Filled.KeyboardArrowDown, "Hide keyboard", null, null, GlyphKind.PLAIN, false, ink, scale)
+        Role.BLANK -> Unit
+    }
+}
+
+/** A character key: the main character large, its other case or shifted symbol small above it. */
+@Composable
+private fun CharLabel(cap: Cap, context: KeyContext, ink: Color) {
+    val scale = context.scale
+    val main = if (cap.letter) (if (context.upper) cap.shifted else cap.base) else (if (context.shift) cap.shifted else cap.base)
+    val hint = if (cap.letter || cap.shifted == cap.base) null else (if (context.shift) cap.base else cap.shifted)
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        if (hint != null) {
+            Text(hint, color = ink.copy(alpha = 0.55f), fontSize = scale.sp(9.5f), maxLines = 1)
+        }
+        Text(main, color = ink, fontSize = scale.sp(if (hint != null) 15f else 17f), fontWeight = FontWeight.SemiBold, maxLines = 1)
+    }
+}
+
+/** An icon and/or a word with an optional controller glyph beside it. */
+@Composable
+private fun IconLabel(
+    icon: ImageVector?,
+    description: String?,
+    label: String?,
+    glyph: String?,
+    glyphKind: GlyphKind,
+    showGlyph: Boolean,
+    ink: Color,
+    scale: ScreenScale,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (icon != null) Icon(icon, contentDescription = description, tint = ink, modifier = Modifier.size(scale.dp(20f)))
+        if (icon != null && label != null) Spacer(Modifier.size(scale.dp(4f)))
+        if (label != null) Text(label, color = ink, fontSize = scale.sp(12.5f), fontWeight = FontWeight.Bold, maxLines = 1)
+        if (glyph != null && showGlyph) {
+            Spacer(Modifier.size(scale.dp(5f)))
+            DeckGlyph(glyph, glyphKind)
+        }
+    }
+}

@@ -28,6 +28,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -235,6 +236,17 @@ internal class XmbEditState(private val keyboard: SoftwareKeyboardController?) {
 internal fun rememberXmbEdit(): XmbEditState {
     val keyboard = LocalSoftwareKeyboardController.current
     val state = remember(keyboard) { XmbEditState(keyboard) }
+    // The XMB keyboard is a window of its own, so its B / Done never reach the bar's key handler: when it closes, typing ends here.
+    val xmbKeyboard = keyboard as? XmbKeyboardState
+    if (xmbKeyboard != null) {
+        LaunchedEffect(state, xmbKeyboard) {
+            var wasActive = false
+            snapshotFlow { xmbKeyboard.active }.collect { active ->
+                if (wasActive && !active && state.editing) state.stop()
+                wasActive = active
+            }
+        }
+    }
     LaunchedEffect(state.editing) {
         if (state.editing) {
             withFrameNanos { }

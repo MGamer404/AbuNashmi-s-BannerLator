@@ -85,6 +85,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import kotlinx.coroutines.launch
 import com.winlator.star.ui.deck.ScreenScale
 import com.winlator.star.ui.deck.XmbEditTapCatcher
+import com.winlator.star.ui.deck.XmbKeyboardHost
 import com.winlator.star.ui.deck.XmbScreenWindow
 import com.winlator.star.ui.deck.rememberXmbEdit
 import com.winlator.star.ui.deck.xmbEditField
@@ -110,9 +111,11 @@ internal val LocalStoreXmb = staticCompositionLocalOf { false }
 internal fun StoreXmbScreen(content: @Composable () -> Unit) {
     val xmb = rememberXmbHome()
     XmbScreenWindow(xmb)
+    // XMB home: the XMB keyboard replaces Android's for every text field on the screen.
+    val hosted: @Composable () -> Unit = { XmbKeyboardHost(xmb, content) }
     CompositionLocalProvider(LocalStoreXmb provides xmb) {
         if (!xmb) {
-            content()
+            hosted()
         } else {
             Box(
                 Modifier
@@ -120,9 +123,18 @@ internal fun StoreXmbScreen(content: @Composable () -> Unit) {
                     .background(MaterialTheme.colorScheme.background)
                     .windowInsetsPadding(WindowInsets.ime)
                     .padding(horizontal = xmbFrame()),
-            ) { content() }
+            ) { hosted() }
         }
     }
+}
+
+/**
+ * The app theme around a store screen that keeps its own layout in every interface (the full library lists, the Steam
+ * sign-in): [WinlatorTheme] plus the XMB keyboard, which is only in effect in XMB-home mode.
+ */
+@Composable
+internal fun StoreKeyboardTheme(content: @Composable () -> Unit) {
+    com.winlator.star.ui.theme.WinlatorTheme { XmbKeyboardHost(content = content) }
 }
 
 /**

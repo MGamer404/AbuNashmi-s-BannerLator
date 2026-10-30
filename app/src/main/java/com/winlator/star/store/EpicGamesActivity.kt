@@ -65,7 +65,6 @@ import com.winlator.star.store.download.DownloadScope
 import com.winlator.star.store.download.DownloadsButton
 import com.winlator.star.store.download.Store
 import com.winlator.star.store.download.StoreDownloadHooks
-import com.winlator.star.ui.theme.WinlatorTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -120,7 +119,7 @@ class EpicGamesActivity : ComponentActivity() {
         EpicLibrarySync.seed(this)
 
         setContent {
-            WinlatorTheme {
+            StoreKeyboardTheme {
                 EpicGamesScreen(
                     syncText = syncText,
                     searchQuery = searchQuery,

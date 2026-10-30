@@ -20,6 +20,7 @@ import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import com.winlator.star.ui.deck.XmbKeyboardWindow
 import java.lang.ref.WeakReference
 
 // What a Classic screen needs to know when the Deck shell hosts it. Kept out of ui/deck so the
@@ -120,9 +121,14 @@ fun DeckDialogBars() {
  */
 val LocalDeckDensity = staticCompositionLocalOf<Density?> { null }
 
-/** Wraps a dialog's or sheet's content so it is drawn at the Deck style's size; does nothing in Classic. */
+/**
+ * Wraps a dialog's or sheet's content so it is drawn at the Deck style's size; does nothing in Classic. In the XMB mode it
+ * also brings the XMB keyboard into the window, whose text input service does not come from the screen below.
+ */
 @Composable
 fun DeckDialogScaled(content: @Composable () -> Unit) {
     val deck = LocalDeckDensity.current
-    if (deck == null) content() else CompositionLocalProvider(LocalDensity provides deck, content = content)
+    XmbKeyboardWindow {
+        if (deck == null) content() else CompositionLocalProvider(LocalDensity provides deck, content = content)
+    }
 }
