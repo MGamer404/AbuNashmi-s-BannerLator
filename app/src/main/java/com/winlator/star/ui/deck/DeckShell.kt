@@ -570,7 +570,7 @@ private fun DeckShellContent(
                         } else if (!rails) {
                             DeckTopBar(
                                 current = tab,
-                                wide =cfg.screenWidthDp >= DECK_WIDE_TABS_DP,
+                                wide = cfg.screenWidthDp >= DECK_WIDE_TABS_DP,
                                 tabRequesters = tabRequesters,
                                 avatarUrl = account?.displayAvatarUrl,
                                 onTab = { nav.goTab(it) },
@@ -854,7 +854,6 @@ private fun deckPageTitle(context: Context, route: String, id: Int): String = wh
 @Composable
 private fun DeckTopBar(
     current: DeckTab,
-    tabs: List<DeckTab>,
     wide: Boolean,
     tabRequesters: Map<DeckTab, FocusRequester>,
     avatarUrl: String?,
