@@ -85,6 +85,9 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -714,13 +717,35 @@ internal fun ShortcutsXmbView(
                             else -> runUpper(upperRow[i])
                         }
                     }
-                    // The cards peek above the centred row, their top half cut off under the host's floating tab bar.
-                    Box(Modifier.fillMaxSize().padding(top = clipTop.dp).clipToBounds()) {
-                        XmbUpperBar(
-                            upperRow, upIdx, upPos, upT, peekT, m, homeK, clipTop, accent,
-                            enabled = upperOpen || centered, metaSize = ss.sp(12f), onTap = onCard,
-                        )
+                    // The cards peek above the centred row and run up under the host's floating tab bar, fading out toward
+                    // the top edge (an offscreen layer masked by a gradient) instead of stopping at a hard line.
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                            .drawWithContent {
+                                drawContent()
+                                val edge = clipTop.dp.toPx()
+                                drawRect(
+                                    Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black, startY = edge * 0.15f, endY = edge * 1.25f),
+                                    blendMode = BlendMode.DstIn,
+                                )
+                            },
+                    ) {
+                        Box(Modifier.fillMaxSize().padding(top = clipTop.dp)) {
+                            XmbUpperBar(
+                                upperRow, upIdx, upPos, upT, peekT, m, homeK, clipTop, accent,
+                                enabled = upperOpen || centered, metaSize = ss.sp(12f), onTap = onCard,
+                            )
+                        }
                     }
+                    // A faint shade behind the tab bar so its tabs and clock stay readable over the fading cards.
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .height((clipTop * 1.3f).dp)
+                            .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.45f), Color.Transparent))),
+                    )
                 }
                 if (nested) {
                     XmbNestedLayer(nav, xmbScope, m.w, m.h, m.port, accent, focused.name, focused.icon, actions.map { it.icon }, actIdx)
@@ -894,7 +919,7 @@ private fun XmbActionRow(action: XmbAction, selected: Boolean, accent: Color, ic
     }
 }
 
-/** Centred home: the cards' peek is cut off this far (dp, on a 412 dp phone) from the top, clear of the host's floating tab bar. */
+/** Centred home: the peeking cards' middle sits this far (dp, on a 412 dp phone) from the top, just below the host's floating tab bar; above it they fade out. */
 private const val XMB_PEEK_CLIP = 50f
 
 /** How long (ms) a chosen card waits before its cut-off text starts scrolling. */
@@ -903,7 +928,7 @@ private const val XMB_MARQUEE_DELAY = 700
 // The row above the games, drawn and moved like the game row: portrait cards (a store's logo on its colours, or an
 // icon), the chosen one enlarged at the cross with the earlier ones to its left, and its name and details beside it.
 // [open] is the open animation, 0..1; [peek] the resting state, where the cards sit small and dimmed with only their
-// lower half below [clipTop], which the caller clips at. Open, the bar takes the game row's larger size ([scale]).
+// lower half below [clipTop] (the caller fades out what's above it). Open, the bar takes the game row's larger size ([scale]).
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun XmbUpperBar(
@@ -920,7 +945,7 @@ private fun XmbUpperBar(
     metaSize: TextUnit,
     onTap: (Int) -> Unit,
 ) {
-    // In the caller's clipped box (its top at clipTop): peeking, the small cards' middle sits on the clip edge; open,
+    // In the caller's box (its top at clipTop): peeking, the small cards' middle sits on that edge; open,
     // the bar is centred on the screen as the game row is when it's the one in use (the games peek below it then).
     val yPeek = -m.sH / 2f
     val yOpen = (m.h - m.fH) / 2f - clipTop
