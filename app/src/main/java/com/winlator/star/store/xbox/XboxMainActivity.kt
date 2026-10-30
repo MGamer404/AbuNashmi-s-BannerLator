@@ -77,6 +77,7 @@ import com.winlator.star.store.download.DownloadsButton
 import com.winlator.star.store.download.Store
 import com.winlator.star.store.download.StoreSection
 import com.winlator.star.store.steamFocusRing
+import com.winlator.star.store.xmbRailStop
 import com.winlator.star.ui.theme.WinlatorTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -312,10 +313,10 @@ private fun XboxStorefrontHost(
             }
         },
         railActions = {
-            IconButton(onClick = { library.refresh(true) }, modifier = Modifier.steamFocusRing()) {
+            IconButton(onClick = { library.refresh(true) }, modifier = Modifier.steamFocusRing().xmbRailStop()) {
                 Icon(Icons.Filled.Refresh, contentDescription = "Sync library", tint = MaterialTheme.colorScheme.primary)
             }
-            DownloadsButton()
+            DownloadsButton(Modifier.xmbRailStop(ring = true))
             StoreRailOverflow(items = listOf(Triple("Xbox Cloud Gaming", Icons.Filled.Cloud) { ctx.startActivity(XboxCloudActivity.intent(ctx)) }), onSignOut = onSignOut)
         },
         message = message,

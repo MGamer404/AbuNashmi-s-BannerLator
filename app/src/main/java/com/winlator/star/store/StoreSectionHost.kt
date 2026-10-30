@@ -30,6 +30,7 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.withFrameNanos
@@ -94,14 +95,17 @@ fun StoreSectionHost(
         if (selected == 0) onClose() else onSelect(0)
     }
 
-    // XMB home: L2 / R2 step through the rail's tabs (wrapping) from anywhere on the screen, then focus moves into
-    // the new tab's content, since whatever held it went away with the old tab.
+    // XMB home: L2 / R2 step through the rail's tabs and then its end actions (wrapping) from anywhere on the screen.
+    // A tab switches at once and focus moves into its content, since whatever held it went away with the old tab.
     val scope = rememberCoroutineScope()
+    val railStops = remember { XmbRailStops() }
     StoreTabCycle(enabled = xmb && tabs.isNotEmpty()) { delta ->
-        onSelect((selected + delta + tabs.size) % tabs.size)
-        scope.launch {
-            repeat(2) { withFrameNanos { } }
-            runCatching { contentFocus.requestFocus() }
+        xmbRailCycle(delta, tabs.size, selected, railStops) { i ->
+            onSelect(i)
+            scope.launch {
+                repeat(2) { withFrameNanos { } }
+                runCatching { contentFocus.requestFocus() }
+            }
         }
     }
 
@@ -113,15 +117,17 @@ fun StoreSectionHost(
     ) {
         if (layout.wide) {
             Row(modifier = Modifier.fillMaxSize()) {
-                SectionRail(
-                    tabs = tabs,
-                    selected = selected,
-                    counts = counts,
-                    onSelect = onSelect,
-                    contentFocus = contentFocus,
-                    statusSlot = railStatusSlot,
-                    actions = railActions,
-                )
+                CompositionLocalProvider(LocalXmbRailStops provides if (xmb) railStops else null) {
+                    SectionRail(
+                        tabs = tabs,
+                        selected = selected,
+                        counts = counts,
+                        onSelect = onSelect,
+                        contentFocus = contentFocus,
+                        statusSlot = railStatusSlot,
+                        actions = railActions,
+                    )
+                }
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -233,6 +239,7 @@ private fun SectionRail(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Spacer(Modifier.height(if (xmb) 2.dp else 6.dp))
+        if (xmb) XmbRailBumpers()
         statusSlot()
         Spacer(Modifier.height(if (xmb) 4.dp else 8.dp))
 

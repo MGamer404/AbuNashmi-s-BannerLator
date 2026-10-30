@@ -220,10 +220,10 @@ private fun GogStorefrontHost(
             }
         },
         railActions = {
-            IconButton(onClick = { library.refresh(true) }, modifier = Modifier.steamFocusRing()) {
+            IconButton(onClick = { library.refresh(true) }, modifier = Modifier.steamFocusRing().xmbRailStop()) {
                 Icon(Icons.Filled.Refresh, contentDescription = "Sync library", tint = MaterialTheme.colorScheme.primary)
             }
-            DownloadsButton()
+            DownloadsButton(Modifier.xmbRailStop(ring = true))
             StoreRailOverflow(
                 items = listOf<Triple<String, ImageVector, () -> Unit>>(
                     Triple("Full library screen", Icons.Filled.ViewList, { ctx.startActivity(Intent(ctx, GogGamesActivity::class.java)) }),
@@ -278,7 +278,7 @@ fun StoreRailOverflow(
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box {
-        IconButton(onClick = { expanded = true }, modifier = Modifier.steamFocusRing()) {
+        IconButton(onClick = { expanded = true }, modifier = Modifier.steamFocusRing().xmbRailStop()) {
             Icon(Icons.Filled.MoreVert, contentDescription = "More actions", tint = MaterialTheme.colorScheme.primary)
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {

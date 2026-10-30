@@ -225,10 +225,10 @@ private fun AmazonStorefrontHost(
             }
         },
         railActions = {
-            IconButton(onClick = { library.refresh(true) }, modifier = Modifier.steamFocusRing()) {
+            IconButton(onClick = { library.refresh(true) }, modifier = Modifier.steamFocusRing().xmbRailStop()) {
                 Icon(Icons.Filled.Refresh, contentDescription = "Sync library", tint = MaterialTheme.colorScheme.primary)
             }
-            DownloadsButton()
+            DownloadsButton(Modifier.xmbRailStop(ring = true))
             StoreRailOverflow(
                 items = listOf<Triple<String, ImageVector, () -> Unit>>(
                     Triple("Full library screen", Icons.Filled.ViewList, { ctx.startActivity(Intent(ctx, AmazonGamesActivity::class.java)) }),

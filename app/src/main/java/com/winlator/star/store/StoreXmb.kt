@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -40,7 +41,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -185,6 +188,86 @@ internal fun StoreTabCycle(enabled: Boolean, onCycle: (Int) -> Unit) {
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
             if (StoreXmbInput.onCycle === handler) StoreXmbInput.onCycle = null
+        }
+    }
+}
+
+/**
+ * XMB home: the rail's end actions (refresh, downloads, the ⋮ overflow), in rail order, so L2 / R2 can step on past the
+ * tabs onto them. Each action joins with [xmbRailStop]; the host provides one of these around its rail.
+ */
+@Stable
+internal class XmbRailStops {
+    val requesters = mutableStateListOf<FocusRequester>()
+    var focused by mutableStateOf<FocusRequester?>(null)
+
+    /** Index of the action holding focus, or -1. */
+    fun focusedIndex(): Int = focused?.let { requesters.indexOf(it) } ?: -1
+}
+
+internal val LocalXmbRailStops = staticCompositionLocalOf<XmbRailStops?> { null }
+
+/**
+ * Makes this rail action an L2 / R2 stop when its host provides [LocalXmbRailStops] (XMB home); elsewhere it changes
+ * nothing. [ring] adds the focus ring for an action that has none of its own.
+ */
+@Composable
+internal fun Modifier.xmbRailStop(ring: Boolean = false): Modifier {
+    val stops = LocalXmbRailStops.current ?: return this
+    val requester = remember { FocusRequester() }
+    DisposableEffect(stops, requester) {
+        stops.requesters.add(requester)
+        onDispose {
+            stops.requesters.remove(requester)
+            if (stops.focused === requester) stops.focused = null
+        }
+    }
+    return this
+        .then(if (ring) Modifier.steamFocusRing(CircleShape) else Modifier)
+        .onFocusChanged {
+            if (it.hasFocus) stops.focused = requester else if (stops.focused === requester) stops.focused = null
+        }
+        .focusRequester(requester)
+}
+
+/**
+ * One L2 / R2 step through a store rail: the [tabCount] tabs, then its [stops]. Landing on a tab selects it (as tapping
+ * it does, via [selectTab]); landing on an action gives it focus without running it, so A runs it. Wraps both ways.
+ */
+internal fun xmbRailCycle(delta: Int, tabCount: Int, selected: Int, stops: XmbRailStops, selectTab: (Int) -> Unit) {
+    val total = tabCount + stops.requesters.size
+    if (total == 0) return
+    val onAction = stops.focusedIndex()
+    val current = if (onAction >= 0) tabCount + onAction else selected
+    val next = (current + delta + total) % total
+    if (next < tabCount) selectTab(next) else runCatching { stops.requesters[next - tabCount].requestFocus() }
+}
+
+/** The L2 / R2 glyphs at the top of the store rail: they show the bar moves with the triggers, and a tap steps it too. */
+@Composable
+internal fun XmbRailBumpers() {
+    val s = rememberScreenScale()
+    val cs = MaterialTheme.colorScheme
+    // The Deck's bumper keycap, drawn smaller: two DeckGlyphs (30 dp each at least) don't fit side by side in the rail.
+    val cap = RoundedCornerShape(topStart = s.dp(7f), topEnd = s.dp(7f), bottomStart = s.dp(4f), bottomEnd = s.dp(4f))
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(s.dp(3f), Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().padding(vertical = s.dp(2f)),
+    ) {
+        listOf("L2" to -1, "R2" to 1).forEach { (glyph, delta) ->
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .clip(cap)
+                    .focusProperties { canFocus = false }
+                    .clickable { StoreXmbInput.onCycle?.invoke(delta) }
+                    .background(cs.surfaceContainerHigh.copy(alpha = 0.7f), cap)
+                    .border(1.dp, cs.onSurfaceVariant.copy(alpha = 0.6f), cap)
+                    .padding(horizontal = s.dp(4f), vertical = s.dp(2f)),
+            ) {
+                Text(glyph, color = cs.onSurfaceVariant, fontSize = s.sp(9f), fontWeight = FontWeight.ExtraBold, maxLines = 1)
+            }
         }
     }
 }

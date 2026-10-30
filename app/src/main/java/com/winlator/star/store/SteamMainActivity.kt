@@ -55,6 +55,7 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -330,15 +331,22 @@ fun SteamStorefrontHost(
         if (tab == SteamTab.STORE) onClose() else tab = SteamTab.STORE
     }
 
-    // XMB home: L2 / R2 step through the rail's tabs (wrapping) from anywhere on the screen, then focus moves into
-    // the new tab's content, since whatever held it went away with the old tab.
+    // XMB home: no Friends tab (the home has a Friends card), so a Friends start or link lands on Store instead.
+    val xmb = LocalStoreXmb.current
+    val railTabs = if (xmb) SteamTab.values().filter { it != SteamTab.FRIENDS } else SteamTab.values().toList()
+    LaunchedEffect(xmb, tab) { if (xmb && tab == SteamTab.FRIENDS) tab = SteamTab.STORE }
+
+    // XMB home: L2 / R2 step through the rail's tabs and then its end actions (wrapping) from anywhere on the screen.
+    // A tab switches at once and focus moves into its content, since whatever held it went away with the old tab.
     val tabScope = rememberCoroutineScope()
-    StoreTabCycle(enabled = LocalStoreXmb.current) { delta ->
-        val all = SteamTab.values()
-        tab = all[(tab.ordinal + delta + all.size) % all.size]
-        tabScope.launch {
-            repeat(2) { withFrameNanos { } }
-            runCatching { contentFocus.requestFocus() }
+    val railStops = remember { XmbRailStops() }
+    StoreTabCycle(enabled = xmb) { delta ->
+        xmbRailCycle(delta, railTabs.size, railTabs.indexOf(tab).coerceAtLeast(0), railStops) { i ->
+            tab = railTabs[i]
+            tabScope.launch {
+                repeat(2) { withFrameNanos { } }
+                runCatching { contentFocus.requestFocus() }
+            }
         }
     }
 
@@ -382,7 +390,11 @@ fun SteamStorefrontHost(
             SteamTab.PROFILE -> SteamProfileTab(
                 wide = layout.wide,
                 libraryCount = library.games.size,
-                onOpenFriends = { tab = SteamTab.FRIENDS },
+                // XMB home has no Friends tab: open the friends screen the home's Friends card opens.
+                onOpenFriends = {
+                    if (xmb) runCatching { ctx.startActivity(Intent(ctx, SteamFriendsActivity::class.java)) }
+                    else tab = SteamTab.FRIENDS
+                },
                 onOpenApp = { openSteamGameDetail(ctx, it) },
                 onMessage = { message = it },
                 onChangeAccount = { showAccounts = true },
@@ -402,17 +414,20 @@ fun SteamStorefrontHost(
     ) {
         if (layout.wide) {
             Row(modifier = Modifier.fillMaxSize()) {
-                StorefrontRail(
-                    tab = tab,
-                    counts = counts,
-                    onSelect = { tab = it },
-                    library = library,
-                    viewMode = libraryViewMode,
-                    onToggleView = { libraryViewMode = if (libraryViewMode == "grid") "list" else "grid" },
-                    onSignOut = { showSignOut = true },
-                    onChangeAccount = { showAccounts = true },
-                    contentFocus = contentFocus,
-                )
+                CompositionLocalProvider(LocalXmbRailStops provides if (xmb) railStops else null) {
+                    StorefrontRail(
+                        tab = tab,
+                        tabs = railTabs,
+                        counts = counts,
+                        onSelect = { tab = it },
+                        library = library,
+                        viewMode = libraryViewMode,
+                        onToggleView = { libraryViewMode = if (libraryViewMode == "grid") "list" else "grid" },
+                        onSignOut = { showSignOut = true },
+                        onChangeAccount = { showAccounts = true },
+                        contentFocus = contentFocus,
+                    )
+                }
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -432,7 +447,7 @@ fun SteamStorefrontHost(
                     onToggleView = { libraryViewMode = if (libraryViewMode == "grid") "list" else "grid" },
                     onSignOut = { showSignOut = true },
                 )
-                StorefrontTabRow(tab = tab, counts = counts, onSelect = { tab = it })
+                StorefrontTabRow(tab = tab, tabs = railTabs, counts = counts, onSelect = { tab = it })
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -499,15 +514,16 @@ fun SteamStorefrontHost(
 @Composable
 private fun StorefrontTabRow(
     tab: SteamTab,
+    tabs: List<SteamTab>,
     counts: Map<SteamTab, Int>,
     onSelect: (SteamTab) -> Unit,
 ) {
     TabRow(
-        selectedTabIndex = tab.ordinal,
+        selectedTabIndex = tabs.indexOf(tab).coerceAtLeast(0),
         containerColor = MaterialTheme.colorScheme.background,
         contentColor = MaterialTheme.colorScheme.primary,
     ) {
-        SteamTab.values().forEach { t ->
+        tabs.forEach { t ->
             Tab(
                 selected = tab == t,
                 onClick = { onSelect(t) },
@@ -559,6 +575,7 @@ private fun StorefrontTabRow(
 @Composable
 private fun StorefrontRail(
     tab: SteamTab,
+    tabs: List<SteamTab>,
     counts: Map<SteamTab, Int>,
     onSelect: (SteamTab) -> Unit,
     library: SteamLibraryState,
@@ -583,13 +600,14 @@ private fun StorefrontRail(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Spacer(Modifier.height(if (xmb) 2.dp else 6.dp))
+        if (xmb) XmbRailBumpers()
         // A compact status dot, not the full SteamStatusPill: the pill's label ("Signed in
         // elsewhere") would wrap to three lines inside a 96dp rail. The pill still carries the
         // wording in portrait's top bar; here the dot keeps the colour and the reconnect tap.
         RailStatusDot(status = library.steamStatus, onReconnect = library.reconnect)
         Spacer(Modifier.height(if (xmb) 4.dp else 8.dp))
 
-        SteamTab.values().forEach { t ->
+        tabs.forEach { t ->
             val n = counts[t]?.takeIf { it > 0 }
             if (xmb) {
                 XmbRailItem(t.label, t.icon, selected = tab == t, count = n, onClick = { onSelect(t) })
@@ -632,14 +650,14 @@ private fun StorefrontRail(
 
         // The two actions worth a permanent slot; everything else is one tap deeper in the
         // overflow, which is what buys back the vertical space on a 390dp-tall screen.
-        IconButton(onClick = library.refresh, modifier = Modifier.steamFocusRing()) {
+        IconButton(onClick = library.refresh, modifier = Modifier.steamFocusRing().xmbRailStop()) {
             Icon(
                 Icons.Filled.Refresh,
                 contentDescription = "Refresh library",
                 tint = MaterialTheme.colorScheme.primary,
             )
         }
-        DownloadsButton()
+        DownloadsButton(Modifier.xmbRailStop(ring = true))
         RailOverflow(
             viewMode = viewMode,
             onToggleView = onToggleView,
@@ -745,7 +763,7 @@ private fun RailOverflow(
     var showLibraryLocations by remember { mutableStateOf(false) }
 
     Box {
-        IconButton(onClick = { expanded = true }, modifier = Modifier.steamFocusRing()) {
+        IconButton(onClick = { expanded = true }, modifier = Modifier.steamFocusRing().xmbRailStop()) {
             Icon(
                 Icons.Filled.MoreVert,
                 contentDescription = "More Steam actions",
