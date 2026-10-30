@@ -103,10 +103,11 @@ internal class XmbKeyboardState : SoftwareKeyboardController {
             return
         }
         val s = current.session
-        systemSession = window.startInput(s.value, s.imeOptions, current.onEdit, current.onAction)
+        val started = window.startInput(s.value, s.imeOptions, current.onEdit, current.onAction)
+        systemSession = started
         systemActive = true
         panelOpen = false
-        window.showSoftwareKeyboard()
+        started.showSoftwareKeyboard()
     }
 
     /** The screen left the composition (or the XMB mode went off): nothing stays open. */

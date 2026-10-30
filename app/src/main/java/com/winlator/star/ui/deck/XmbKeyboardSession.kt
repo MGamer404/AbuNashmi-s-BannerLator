@@ -40,6 +40,6 @@ internal class XmbKeyboardSession(
         sendEdits(listOf(SetSelectionCommand(at, at)))
     }
 
-    /** Runs the field's IME action (Search, Done, Go, Send, Next...). */
-    fun performAction() = sendAction(imeOptions.imeAction)
+    /** Runs the field's IME action (Search, Done, Go, Send, Next...); Android's own keyboard turns a single line's default into Done. */
+    fun performAction() = sendAction(if (imeOptions.imeAction == ImeAction.Default && imeOptions.singleLine) ImeAction.Done else imeOptions.imeAction)
 }

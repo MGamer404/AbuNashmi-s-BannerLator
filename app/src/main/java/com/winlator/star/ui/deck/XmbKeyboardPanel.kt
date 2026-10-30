@@ -30,12 +30,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Backspace
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.SpaceBar
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -45,7 +45,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -293,21 +292,17 @@ internal fun XmbKeyboardPanel(
         DeckDialogBars()
         // The window covers the whole screen, edge to edge and clear of insets, with no dim: the panel is placed by share.
         val dialogWindow = (LocalView.current.parent as? DialogWindowProvider)?.window
-        SideEffect {
-            dialogWindow?.let {
-                WindowCompat.setDecorFitsSystemWindows(it, false)
-                it.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-                it.setGravity(android.view.Gravity.BOTTOM)
-                it.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
-                it.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
-                it.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
-            }
-        }
         // The analog triggers (pads with no L2/R2 buttons) only arrive as motion events on the window.
         DisposableEffect(dialogWindow) {
             val w = dialogWindow
             val original = w?.callback
             if (w == null || original == null) return@DisposableEffect onDispose {}
+            WindowCompat.setDecorFitsSystemWindows(w, false)
+            w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+            w.setGravity(android.view.Gravity.BOTTOM)
+            w.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
+            w.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            w.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
             val wrapper = object : Window.Callback by original {
                 override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
                     handleTriggers(event, state) { latestPerform(Role.ACTION, null) }
@@ -580,8 +575,8 @@ private fun KeyLabel(cap: Cap, context: KeyContext, ink: Color) {
         Role.ACTION -> IconLabel(null, null, context.actionLabel, "R2", GlyphKind.BUMPER, glyphs, ink, context)
         Role.SHIFT -> IconLabel(Icons.Filled.ArrowUpward, "Shift", if (glyphs) "Shift" else null, "L2", GlyphKind.BUMPER, glyphs, ink, context)
         Role.SPACE -> IconLabel(Icons.Filled.SpaceBar, "Space", null, "Y", GlyphKind.Y, glyphs, ink, context)
-        Role.LEFT -> IconLabel(Icons.Filled.KeyboardArrowLeft, "Cursor left", null, "L1", GlyphKind.BUMPER, glyphs, ink, context)
-        Role.RIGHT -> IconLabel(Icons.Filled.KeyboardArrowRight, "Cursor right", null, "R1", GlyphKind.BUMPER, glyphs, ink, context)
+        Role.LEFT -> IconLabel(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Cursor left", null, "L1", GlyphKind.BUMPER, glyphs, ink, context)
+        Role.RIGHT -> IconLabel(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Cursor right", null, "R1", GlyphKind.BUMPER, glyphs, ink, context)
         Role.PASTE -> IconLabel(Icons.Filled.ContentPaste, "Paste", if (glyphs) "Paste" else null, null, GlyphKind.PLAIN, false, ink, context)
         Role.SYSTEM -> IconLabel(Icons.Filled.Keyboard, "Android keyboard", null, null, GlyphKind.PLAIN, false, ink, context)
         Role.CLOSE -> IconLabel(Icons.Filled.KeyboardArrowDown, "Hide keyboard", null, null, GlyphKind.PLAIN, false, ink, context)
