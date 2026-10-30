@@ -65,6 +65,9 @@ import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.SportsEsports
+import androidx.compose.foundation.text.KeyboardActions
+import com.winlator.star.ui.deck.XmbTapToEdit
+import com.winlator.star.ui.deck.rememberXmbHome
 import com.winlator.star.ui.components.CollapsibleRail
 import com.winlator.star.ui.components.RailItem
 import com.winlator.star.ui.components.RailSection
@@ -1309,13 +1312,17 @@ fun FileManagerScreen(
 
         // ── Search field ── filters the current folder only; it is not a recursive search.
         if (showSearch && !showFavorites) {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                singleLine = true,
-                placeholder = { Text("Filter this folder", fontSize = 13.sp) },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-            )
+            val xmbSearch = rememberXmbHome()
+            XmbTapToEdit(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) { fieldModifier, stopEditing ->
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    singleLine = true,
+                    placeholder = { Text("Filter this folder", fontSize = 13.sp) },
+                    modifier = fieldModifier,
+                    keyboardActions = if (xmbSearch) KeyboardActions(onDone = { stopEditing() }) else KeyboardActions.Default,
+                )
+            }
         }
 
         // Free space on the volume being browsed — worth knowing before starting a 60 GB copy.

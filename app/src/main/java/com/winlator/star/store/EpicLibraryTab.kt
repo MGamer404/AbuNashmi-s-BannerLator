@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -146,27 +147,32 @@ fun EpicLibraryTab(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
     ) {
-        CatalogSearchField(
-            query = query,
-            placeholder = "Search your Epic library…",
-            onQueryChange = { query = it },
-            onClear = { query = ""; focusManager.clearFocus() },
-            onSearch = { focusManager.clearFocus() },
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            StoreFilterChip("All", !installedOnly) { installedOnly = false }
-            StoreFilterChip("Installed", installedOnly) { installedOnly = true }
-            Spacer(Modifier.weight(1f))
-            Text(
-                text = state.statusText,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
+        val header = rememberXmbHeader()
+        val gridState = rememberLazyGridState()
+        header.Track(gridState)
+        header.Header {
+            CatalogSearchField(
+                query = query,
+                placeholder = "Search your Epic library…",
+                onQueryChange = { query = it },
+                onClear = { query = ""; focusManager.clearFocus() },
+                onSearch = { focusManager.clearFocus() },
             )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                StoreFilterChip("All", !installedOnly) { installedOnly = false }
+                StoreFilterChip("Installed", installedOnly) { installedOnly = true }
+                Spacer(Modifier.weight(1f))
+                Text(
+                    text = state.statusText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
         }
 
         when {
@@ -188,6 +194,7 @@ fun EpicLibraryTab(
             }
 
             else -> LazyVerticalGrid(
+                state = gridState,
                 columns = GridCells.Adaptive(storeGridCell(wide)),
                 modifier = Modifier.fillMaxSize().focusGroup(),
                 contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 24.dp),

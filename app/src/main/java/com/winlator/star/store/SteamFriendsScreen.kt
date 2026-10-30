@@ -7,6 +7,8 @@ import android.app.Activity
 import android.content.res.Configuration
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import com.winlator.star.ui.deck.XmbTapToEdit
+import com.winlator.star.ui.deck.rememberXmbHome
 import com.winlator.star.util.InAppFilePicker
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -471,16 +473,30 @@ internal fun FriendsListBody(
 
     Column(modifier = modifier) {
         if (showFilter) {
-            OutlinedTextField(
-                value = filter,
-                onValueChange = { filter = it },
-                singleLine = true,
-                placeholder = { Text("Search friends") },
-                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
-            )
+            if (rememberXmbHome()) {
+                // XMB home: the compact tap-to-edit field, only "Search" in it, sized to the roster's column.
+                XmbSearchField(
+                    query = filter,
+                    placeholder = "Search",
+                    onQueryChange = { filter = it },
+                    onClear = { filter = "" },
+                    onSearch = {},
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                )
+            } else {
+                OutlinedTextField(
+                    value = filter,
+                    onValueChange = { filter = it },
+                    singleLine = true,
+                    placeholder = { Text("Search friends") },
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                )
+            }
         }
         when {
             !available -> ConnectState()
@@ -862,15 +878,17 @@ private fun AddFriendDialog(onDismiss: () -> Unit) {
         Column {
             Text("Search Steam by name", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(8.dp))
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                singleLine = true,
-                placeholder = { Text("Search for a player…") },
-                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                trailingIcon = { if (searching) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) },
-                modifier = Modifier.fillMaxWidth(),
-            )
+            XmbTapToEdit(Modifier.fillMaxWidth()) { fieldModifier, _ ->
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    singleLine = true,
+                    placeholder = { Text("Search for a player…") },
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                    trailingIcon = { if (searching) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) },
+                    modifier = fieldModifier,
+                )
+            }
             if (results.isNotEmpty()) {
                 Spacer(Modifier.height(10.dp))
                 Column(

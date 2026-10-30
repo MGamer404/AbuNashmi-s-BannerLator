@@ -1,5 +1,8 @@
 package com.winlator.star.ui.components
 
+import androidx.compose.foundation.text.KeyboardActions
+import com.winlator.star.ui.deck.XmbTapToEdit
+import com.winlator.star.ui.deck.rememberXmbHome
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -219,14 +222,18 @@ fun ContainerGlossarySheet(onDismiss: () -> Unit, initialQuery: String = "") {
                     color = cs.onSurfaceVariant,
                     modifier = Modifier.padding(top = 2.dp, bottom = 10.dp)
                 )
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    label = { Text("Search terms") },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                val xmbSearch = rememberXmbHome()
+                XmbTapToEdit(Modifier.fillMaxWidth()) { fieldModifier, stopEditing ->
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        label = { Text("Search terms") },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                        singleLine = true,
+                        modifier = fieldModifier,
+                        keyboardActions = if (xmbSearch) KeyboardActions(onDone = { stopEditing() }) else KeyboardActions.Default,
+                    )
+                }
                 Spacer(Modifier.padding(top = 8.dp))
                 LazyColumn(
                     modifier = Modifier.fillMaxWidth().heightIn(max = 520.dp),

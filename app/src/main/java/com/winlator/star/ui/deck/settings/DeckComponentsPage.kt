@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
@@ -35,6 +36,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -62,8 +64,11 @@ import com.winlator.star.components.PrefixInstalledDetector
 import com.winlator.star.container.Container
 import com.winlator.star.ui.deck.DeckGlyph
 import com.winlator.star.ui.deck.GlyphKind
+import com.winlator.star.ui.deck.XmbTapToEdit
 import com.winlator.star.ui.deck.deckFocusRing
 import com.winlator.star.ui.deck.deckLine
+import com.winlator.star.ui.deck.rememberXmbEdit
+import com.winlator.star.ui.deck.rememberXmbHome
 import com.winlator.star.ui.screens.ComponentRemoveDialog
 import com.winlator.star.ui.screens.OutlinedAlertDialog
 import kotlinx.coroutines.CoroutineScope
@@ -126,6 +131,8 @@ internal class DeckComponentsState(
     /** An installed row was pressed: how it would come out, awaiting the confirmation. */
     var confirmRemove by mutableStateOf<Pair<Component, ComponentUninstaller.Plan>?>(null)
     val searchFocus = FocusRequester()
+    /** The search bar's own way in, set by the bar: it focuses it, and in the XMB home (where it is tap-to-edit) starts typing too. */
+    var openSearch: () -> Unit = { searchFocus.requestFocus() }
 
     private val main = Handler(Looper.getMainLooper())
 
@@ -283,7 +290,7 @@ internal class DeckComponentsState(
         top = this::topItems,
         bottom = this::bottomItems,
         searchKey = SEARCH_KEY,
-        focusSearch = { searchFocus.requestFocus() },
+        focusSearch = { openSearch() },
     )
 
     // Recommended and Optional, then folded away what only sits in the game's folder; for a game only.
@@ -534,23 +541,36 @@ private fun FoldToggle(title: String, subtitle: String, open: Boolean, onClick: 
 @Composable
 private fun ComponentSearch(state: DeckComponentsState) {
     val cs = MaterialTheme.colorScheme
+    val xmbHome = rememberXmbHome()
+    val edit = rememberXmbEdit()
+    // Y opens the bar: in the XMB home it takes focus and starts typing, as A on it would.
+    SideEffect {
+        state.openSearch = if (xmbHome) ({ runCatching { edit.outer.requestFocus() }; edit.start() }) else ({ state.searchFocus.requestFocus() })
+    }
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)) {
-        OutlinedTextField(
-            value = state.query,
-            onValueChange = { state.query = it },
-            singleLine = true,
-            placeholder = { Text("Search components") },
-            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-            trailingIcon = if (state.query.isEmpty()) null else ({
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier.size(40.dp).clip(CircleShape).clickable { state.query = "" },
-                ) { Icon(Icons.Filled.Close, contentDescription = "Clear search") }
-            }),
-            shape = RoundedCornerShape(16.dp),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            modifier = Modifier.weight(1f).focusRequester(state.searchFocus),
-        )
+        XmbTapToEdit(
+            Modifier.weight(1f).then(if (xmbHome) Modifier else Modifier.focusRequester(state.searchFocus)),
+            RoundedCornerShape(16.dp),
+            edit,
+        ) { fieldModifier, stopEditing ->
+            OutlinedTextField(
+                value = state.query,
+                onValueChange = { state.query = it },
+                singleLine = true,
+                placeholder = { Text("Search components") },
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                trailingIcon = if (state.query.isEmpty()) null else ({
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.size(40.dp).clip(CircleShape).clickable { state.query = "" },
+                    ) { Icon(Icons.Filled.Close, contentDescription = "Clear search") }
+                }),
+                shape = RoundedCornerShape(16.dp),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = if (xmbHome) KeyboardActions(onSearch = { stopEditing() }) else KeyboardActions.Default,
+                modifier = fieldModifier,
+            )
+        }
         Spacer(Modifier.width(12.dp))
         DeckGlyph("Y", GlyphKind.Y)
         Spacer(Modifier.width(6.dp))

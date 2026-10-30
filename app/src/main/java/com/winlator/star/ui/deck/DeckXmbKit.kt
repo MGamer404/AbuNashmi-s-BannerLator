@@ -3,19 +3,45 @@ package com.winlator.star.ui.deck
 import android.content.Context
 import android.os.Build
 import android.view.WindowManager
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.SoftwareKeyboardController
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -124,4 +150,119 @@ internal fun xmbFrame(): Dp {
     val cutout = WindowInsets.displayCutout.asPaddingValues()
     val dir = LocalLayoutDirection.current
     return maxOf(cutout.calculateStartPadding(dir), cutout.calculateEndPadding(dir))
+}
+
+/**
+ * Tap-to-edit text fields (XMB home). D-pad focus on a search bar only highlights it; A / Enter / DPad-centre or a tap
+ * starts typing (keyboard up), and the keyboard's own action, Back or B ends it and leaves focus on the bar's outer
+ * stop, so passing over a bar never opens the keyboard. This is the one implementation: [XmbTapToEdit] wraps an
+ * ordinary field, and the store search bar builds on the same pieces ([xmbEditStop], [xmbEditField], [XmbEditTapCatcher]).
+ */
+@Stable
+internal class XmbEditState(private val keyboard: SoftwareKeyboardController?) {
+    var editing by mutableStateOf(false)
+    var lit by mutableStateOf(false)
+    private var fieldFocused = false
+    val outer = FocusRequester()
+    val field = FocusRequester()
+
+    /** The bar is highlighted: focused, or being typed into. */
+    val active: Boolean get() = lit || editing
+
+    fun start() {
+        editing = true
+    }
+
+    fun stop() {
+        editing = false
+        keyboard?.hide()
+        runCatching { outer.requestFocus() }
+    }
+
+    /** Leaving the text field (a tap elsewhere) ends typing; the first report (not focused yet) does not. */
+    fun onFieldFocus(focused: Boolean) {
+        if (fieldFocused && !focused) editing = false
+        fieldFocused = focused
+    }
+}
+
+@Composable
+internal fun rememberXmbEdit(): XmbEditState {
+    val keyboard = LocalSoftwareKeyboardController.current
+    val state = remember(keyboard) { XmbEditState(keyboard) }
+    LaunchedEffect(state.editing) {
+        if (state.editing) {
+            withFrameNanos { }
+            runCatching { state.field.requestFocus() }
+            keyboard?.show()
+        }
+    }
+    return state
+}
+
+/** The bar's outer focus stop: A starts typing, B / Back ends it, and its focus lights the bar. Put it before the bar's clip / background. */
+internal fun Modifier.xmbEditStop(e: XmbEditState): Modifier = this
+    .onPreviewKeyEvent { k ->
+        when {
+            !e.editing && k.type == KeyEventType.KeyDown &&
+                (k.key == Key.ButtonA || k.key == Key.Enter || k.key == Key.NumPadEnter || k.key == Key.DirectionCenter) -> {
+                e.start(); true
+            }
+            e.editing && (k.key == Key.Back || k.key == Key.ButtonB || k.key == Key.Escape) -> {
+                if (k.type == KeyEventType.KeyUp) e.stop()
+                true
+            }
+            else -> false
+        }
+    }
+    .onFocusChanged { e.lit = it.hasFocus }
+    .focusRequester(e.outer)
+
+/** The text field itself: it takes focus only while typing. */
+internal fun Modifier.xmbEditField(e: XmbEditState): Modifier = this
+    .onFocusChanged { e.onFieldFocus(it.isFocused) }
+    .focusRequester(e.field)
+    .focusProperties { canFocus = e.editing }
+
+/** Not typing: the text field can't take focus, so a tap on it is caught here and starts typing. */
+@Composable
+internal fun BoxScope.XmbEditTapCatcher(e: XmbEditState) {
+    if (!e.editing) {
+        Box(
+            Modifier
+                .matchParentSize()
+                .focusProperties { canFocus = false }
+                .clickable { e.start() },
+        )
+    }
+}
+
+/**
+ * Wraps an ordinary text field so it is tap-to-edit while the XMB home is on, and passes it straight through otherwise.
+ * Give [modifier] the field's whole modifier; [content] uses [fieldModifier] as the field's modifier (outside the XMB
+ * home that is [modifier] itself, so the field is exactly as before) and calls [stopEditing] when the field's own action
+ * (Search / Done) should end typing. The wrapper draws the accent ring when the field is focused or being typed into.
+ * Pass an [edit] state of your own to start typing from code (see [XmbEditState.start]).
+ */
+@Composable
+internal fun XmbTapToEdit(
+    modifier: Modifier = Modifier,
+    shape: Shape = MaterialTheme.shapes.extraSmall,
+    edit: XmbEditState = rememberXmbEdit(),
+    content: @Composable (fieldModifier: Modifier, stopEditing: () -> Unit) -> Unit,
+) {
+    if (!rememberXmbHome()) {
+        content(modifier) {}
+        return
+    }
+    Box(
+        modifier
+            .xmbEditStop(edit)
+            .clip(shape)
+            .clickable { edit.start() }
+            .then(if (edit.active) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, shape) else Modifier),
+    ) {
+        content(Modifier.fillMaxWidth().xmbEditField(edit)) { edit.stop() }
+        XmbEditTapCatcher(edit)
+    }
 }

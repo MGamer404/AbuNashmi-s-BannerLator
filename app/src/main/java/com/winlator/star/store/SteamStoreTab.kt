@@ -32,6 +32,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -166,54 +167,59 @@ fun SteamStoreTab(
         }
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
-    ) {
-        StoreSearchField(
-            query = query,
-            onQueryChange = { query = it },
-            onClear = { query = ""; focusManager.clearFocus() },
-            onSearch = { focusManager.clearFocus() },
-        )
-
-        when {
-            query.trim().length >= 2 -> StoreResults(
-                results = results,
-                searching = searching,
-                query = query.trim(),
-                wide = wide,
-                actionFor = ::actionFor,
-                onOpen = onOpenApp,
-                onAction = ::onAction,
-                modifier = Modifier.weight(1f),
-            )
-
-            loadingFeatured && featured == null -> Box(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                contentAlignment = Alignment.Center,
-            ) { CircularProgressIndicator(color = MaterialTheme.colorScheme.primary) }
-
-            featured == null || featured?.isEmpty == true -> Box(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                contentAlignment = Alignment.Center,
-            ) {
-                StoreNotice(
-                    title = "Store browsing is unavailable",
-                    body = "Steam's storefront feed didn't answer. Search still works, and " +
-                        "everything you already own is in the Library tab.",
-                    actionLabel = "Retry",
-                    onAction = { reloadKey++ },
+    val header = rememberXmbHeader()
+    CompositionLocalProvider(LocalXmbHeader provides header) {
+        Column(
+            modifier = modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background),
+        ) {
+            header.Header {
+                StoreSearchField(
+                    query = query,
+                    onQueryChange = { query = it },
+                    onClear = { query = ""; focusManager.clearFocus() },
+                    onSearch = { focusManager.clearFocus() },
                 )
             }
 
-            else -> {
-                val data = featured!!
-                if (wide) {
-                    StoreLandscape(data, ::actionFor, onOpenApp, ::onAction, Modifier.weight(1f))
-                } else {
-                    StorePortrait(data, ::actionFor, onOpenApp, ::onAction, Modifier.weight(1f))
+            when {
+                query.trim().length >= 2 -> StoreResults(
+                    results = results,
+                    searching = searching,
+                    query = query.trim(),
+                    wide = wide,
+                    actionFor = ::actionFor,
+                    onOpen = onOpenApp,
+                    onAction = ::onAction,
+                    modifier = Modifier.weight(1f),
+                )
+
+                loadingFeatured && featured == null -> Box(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentAlignment = Alignment.Center,
+                ) { CircularProgressIndicator(color = MaterialTheme.colorScheme.primary) }
+
+                featured == null || featured?.isEmpty == true -> Box(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    StoreNotice(
+                        title = "Store browsing is unavailable",
+                        body = "Steam's storefront feed didn't answer. Search still works, and " +
+                            "everything you already own is in the Library tab.",
+                        actionLabel = "Retry",
+                        onAction = { reloadKey++ },
+                    )
+                }
+
+                else -> {
+                    val data = featured!!
+                    if (wide) {
+                        StoreLandscape(data, ::actionFor, onOpenApp, ::onAction, Modifier.weight(1f))
+                    } else {
+                        StorePortrait(data, ::actionFor, onOpenApp, ::onAction, Modifier.weight(1f))
+                    }
                 }
             }
         }
@@ -232,6 +238,7 @@ private fun StorePortrait(
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
+        state = rememberTrackedListState(),
         modifier = modifier.fillMaxSize().focusGroup(),
         contentPadding = PaddingValues(bottom = 24.dp),
     ) {
@@ -271,6 +278,7 @@ private fun StoreLandscape(
 ) {
     Row(modifier = modifier.fillMaxSize()) {
         LazyColumn(
+            state = rememberTrackedListState(),
             modifier = Modifier
                 .weight(0.42f)
                 .fillMaxHeight()
@@ -302,6 +310,7 @@ private fun StoreLandscape(
             }
         }
         LazyColumn(
+            state = rememberTrackedListState(),
             modifier = Modifier
                 .weight(0.58f)
                 .fillMaxHeight()
@@ -469,6 +478,7 @@ private fun StoreResults(
             // Two columns in landscape: the rows are ~340dp of useful content, so a wide screen
             // fits two side by side instead of stretching one across the whole panel.
             wide -> LazyColumn(
+                state = rememberTrackedListState(),
                 modifier = Modifier.fillMaxSize().focusGroup(),
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(9.dp),
@@ -491,6 +501,7 @@ private fun StoreResults(
             }
 
             else -> LazyColumn(
+                state = rememberTrackedListState(),
                 modifier = Modifier.fillMaxSize().focusGroup(),
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(9.dp),

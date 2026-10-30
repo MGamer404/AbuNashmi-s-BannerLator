@@ -1,6 +1,9 @@
 package com.winlator.star.ui.screens
 
 import android.content.Context
+import androidx.compose.foundation.text.KeyboardActions
+import com.winlator.star.ui.deck.XmbTapToEdit
+import com.winlator.star.ui.deck.rememberXmbHome
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -189,12 +192,16 @@ fun ComponentsSheet(container: Container, onDismiss: () -> Unit, exeFile: File? 
                 Text("Install Wine dependencies into this container",
                     style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant,
                     modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 8.dp))
-                OutlinedTextField(
-                    value = query, onValueChange = { query = it },
-                    singleLine = true,
-                    placeholder = { Text("Search components") },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                )
+                val xmbSearch = rememberXmbHome()
+                XmbTapToEdit(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) { fieldModifier, stopEditing ->
+                    OutlinedTextField(
+                        value = query, onValueChange = { query = it },
+                        singleLine = true,
+                        placeholder = { Text("Search components") },
+                        modifier = fieldModifier,
+                        keyboardActions = if (xmbSearch) KeyboardActions(onDone = { stopEditing() }) else KeyboardActions.Default,
+                    )
+                }
                 Spacer(Modifier.height(8.dp))
                 Divider(color = DividerColor)
 

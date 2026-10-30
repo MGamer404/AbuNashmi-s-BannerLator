@@ -115,7 +115,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.winlator.star.R
+import com.winlator.star.ui.deck.XmbTapToEdit
 import com.winlator.star.ui.deck.rememberXmbHome
+import androidx.compose.foundation.text.KeyboardActions
 import com.winlator.star.contents.AdrenotoolsManager
 import com.winlator.star.contents.WaylandGameDriverManager
 import com.winlator.star.contents.ContentProfile
@@ -342,21 +344,25 @@ private fun SourceListPane(
     val xmbHome = rememberXmbHome()
 
     val searchField: @Composable () -> Unit = {
-        OutlinedTextField(
-            value = query,
-            onValueChange = { vm.setQuery(it) },
-            modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Search all repositories…") },
-            leadingIcon = { Icon(Icons.Filled.Search, null, tint = cs.onSurfaceVariant) },
-            trailingIcon = {
-                if (query.isNotEmpty()) {
-                    IconButton(onClick = { vm.setQuery("") }) {
-                        Icon(Icons.Filled.Close, contentDescription = "Clear search", tint = cs.onSurfaceVariant)
+        // XMB home: tap-to-edit (A or a tap starts typing, Done / B ends it), so passing over it opens no keyboard.
+        XmbTapToEdit(Modifier.fillMaxWidth()) { fieldModifier, stopEditing ->
+            OutlinedTextField(
+                value = query,
+                onValueChange = { vm.setQuery(it) },
+                modifier = fieldModifier,
+                placeholder = { Text("Search all repositories…") },
+                leadingIcon = { Icon(Icons.Filled.Search, null, tint = cs.onSurfaceVariant) },
+                trailingIcon = {
+                    if (query.isNotEmpty()) {
+                        IconButton(onClick = { vm.setQuery("") }) {
+                            Icon(Icons.Filled.Close, contentDescription = "Clear search", tint = cs.onSurfaceVariant)
+                        }
                     }
-                }
-            },
-            singleLine = true,
-        )
+                },
+                singleLine = true,
+                keyboardActions = if (xmbHome) KeyboardActions(onDone = { stopEditing() }) else KeyboardActions.Default,
+            )
+        }
     }
     val listHeader: @Composable () -> Unit = {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {

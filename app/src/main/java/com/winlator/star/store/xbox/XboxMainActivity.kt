@@ -21,6 +21,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -65,7 +67,10 @@ import com.winlator.star.store.StoreXmbScreen
 import com.winlator.star.store.storeGridCell
 import com.winlator.star.store.CatalogSearchField
 import com.winlator.star.store.StoreAvatar
+import com.winlator.star.store.Header
 import com.winlator.star.store.StoreFilterChip
+import com.winlator.star.store.Track
+import com.winlator.star.store.rememberXmbHeader
 import com.winlator.star.store.StoreNotice
 import com.winlator.star.store.StoreRailOverflow
 import com.winlator.star.store.StoreSectionHost
@@ -343,17 +348,22 @@ private fun XboxLibraryTab(state: XboxLibraryState, wide: Boolean, onOpen: (Xbox
         }
     }
     Column(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        CatalogSearchField(query = query, placeholder = "Search your Xbox library…", onQueryChange = { query = it },
-            onClear = { query = ""; focusManager.clearFocus() }, onSearch = { focusManager.clearFocus() })
-        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            StoreFilterChip("All", filter == 0) { filter = 0 }
-            StoreFilterChip("Installed", filter == 1) { filter = 1 }
-            StoreFilterChip("Game Pass", filter == 2) { filter = 2 }
-            StoreFilterChip("Owned", filter == 3) { filter = 3 }
-            StoreFilterChip("Cloud", filter == 4) { filter = 4 }
-            Spacer(Modifier.weight(1f))
-            Text(state.statusText, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+        val header = rememberXmbHeader()
+        val gridState = rememberLazyGridState()
+        header.Track(gridState)
+        header.Header {
+            CatalogSearchField(query = query, placeholder = "Search your Xbox library…", onQueryChange = { query = it },
+                onClear = { query = ""; focusManager.clearFocus() }, onSearch = { focusManager.clearFocus() })
+            Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                StoreFilterChip("All", filter == 0) { filter = 0 }
+                StoreFilterChip("Installed", filter == 1) { filter = 1 }
+                StoreFilterChip("Game Pass", filter == 2) { filter = 2 }
+                StoreFilterChip("Owned", filter == 3) { filter = 3 }
+                StoreFilterChip("Cloud", filter == 4) { filter = 4 }
+                Spacer(Modifier.weight(1f))
+                Text(state.statusText, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            }
         }
         val downloads by DownloadRegistry.entries.collectAsState()
         when {
@@ -369,6 +379,7 @@ private fun XboxLibraryTab(state: XboxLibraryState, wide: Boolean, onOpen: (Xbox
                 StoreNotice(title = "No matches", body = "Nothing in your library matches that filter.")
             }
             else -> LazyVerticalGrid(
+                state = gridState,
                 columns = GridCells.Adaptive(storeGridCell(wide)),
                 modifier = Modifier.fillMaxSize().focusGroup(),
                 contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 24.dp),
@@ -410,27 +421,32 @@ private fun XboxStoreTab(state: XboxLibraryState, wide: Boolean, onOpen: (XboxGa
     fun open(item: CatalogItem) { (state.games.firstOrNull { it.id == item.id } ?: byId[item.id])?.let(onOpen) }
 
     Column(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        CatalogSearchField(query = query, placeholder = "Search PC games on the Microsoft Store…",
-            onQueryChange = { query = it; if (it.isBlank()) results = null },
-            onClear = { query = ""; results = null; focusManager.clearFocus() },
-            onSearch = {
-                focusManager.clearFocus()
-                val q = query.trim()
-                if (q.length >= 2) {
-                    searching = true
-                    scope.launch {
-                        results = withContext(Dispatchers.IO) { runCatching { XboxCatalog.search(q, state.access) }.getOrDefault(emptyList()) }
-                        searching = false
+        val header = rememberXmbHeader()
+        val listState = rememberLazyListState()
+        header.Track(listState)
+        header.Header {
+            CatalogSearchField(query = query, placeholder = "Search PC games on the Microsoft Store…",
+                onQueryChange = { query = it; if (it.isBlank()) results = null },
+                onClear = { query = ""; results = null; focusManager.clearFocus() },
+                onSearch = {
+                    focusManager.clearFocus()
+                    val q = query.trim()
+                    if (q.length >= 2) {
+                        searching = true
+                        scope.launch {
+                            results = withContext(Dispatchers.IO) { runCatching { XboxCatalog.search(q, state.access) }.getOrDefault(emptyList()) }
+                            searching = false
+                        }
                     }
-                }
-            })
+                })
+        }
         val list = results
         if (list != null || searching) {
             CatalogResults(results = list.orEmpty().map { XboxMainActivity.toCatalogItem(it, it.id in state.installedIds) },
                 searching = searching, query = query, wide = wide, storeLabel = "Xbox",
                 emptyBody = "No PC games match. Console-only titles are not listed.",
                 actionFor = ::action, onOpen = ::open, onAction = ::open)
-        } else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+        } else LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = 24.dp)) {
             val owned = state.games.filter { it.id !in state.installedIds }.take(20).map { XboxMainActivity.toCatalogItem(it) }
             val installed = state.games.filter { it.id in state.installedIds }.map { XboxMainActivity.toCatalogItem(it, true) }
             val trending = featured.map { XboxMainActivity.toCatalogItem(it, it.id in state.installedIds) }

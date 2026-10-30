@@ -40,8 +40,18 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -49,7 +59,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -61,13 +70,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -77,7 +80,11 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.winlator.star.ui.deck.ScreenScale
+import com.winlator.star.ui.deck.XmbEditTapCatcher
 import com.winlator.star.ui.deck.XmbScreenWindow
+import com.winlator.star.ui.deck.rememberXmbEdit
+import com.winlator.star.ui.deck.xmbEditField
+import com.winlator.star.ui.deck.xmbEditStop
 import com.winlator.star.ui.deck.deckFocusRing
 import com.winlator.star.ui.deck.rememberScreenScale
 import com.winlator.star.ui.deck.rememberXmbHome
@@ -314,9 +321,93 @@ internal fun XmbRailItem(label: String, icon: ImageVector, selected: Boolean, co
         Icon(icon, contentDescription = label, tint = ink, modifier = Modifier.size(s.dp(18f)))
         if (selected) {
             Spacer(Modifier.height(s.dp(1f)))
-            Text(label, color = ink, fontSize = s.sp(10f), fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (count != null) Text("$count", color = cs.onSurfaceVariant, fontSize = s.sp(9f), maxLines = 1)
+            // Each line gets a line box no taller than its text, and the count is pulled up a touch, so it sits right
+            // under the label instead of a line of empty space below it.
+            Text(
+                label, color = ink, fontSize = s.sp(10f), lineHeight = s.sp(10f), fontWeight = FontWeight.Bold,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+            if (count != null) {
+                Text(
+                    "$count", color = cs.onSurfaceVariant, fontSize = s.sp(9f), lineHeight = s.sp(9f), maxLines = 1,
+                    modifier = Modifier.offset(y = -s.dp(2f)),
+                )
+            }
         }
+    }
+}
+
+/**
+ * The header above a store's list or grid (search field, filter chips, sort) in the XMB home: it slides away while you
+ * scroll down and comes back as soon as you scroll up, or the list is back at its top, so moving up with a controller
+ * always reaches it. Each scrolling list below reports itself through [Track]. Off the XMB home nothing ever collapses.
+ */
+@Stable
+internal class XmbHeaderState {
+    var shown by mutableStateOf(true)
+    internal var lastToggle = 0L
+}
+
+@Composable
+internal fun rememberXmbHeader(): XmbHeaderState = remember { XmbHeaderState() }
+
+/** The collapsing header of the store tab being drawn, so lists nested in its body can report their scrolling to it. */
+internal val LocalXmbHeader = staticCompositionLocalOf<XmbHeaderState?> { null }
+
+/** A list state that reports its scrolling to the surrounding tab's collapsing header, if it has one. */
+@Composable
+internal fun rememberTrackedListState(): LazyListState {
+    val state = rememberLazyListState()
+    LocalXmbHeader.current?.Track(state)
+    return state
+}
+
+/** Watches one list's position (first visible item and its offset) and hides or shows the header with its direction. */
+@Composable
+internal fun XmbHeaderState.Track(firstIndex: () -> Int, firstOffset: () -> Int) {
+    if (!LocalStoreXmb.current) return
+    LaunchedEffect(this) {
+        var lastI = firstIndex()
+        var lastO = firstOffset()
+        snapshotFlow { firstIndex() to firstOffset() }.collect { (i, o) ->
+            val down = i > lastI || (i == lastI && o > lastO)
+            val up = i < lastI || (i == lastI && o < lastO)
+            lastI = i
+            lastO = o
+            // Hiding or showing resizes the list, which can nudge its position for a moment: ignore that.
+            val now = System.currentTimeMillis()
+            if (now - lastToggle < 450L) return@collect
+            val next = when {
+                i == 0 && o == 0 -> true
+                down && i > 0 -> false
+                up -> true
+                else -> shown
+            }
+            if (next != shown) {
+                shown = next
+                lastToggle = now
+            }
+        }
+    }
+}
+
+@Composable
+internal fun XmbHeaderState.Track(list: LazyListState) = Track({ list.firstVisibleItemIndex }, { list.firstVisibleItemScrollOffset })
+
+@Composable
+internal fun XmbHeaderState.Track(grid: LazyGridState) = Track({ grid.firstVisibleItemIndex }, { grid.firstVisibleItemScrollOffset })
+
+/** The header's content: collapsible in the XMB home, plain (laid out as before) everywhere else. */
+@Composable
+internal fun XmbHeaderState.Header(content: @Composable ColumnScope.() -> Unit) {
+    if (!LocalStoreXmb.current) {
+        Column(content = content)
+    } else {
+        AnimatedVisibility(
+            visible = shown,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut(),
+        ) { Column(content = content) }
     }
 }
 
@@ -462,48 +553,17 @@ internal fun XmbSearchField(
     val s = rememberScreenScale()
     val cs = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(s.dp(9f))
-    val keyboard = LocalSoftwareKeyboardController.current
-    val outer = remember { FocusRequester() }
-    val field = remember { FocusRequester() }
-    var editing by remember { mutableStateOf(false) }
-    var lit by remember { mutableStateOf(false) }
-    var fieldFocused by remember { mutableStateOf(false) }
-    LaunchedEffect(editing) {
-        if (editing) {
-            withFrameNanos { }
-            runCatching { field.requestFocus() }
-            keyboard?.show()
-        }
-    }
-    val stopEditing = {
-        editing = false
-        keyboard?.hide()
-        runCatching { outer.requestFocus() }
-        Unit
-    }
+    // Tap-to-edit behaviour is shared with every other search bar (ui/deck/DeckXmbKit.kt).
+    val edit = rememberXmbEdit()
     Row(
         modifier = modifier
             .widthIn(max = s.w(0.45f, min = 240.dp, max = 520.dp))
             .height(s.h(0.09f, min = 40.dp, max = 52.dp))
-            .onPreviewKeyEvent { e ->
-                when {
-                    !editing && e.type == KeyEventType.KeyDown &&
-                        (e.key == Key.ButtonA || e.key == Key.Enter || e.key == Key.NumPadEnter || e.key == Key.DirectionCenter) -> {
-                        editing = true; true
-                    }
-                    editing && (e.key == Key.Back || e.key == Key.ButtonB || e.key == Key.Escape) -> {
-                        if (e.type == KeyEventType.KeyUp) stopEditing()
-                        true
-                    }
-                    else -> false
-                }
-            }
-            .onFocusChanged { lit = it.hasFocus }
-            .focusRequester(outer)
+            .xmbEditStop(edit)
             .clip(shape)
             .background(cs.surfaceContainer)
-            .border(if (lit || editing) 2.dp else 1.dp, if (lit || editing) cs.primary else cs.outline, shape)
-            .clickable { editing = true }
+            .border(if (edit.active) 2.dp else 1.dp, if (edit.active) cs.primary else cs.outline, shape)
+            .clickable { edit.start() }
             .padding(horizontal = s.dp(10f)),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -520,26 +580,10 @@ internal fun XmbSearchField(
                 textStyle = TextStyle(color = cs.onSurface, fontSize = s.sp(12.5f)),
                 cursorBrush = SolidColor(cs.primary),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { onSearch(); stopEditing() }),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .onFocusChanged {
-                        // Leaving the field (a tap elsewhere) ends typing; the first report (not focused yet) does not.
-                        if (fieldFocused && !it.isFocused) editing = false
-                        fieldFocused = it.isFocused
-                    }
-                    .focusRequester(field)
-                    .focusProperties { canFocus = editing },
+                keyboardActions = KeyboardActions(onSearch = { onSearch(); edit.stop() }),
+                modifier = Modifier.fillMaxWidth().xmbEditField(edit),
             )
-            // Not typing: the text field can't take focus, so a tap on it is caught here and starts typing.
-            if (!editing) {
-                Box(
-                    Modifier
-                        .matchParentSize()
-                        .focusProperties { canFocus = false }
-                        .clickable { editing = true },
-                )
-            }
+            XmbEditTapCatcher(edit)
         }
         if (query.isNotEmpty()) {
             Icon(
