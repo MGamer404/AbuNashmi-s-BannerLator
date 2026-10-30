@@ -31,6 +31,8 @@ import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -42,6 +44,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.winlator.star.ui.deck.rememberScreenScale
 import com.winlator.star.ui.theme.LocalAccentDim
+import kotlinx.coroutines.launch
 
 /**
  * The store-AGNOSTIC section shell: the Steam storefront's four-tab host
@@ -89,6 +92,17 @@ fun StoreSectionHost(
 
     BackHandler(enabled = true) {
         if (selected == 0) onClose() else onSelect(0)
+    }
+
+    // XMB home: L2 / R2 step through the rail's tabs (wrapping) from anywhere on the screen, then focus moves into
+    // the new tab's content, since whatever held it went away with the old tab.
+    val scope = rememberCoroutineScope()
+    StoreTabCycle(enabled = xmb && tabs.isNotEmpty()) { delta ->
+        onSelect((selected + delta + tabs.size) % tabs.size)
+        scope.launch {
+            repeat(2) { withFrameNanos { } }
+            runCatching { contentFocus.requestFocus() }
+        }
     }
 
     Box(
@@ -218,9 +232,9 @@ private fun SectionRail(
             .focusProperties { right = contentFocus },
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(if (xmb) 2.dp else 6.dp))
         statusSlot()
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(if (xmb) 4.dp else 8.dp))
 
         tabs.forEachIndexed { index, t ->
             val n = counts[t.key]?.takeIf { it > 0 }

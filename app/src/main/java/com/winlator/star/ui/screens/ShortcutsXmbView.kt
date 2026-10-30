@@ -74,7 +74,6 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -93,13 +92,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -130,11 +127,9 @@ import com.winlator.star.ui.LocalTopBarOverlayInset
 import com.winlator.star.ui.deck.rememberScreenScale
 import com.winlator.star.ui.findActivity
 import com.winlator.star.ui.theme.DangerRed
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.ceil
@@ -158,7 +153,7 @@ internal data class XmbAction(
 )
 
 /**
- * An upper-row card's background, drawn edge to edge on the card and, frosted, as the home's backdrop: a store's
+ * An upper-row card's background, drawn edge to edge on the card and, faintly blurred, behind the home: a store's
  * [logo] on its brand colours, or with no logo the card's own icon in white on [colors]. [tintWhite] = draw the logo white.
  */
 internal data class XmbCardArt(@DrawableRes val logo: Int?, val colors: List<Color>, val tintWhite: Boolean = false)
@@ -502,37 +497,48 @@ internal fun ShortcutsXmbView(
                     },
                 ),
         ) {
-            if (centeredHome) {
-                // Centred home: frosted glass over the focused game's cover, or the chosen card's art while the cards are
-                // up. No accent tint; the accent stays on the focus rings.
-                val art = if (upperOpen) upperRow.getOrNull(upIdx)?.art else null
-                XmbFrostedBackdrop(cover = if (upperOpen) null else focused.icon, art = art, modifier = Modifier.fillMaxSize())
-            } else {
-                // Background: accent glow → the focused cover, blurred → shade → the moving waves.
-                Box(
-                    Modifier.fillMaxSize().background(
-                        Brush.radialGradient(
-                            0f to accent.copy(alpha = 0.50f), 0.48f to accent.copy(alpha = 0.10f), 0.85f to Color.Black,
-                            center = Offset(wPx * 0.18f, 0f), radius = max(wPx, hPx) * 1.1f,
-                        )
+            // Background: accent glow → the focused cover (with the cards up, the chosen card's art), blurred → shade → the moving waves.
+            Box(
+                Modifier.fillMaxSize().background(
+                    Brush.radialGradient(
+                        0f to accent.copy(alpha = 0.50f), 0.48f to accent.copy(alpha = 0.10f), 0.85f to Color.Black,
+                        center = Offset(wPx * 0.18f, 0f), radius = max(wPx, hPx) * 1.1f,
                     )
                 )
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    Crossfade(targetState = focused.icon, animationSpec = tween(600), label = "xmbBackdrop") { bmp ->
-                        if (bmp != null) {
-                            Image(
-                                bitmap = remember(bmp) { bmp.asImageBitmap() },
-                                contentDescription = null,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize().blur(14.dp).alpha(0.34f),
-                            )
+            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val card = if (upperOpen) upperRow.getOrNull(upIdx) else null
+                // Keyed on the card's art and icon (not the card itself, whose lambdas change every recomposition).
+                val picture: Any? = card?.let { c -> c.art?.let { XmbBackdropArt(it, c.icon) } } ?: focused.icon
+                Crossfade(targetState = picture, animationSpec = tween(600), label = "xmbBackdrop") { pic ->
+                    when (pic) {
+                        is Bitmap -> Image(
+                            bitmap = remember(pic) { pic.asImageBitmap() },
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize().blur(14.dp).alpha(0.34f),
+                        )
+                        is XmbBackdropArt -> Box(
+                            Modifier.fillMaxSize().blur(14.dp).alpha(0.34f).background(Brush.linearGradient(pic.art.colors)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            val logo = pic.art.logo
+                            if (logo != null) {
+                                Image(
+                                    painterResource(logo), contentDescription = null, contentScale = ContentScale.Fit,
+                                    colorFilter = if (pic.art.tintWhite) ColorFilter.tint(Color.White) else null,
+                                    modifier = Modifier.fillMaxSize(0.6f),
+                                )
+                            } else {
+                                Icon(pic.icon, contentDescription = null, tint = Color.White, modifier = Modifier.fillMaxSize(0.4f))
+                            }
                         }
                     }
                 }
             }
             Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Color.Black.copy(alpha = 0.55f), 0.55f to Color.Black.copy(alpha = 0.1f), 1f to Color.Black.copy(alpha = 0.45f))))
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.4f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.9f))))
-            XmbWaves(if (centeredHome) Color.White else accent, Modifier.fillMaxSize())
+            XmbWaves(accent, Modifier.fillMaxSize())
             // Faint shade behind a see-through top bar so its title and buttons stay readable.
             if (topInset > 0.dp) {
                 Box(Modifier.fillMaxWidth().height(topInset + 24.dp).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.35f), Color.Transparent))))
@@ -1024,57 +1030,8 @@ private fun XmbUpperCard(
     }
 }
 
-// Centred home backdrop: frosted glass over [cover] (a game) or [art] (a store's logo on its colours), the veil darker
-// over bright pictures so the white text stays readable. Real blur from Android 12; before that a tiny copy of the
-// cover, stretched with smooth filtering, gives the same soft look.
-@Composable
-private fun XmbFrostedBackdrop(cover: Bitmap?, art: XmbCardArt?, modifier: Modifier) {
-    Crossfade(targetState = cover to art, modifier = modifier, animationSpec = tween(600), label = "xmbFrost") { (bmp, a) ->
-        val tiny = remember(bmp) { bmp?.let { runCatching { Bitmap.createScaledBitmap(it, 12, 18, true) }.getOrNull() } }
-        val shade by produceState(0.5f, tiny, a) { value = withContext(Dispatchers.Default) { xmbFrostShade(tiny, a) } }
-        Box(Modifier.fillMaxSize().background(Color(0xFF0C0C0C))) {
-            when {
-                a != null -> {
-                    Box(Modifier.fillMaxSize().background(Brush.linearGradient(a.colors)))
-                    val logo = a.logo
-                    if (logo != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        Image(
-                            painterResource(logo), contentDescription = null, contentScale = ContentScale.Fit,
-                            colorFilter = if (a.tintWhite) ColorFilter.tint(Color.White) else null,
-                            modifier = Modifier.fillMaxSize(0.8f).align(Alignment.Center).blur(48.dp).alpha(0.45f),
-                        )
-                    }
-                }
-                bmp != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> Image(
-                    bitmap = remember(bmp) { bmp.asImageBitmap() }, contentDescription = null,
-                    contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().blur(40.dp),
-                )
-                tiny != null -> Image(
-                    bitmap = remember(tiny) { tiny.asImageBitmap() }, contentDescription = null,
-                    contentScale = ContentScale.Crop, filterQuality = FilterQuality.Low, modifier = Modifier.fillMaxSize(),
-                )
-            }
-            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = shade)))
-        }
-    }
-}
-
-/** The frost's veil: 0.35 over a dark picture, up to 0.75 over a white one. */
-private fun xmbFrostShade(tiny: Bitmap?, art: XmbCardArt?): Float {
-    val lum = when {
-        art != null -> art.colors.map { it.luminance() }.average().toFloat()
-        tiny != null -> runCatching {
-            var sum = 0f
-            for (x in 0 until tiny.width) for (y in 0 until tiny.height) {
-                val p = tiny.getPixel(x, y)
-                sum += (0.2126f * ((p shr 16) and 0xFF) + 0.7152f * ((p shr 8) and 0xFF) + 0.0722f * (p and 0xFF)) / 255f
-            }
-            sum / (tiny.width * tiny.height)
-        }.getOrDefault(0.4f)
-        else -> 0f
-    }
-    return 0.35f + 0.4f * lum.coerceIn(0f, 1f)
-}
+/** What the backdrop shows for a chosen upper-row card: its [art], with [icon] standing in for a missing logo. */
+private data class XmbBackdropArt(val art: XmbCardArt, val icon: ImageVector)
 
 // Right / lower pane: store badges, the same spec chips as the list card, playtime and Game Details.
 @OptIn(ExperimentalLayoutApi::class)

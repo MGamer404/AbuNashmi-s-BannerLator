@@ -1,5 +1,9 @@
 package com.winlator.star.store
 
+import android.os.SystemClock
+import android.view.InputDevice
+import android.view.KeyEvent
+import android.view.MotionEvent
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -34,10 +38,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.withFrameNanos
@@ -57,6 +63,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -64,6 +71,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.winlator.star.ui.deck.ScreenScale
 import com.winlator.star.ui.deck.XmbScreenWindow
 import com.winlator.star.ui.deck.deckFocusRing
@@ -102,6 +111,84 @@ internal fun StoreXmbScreen(content: @Composable () -> Unit) {
     }
 }
 
+/**
+ * L2 / R2 for the store screens in XMB home: they step through the rail's tabs from anywhere on the screen. Each store
+ * activity feeds its key and motion events here; [StoreTabCycle] sets [onCycle] only while its screen is resumed in
+ * XMB home, so in the other interfaces (and on a screen in the background) nothing is consumed.
+ */
+internal object StoreXmbInput {
+    @Volatile
+    var onCycle: ((Int) -> Unit)? = null
+
+    private var l2Down = false
+    private var r2Down = false
+    private var lastPrev = 0L
+    private var lastNext = 0L
+
+    /** From an activity's dispatchKeyEvent: true when it took the key (L2 / R2, down and up alike). */
+    fun onKey(ev: KeyEvent): Boolean {
+        if (onCycle == null) return false
+        val delta = when (ev.keyCode) {
+            KeyEvent.KEYCODE_BUTTON_L2 -> -1
+            KeyEvent.KEYCODE_BUTTON_R2 -> 1
+            else -> return false
+        }
+        if (ev.action == KeyEvent.ACTION_DOWN && ev.repeatCount == 0) fire(delta)
+        return true
+    }
+
+    /**
+     * From an activity's dispatchGenericMotionEvent. Pads that report the triggers only as axes (the built-in
+     * Xbox-layout pad on handhelds) press past 0.6 and release below 0.3, as in the Deck shell. It never consumes
+     * the event, so the sticks and the hat keep reaching the screen.
+     */
+    fun onMotion(ev: MotionEvent) {
+        if (onCycle == null || ev.action != MotionEvent.ACTION_MOVE) return
+        if ((ev.source and InputDevice.SOURCE_JOYSTICK) != InputDevice.SOURCE_JOYSTICK) return
+        val l = maxOf(ev.getAxisValue(MotionEvent.AXIS_LTRIGGER), ev.getAxisValue(MotionEvent.AXIS_BRAKE))
+        val r = maxOf(ev.getAxisValue(MotionEvent.AXIS_RTRIGGER), ev.getAxisValue(MotionEvent.AXIS_GAS))
+        val lNow = if (l2Down) l > 0.3f else l > 0.6f
+        val rNow = if (r2Down) r > 0.3f else r > 0.6f
+        if (lNow && !l2Down) fire(-1)
+        if (rNow && !r2Down) fire(1)
+        l2Down = lNow
+        r2Down = rNow
+    }
+
+    // A pad that sends both the button and the axis for one press steps only once.
+    private fun fire(delta: Int) {
+        val now = SystemClock.uptimeMillis()
+        if (delta < 0) { if (now - lastPrev < 200) return; lastPrev = now } else { if (now - lastNext < 200) return; lastNext = now }
+        onCycle?.invoke(delta)
+    }
+}
+
+/**
+ * Hands L2 / R2 to this store screen while it is resumed and [enabled] (XMB home): [onCycle] gets -1 / +1 and switches
+ * the tab the way tapping it does.
+ */
+@Composable
+internal fun StoreTabCycle(enabled: Boolean, onCycle: (Int) -> Unit) {
+    val current by rememberUpdatedState(onCycle)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(enabled, lifecycleOwner) {
+        if (!enabled) return@DisposableEffect onDispose {}
+        val handler: (Int) -> Unit = { current(it) }
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> StoreXmbInput.onCycle = handler
+                Lifecycle.Event.ON_PAUSE -> if (StoreXmbInput.onCycle === handler) StoreXmbInput.onCycle = null
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            if (StoreXmbInput.onCycle === handler) StoreXmbInput.onCycle = null
+        }
+    }
+}
+
 /** The slim rail's width: room for the icons, and the current tab's short label under its icon. */
 internal fun ScreenScale.xmbRailWidth(): Dp = w(0.055f, min = 52.dp, max = 76.dp)
 
@@ -120,7 +207,7 @@ internal fun steamTallArt(appId: Int): String =
 
 /**
  * One rail entry, packed tight: just the icon, and on the tab you're on its one-line label (the count, if any, on a
- * second line) under it. At least 44 dp tall, so every tab stays easy to tap.
+ * second line) under it. The tabs sit edge to edge, each at least 40 dp tall so it stays easy to tap.
  */
 @Composable
 internal fun XmbRailItem(label: String, icon: ImageVector, selected: Boolean, count: Int?, onClick: () -> Unit) {
@@ -131,19 +218,19 @@ internal fun XmbRailItem(label: String, icon: ImageVector, selected: Boolean, co
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 4.dp, vertical = 1.dp)
+            .padding(horizontal = 4.dp)
             .steamFocusRing(shape)
             .clip(shape)
             .background(if (selected) LocalAccentDim.current else Color.Transparent)
             .clickable(onClick = onClick)
-            .heightIn(min = 44.dp)
-            .padding(vertical = s.dp(4f)),
+            .heightIn(min = 40.dp)
+            .padding(vertical = s.dp(2f)),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(icon, contentDescription = label, tint = ink, modifier = Modifier.size(s.dp(20f)))
+        Icon(icon, contentDescription = label, tint = ink, modifier = Modifier.size(s.dp(18f)))
         if (selected) {
-            Spacer(Modifier.height(s.dp(2f)))
+            Spacer(Modifier.height(s.dp(1f)))
             Text(label, color = ink, fontSize = s.sp(10f), fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (count != null) Text("$count", color = cs.onSurfaceVariant, fontSize = s.sp(9f), maxLines = 1)
         }

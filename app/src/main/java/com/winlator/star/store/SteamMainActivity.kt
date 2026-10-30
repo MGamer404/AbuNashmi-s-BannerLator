@@ -60,8 +60,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -123,6 +126,15 @@ class SteamMainActivity : ComponentActivity() {
     /** True once the sign-in screen has been launched, so backing out of it closes this host
      *  instead of stranding the user on the boot spinner. */
     private var launchedLogin = false
+
+    // XMB home: L2 / R2 (buttons or analog triggers) step through the rail's tabs; see StoreXmbInput.
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean =
+        StoreXmbInput.onKey(event) || super.dispatchKeyEvent(event)
+
+    override fun dispatchGenericMotionEvent(ev: android.view.MotionEvent): Boolean {
+        StoreXmbInput.onMotion(ev)
+        return super.dispatchGenericMotionEvent(ev)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -316,6 +328,18 @@ fun SteamStorefrontHost(
     // first, so the hardware back button never dumps a user out of a tab they navigated into.
     BackHandler(enabled = true) {
         if (tab == SteamTab.STORE) onClose() else tab = SteamTab.STORE
+    }
+
+    // XMB home: L2 / R2 step through the rail's tabs (wrapping) from anywhere on the screen, then focus moves into
+    // the new tab's content, since whatever held it went away with the old tab.
+    val tabScope = rememberCoroutineScope()
+    StoreTabCycle(enabled = LocalStoreXmb.current) { delta ->
+        val all = SteamTab.values()
+        tab = all[(tab.ordinal + delta + all.size) % all.size]
+        tabScope.launch {
+            repeat(2) { withFrameNanos { } }
+            runCatching { contentFocus.requestFocus() }
+        }
     }
 
     val content: @Composable (Modifier) -> Unit = { mod ->
@@ -558,12 +582,12 @@ private fun StorefrontRail(
             .focusProperties { right = contentFocus },
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(if (xmb) 2.dp else 6.dp))
         // A compact status dot, not the full SteamStatusPill: the pill's label ("Signed in
         // elsewhere") would wrap to three lines inside a 96dp rail. The pill still carries the
         // wording in portrait's top bar; here the dot keeps the colour and the reconnect tap.
         RailStatusDot(status = library.steamStatus, onReconnect = library.reconnect)
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(if (xmb) 4.dp else 8.dp))
 
         SteamTab.values().forEach { t ->
             val n = counts[t]?.takeIf { it > 0 }
