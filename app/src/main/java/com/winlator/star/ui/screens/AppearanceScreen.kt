@@ -198,11 +198,12 @@ fun AppearanceScreen() {
             fontSize = 12.sp,
         )
         Spacer(Modifier.height(6.dp))
-        // The Deck interface keeps its own lock (landscape, or portrait from the rotate button in its bars);
-        // the setting below is Classic's and comes back with it.
-        if (uiStyle == AppThemeState.UI_STYLE_DECK) {
+        // The XMB home keeps its own lock (landscape, or portrait from the rotate button in its bars);
+        // every other mode uses the setting below.
+        val orientationLocked = uiStyle == AppThemeState.UI_STYLE_DECK && AppThemeState.deckXmbHome.collectAsState().value
+        if (orientationLocked) {
             Text(
-                text = "The Deck interface stays in landscape and never turns with the device. " +
+                text = "The XMB home stays in landscape and never turns with the device. " +
                     "Use the rotate button in its top bar to switch to portrait and back.",
                 color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 14.sp,

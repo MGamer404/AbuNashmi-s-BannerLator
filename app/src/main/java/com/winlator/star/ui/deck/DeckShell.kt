@@ -345,9 +345,9 @@ private fun DeckShellContent(
     // and it is hidden again whenever this one resumes. The status bar stays.
     val activity = context as? android.app.Activity
     val lifecycleOwner = LocalLifecycleOwner.current
-    // The Deck style locks the app to its own orientation (AppOrientation.deckMode); switching back to Classic disposes
-    // the shell after the style pref has changed, so applying again there hands the window back to Classic's choice.
-    DisposableEffect(activity) {
+    // The XMB home locks the app to its own orientation (AppOrientation.deckMode); turning it off, or switching back to
+    // Classic, re-runs or disposes this after the pref has changed, so applying again hands the window back to Auto & co.
+    DisposableEffect(activity, xmbHome) {
         activity?.let { AppOrientation.apply(it) }
         onDispose { activity?.let { AppOrientation.apply(it) } }
     }
@@ -969,11 +969,14 @@ private fun DeckSearchButton(onSearch: () -> Unit, dpad: Boolean = true) {
 }
 
 /**
- * Flips the Deck orientation lock (landscape by default, portrait after a tap) and applies it at once. Touch only:
- * it never takes D-pad focus, on any bar. [tint] and [size] let the XMB home's floating bar mute it.
+ * Flips the XMB home's orientation lock (landscape by default, portrait after a tap) and applies it at once. Shown only
+ * in that mode; the others rotate with the device as set in Appearance. Touch only: it never takes D-pad focus, on any
+ * bar. [tint] and [size] let the XMB home's floating bar mute it.
  */
 @Composable
 private fun DeckRotateButton(tint: Color = MaterialTheme.colorScheme.onSurface, size: Dp = 40.dp, iconSize: Dp = 24.dp) {
+    val xmbHome by AppThemeState.deckXmbHome.collectAsState()
+    if (!xmbHome) return
     val context = LocalContext.current
     Box(
         contentAlignment = Alignment.Center,
@@ -1339,7 +1342,6 @@ private fun DeckSideRail(
             }
             Spacer(Modifier.height(6.dp))
             DeckSearchButton(onSearch)
-            DeckRotateButton()
             DeckRailStatus(avatarUrl = avatarUrl, showAvatar = roomy, showBattery = !short, onAccount = onAccount)
         }
     }
