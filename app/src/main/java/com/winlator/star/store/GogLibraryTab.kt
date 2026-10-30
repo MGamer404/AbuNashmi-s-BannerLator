@@ -189,7 +189,7 @@ fun GogLibraryTab(
             }
 
             else -> LazyVerticalGrid(
-                columns = GridCells.Adaptive(if (wide) 132.dp else 118.dp),
+                columns = GridCells.Adaptive(storeGridCell(wide)),
                 modifier = Modifier.fillMaxSize().focusGroup(),
                 contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 24.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),

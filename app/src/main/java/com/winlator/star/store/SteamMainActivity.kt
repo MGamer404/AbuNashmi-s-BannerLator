@@ -79,6 +79,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.winlator.star.R
 import com.winlator.star.store.download.DownloadsButton
+import com.winlator.star.ui.deck.rememberScreenScale
 import com.winlator.star.ui.theme.LocalAccentDim
 import com.winlator.star.ui.theme.WinlatorTheme
 
@@ -138,7 +139,7 @@ class SteamMainActivity : ComponentActivity() {
         applyIntent(intent)
 
         setContent {
-            WinlatorTheme {
+            WinlatorTheme { StoreXmbScreen {
                 if (loggedIn.value) {
                     SteamStorefrontHost(
                         initialTab = startTab.value,
@@ -148,7 +149,7 @@ class SteamMainActivity : ComponentActivity() {
                 } else {
                     SteamBootScreen()
                 }
-            }
+            } }
         }
 
         if (needsNotificationPermission()) {
@@ -371,9 +372,9 @@ fun SteamStorefrontHost(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
             // The Steam activities are not edge-to-edge, so systemBars is usually zero — but the
-            // display cutout is NOT, and in landscape on a handheld it eats the rail. Both, always.
-            .systemBarsPadding()
-            .displayCutoutPadding(),
+            // display cutout is NOT, and in landscape on a handheld it eats the rail. Both, always —
+            // except in XMB home, where StoreXmbScreen already frames the screen edge to edge.
+            .then(if (LocalStoreXmb.current) Modifier else Modifier.systemBarsPadding().displayCutoutPadding()),
     ) {
         if (layout.wide) {
             Row(modifier = Modifier.fillMaxSize()) {
@@ -543,10 +544,13 @@ private fun StorefrontRail(
     onChangeAccount: () -> Unit,
     contentFocus: FocusRequester,
 ) {
+    // XMB home: a slim rail, just wide enough for an icon over a short label.
+    val xmb = LocalStoreXmb.current
+    val railWidth = if (xmb) rememberScreenScale().xmbRailWidth() else RAIL_WIDTH
     Column(
         modifier = Modifier
             // EXACT width — see the note above. Do not replace with widthIn/wrapContentWidth.
-            .width(RAIL_WIDTH)
+            .width(railWidth)
             .fillMaxHeight()
             .background(MaterialTheme.colorScheme.background)
             .verticalScroll(rememberScrollState())
@@ -563,6 +567,10 @@ private fun StorefrontRail(
 
         SteamTab.values().forEach { t ->
             val n = counts[t]?.takeIf { it > 0 }
+            if (xmb) {
+                XmbRailItem(t.label, t.icon, selected = tab == t, count = n, onClick = { onSelect(t) })
+                return@forEach
+            }
             NavigationRailItem(
                 selected = tab == t,
                 onClick = { onSelect(t) },
@@ -592,7 +600,7 @@ private fun StorefrontRail(
         HorizontalDivider(
             // Explicit width rather than the fillMaxWidth() default. Belt-and-braces: the Column's
             // exact width already contains it, but this is the modifier that caused the bug.
-            modifier = Modifier.width(RAIL_WIDTH - 24.dp),
+            modifier = Modifier.width(railWidth - 16.dp),
             thickness = 1.dp,
             color = MaterialTheme.colorScheme.outline,
         )

@@ -73,7 +73,7 @@ class AmazonMainActivity : ComponentActivity() {
         startTab = intent?.getIntExtra(EXTRA_TAB, 0) ?: 0
         refreshView()
         setContent {
-            WinlatorTheme {
+            WinlatorTheme { StoreXmbScreen {
                 if (isLoggedIn) {
                     AmazonStorefrontHost(
                         initialTab = startTab,
@@ -92,7 +92,7 @@ class AmazonMainActivity : ComponentActivity() {
                     })
                     resultBarMsg?.let { UninstallResultBar(it) { resultBarMsg = null } }
                 }
-            }
+            } }
         }
     }
 

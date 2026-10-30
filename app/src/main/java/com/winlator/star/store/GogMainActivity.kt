@@ -77,7 +77,7 @@ class GogMainActivity : ComponentActivity() {
         startTab = intent?.getIntExtra(EXTRA_TAB, 0) ?: 0
         refreshView()
         setContent {
-            WinlatorTheme {
+            WinlatorTheme { StoreXmbScreen {
                 if (isLoggedIn) {
                     GogStorefrontHost(
                         initialTab = startTab,
@@ -93,7 +93,7 @@ class GogMainActivity : ComponentActivity() {
                         startActivity(Intent(this@GogMainActivity, GogLoginActivity::class.java))
                     })
                 }
-            }
+            } }
         }
     }
 

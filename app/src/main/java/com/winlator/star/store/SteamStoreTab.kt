@@ -15,6 +15,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -42,6 +45,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import com.winlator.star.ui.deck.rememberScreenScale
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -335,7 +339,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.railItems(
     item(key = "rail_$title") {
         LazyRow(
             modifier = Modifier.fillMaxWidth().focusGroup(),
-            contentPadding = PaddingValues(horizontal = 14.dp),
+            // XMB home: room above and below for a focused cover's pop.
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = if (LocalStoreXmb.current) 8.dp else 0.dp),
             horizontalArrangement = Arrangement.spacedBy(11.dp),
         ) {
             items(games, key = { it.appId }) { g ->
@@ -359,6 +364,13 @@ private fun StoreSearchField(
     onClear: () -> Unit,
     onSearch: () -> Unit,
 ) {
+    if (LocalStoreXmb.current) {
+        XmbSearchField(
+            query, "Search the Steam catalog…", onQueryChange, onClear, onSearch,
+            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+        )
+        return
+    }
     OutlinedTextField(
         value = query,
         onValueChange = onQueryChange,
@@ -437,6 +449,22 @@ private fun StoreResults(
                 title = "No matches",
                 body = "Nothing in Steam's catalog matched that. Try a shorter or different title.",
             )
+
+            // XMB home: the results as a grid of portrait covers.
+            LocalStoreXmb.current -> LazyVerticalGrid(
+                columns = GridCells.Adaptive(rememberScreenScale().xmbCoverWidth()),
+                modifier = Modifier.fillMaxSize().focusGroup(),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                gridItems(results, key = { it.appId }) { g ->
+                    XmbStoreCover(
+                        art = listOfNotNull(steamTallArt(g.appId), g.artUrl), title = g.name, onClick = { onOpen(g.appId) },
+                        footer = { StorePriceRow(g) },
+                    )
+                }
+            }
 
             // Two columns in landscape: the rows are ~340dp of useful content, so a wide screen
             // fits two side by side instead of stretching one across the whole panel.

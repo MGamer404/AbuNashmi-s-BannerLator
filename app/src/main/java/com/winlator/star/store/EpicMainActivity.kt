@@ -74,7 +74,7 @@ class EpicMainActivity : ComponentActivity() {
         startTab = intent?.getIntExtra(EXTRA_TAB, 0) ?: 0
         refreshView()
         setContent {
-            WinlatorTheme {
+            WinlatorTheme { StoreXmbScreen {
                 if (isLoggedIn) {
                     EpicStorefrontHost(
                         initialTab = startTab,
@@ -93,7 +93,7 @@ class EpicMainActivity : ComponentActivity() {
                     })
                     resultBarMsg?.let { UninstallResultBar(it) { resultBarMsg = null } }
                 }
-            }
+            } }
         }
     }
 

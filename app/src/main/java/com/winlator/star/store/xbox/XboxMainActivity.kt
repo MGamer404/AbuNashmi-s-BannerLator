@@ -61,6 +61,8 @@ import com.winlator.star.store.CatalogHeroCard
 import com.winlator.star.store.CatalogItem
 import com.winlator.star.store.CatalogLibraryTile
 import com.winlator.star.store.CatalogResults
+import com.winlator.star.store.StoreXmbScreen
+import com.winlator.star.store.storeGridCell
 import com.winlator.star.store.CatalogSearchField
 import com.winlator.star.store.StoreAvatar
 import com.winlator.star.store.StoreFilterChip
@@ -124,7 +126,7 @@ class XboxMainActivity : ComponentActivity() {
         startTab = intent?.getIntExtra(EXTRA_TAB, 1) ?: 1
         refreshAccount()
         setContent {
-            WinlatorTheme {
+            WinlatorTheme { StoreXmbScreen {
                 val signedIn = account
                 if (signedIn != null) {
                     XboxStorefrontHost(
@@ -143,7 +145,7 @@ class XboxMainActivity : ComponentActivity() {
                         onLoginClick = { startActivity(Intent(this, XboxLoginActivity::class.java)) },
                     )
                 }
-            }
+            } }
         }
     }
 
@@ -357,7 +359,7 @@ private fun XboxLibraryTab(state: XboxLibraryState, wide: Boolean, onOpen: (Xbox
                 StoreNotice(title = "No matches", body = "Nothing in your library matches that filter.")
             }
             else -> LazyVerticalGrid(
-                columns = GridCells.Adaptive(if (wide) 132.dp else 118.dp),
+                columns = GridCells.Adaptive(storeGridCell(wide)),
                 modifier = Modifier.fillMaxSize().focusGroup(),
                 contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 24.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),

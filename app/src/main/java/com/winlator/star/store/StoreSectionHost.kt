@@ -40,6 +40,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.winlator.star.ui.deck.rememberScreenScale
 import com.winlator.star.ui.theme.LocalAccentDim
 
 /**
@@ -83,6 +84,8 @@ fun StoreSectionHost(
 ) {
     val layout = rememberStorefrontLayout()
     val contentFocus = remember { FocusRequester() }
+    // XMB home: StoreXmbScreen already lays the screen out edge to edge in its frame, with the bars hidden.
+    val xmb = LocalStoreXmb.current
 
     BackHandler(enabled = true) {
         if (selected == 0) onClose() else onSelect(0)
@@ -92,8 +95,7 @@ fun StoreSectionHost(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .systemBarsPadding()
-            .displayCutoutPadding(),
+            .then(if (xmb) Modifier else Modifier.systemBarsPadding().displayCutoutPadding()),
     ) {
         if (layout.wide) {
             Row(modifier = Modifier.fillMaxSize()) {
@@ -202,10 +204,13 @@ private fun SectionRail(
     statusSlot: @Composable ColumnScope.() -> Unit,
     actions: @Composable ColumnScope.() -> Unit,
 ) {
+    // XMB home: a slim rail, just wide enough for an icon over a short label.
+    val xmb = LocalStoreXmb.current
+    val railWidth = if (xmb) rememberScreenScale().xmbRailWidth() else RAIL_WIDTH
     Column(
         modifier = Modifier
             // EXACT width. Do not replace with widthIn/wrapContentWidth.
-            .width(RAIL_WIDTH)
+            .width(railWidth)
             .fillMaxHeight()
             .background(MaterialTheme.colorScheme.background)
             .verticalScroll(rememberScrollState())
@@ -219,6 +224,10 @@ private fun SectionRail(
 
         tabs.forEachIndexed { index, t ->
             val n = counts[t.key]?.takeIf { it > 0 }
+            if (xmb) {
+                XmbRailItem(t.label, t.icon, selected = selected == index, count = n, onClick = { onSelect(index) })
+                return@forEachIndexed
+            }
             NavigationRailItem(
                 selected = selected == index,
                 onClick = { onSelect(index) },
@@ -246,7 +255,7 @@ private fun SectionRail(
 
         Spacer(Modifier.height(8.dp))
         HorizontalDivider(
-            modifier = Modifier.width(RAIL_WIDTH - 24.dp),
+            modifier = Modifier.width(railWidth - 16.dp),
             thickness = 1.dp,
             color = MaterialTheme.colorScheme.outline,
         )

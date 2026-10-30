@@ -60,6 +60,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -250,6 +251,9 @@ private fun DeckShellContent(
     val tab = deckTabOf(currentRoute)
 
     val nav = remember(navController) { DeckNav(navController) }
+    // XMB home: no Stores tab; the stores are cards in Home's upper row. Its route stays for search and the other modes.
+    val tabs = if (xmbHome) DeckTab.entries - DeckTab.STORES else DeckTab.entries
+    SideEffect { nav.tabs = tabs }
     val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
     val tabRequesters = remember { DeckTab.entries.associateWith { FocusRequester() } }
@@ -516,6 +520,7 @@ private fun DeckShellContent(
                 if (topTabs && !full && !homeBleed) {
                     DeckTopBar(
                         current = tab,
+                        tabs = tabs,
                         wide = cfg.screenWidthDp >= DECK_WIDE_TABS_DP,
                         tabRequesters = tabRequesters,
                         avatarUrl = account?.displayAvatarUrl,
@@ -580,6 +585,7 @@ private fun DeckShellContent(
                         } else if (!rails) {
                             DeckTopBar(
                                 current = tab,
+                                tabs = tabs,
                                 wide = cfg.screenWidthDp >= DECK_WIDE_TABS_DP,
                                 tabRequesters = tabRequesters,
                                 avatarUrl = account?.displayAvatarUrl,
@@ -651,6 +657,7 @@ private fun DeckShellContent(
                                                     GamesScreenRequests.pending = GamesScreenRequests.Request(GameMenuAction.ADD_GAME)
                                                 },
                                                 onBigPicture = { nav.open(Screen.BigPicture.route) },
+                                                onLaunchStore = onLaunchStore,
                                             )
                                         }
                                         composable(
@@ -711,21 +718,21 @@ private fun DeckShellContent(
                         // App-wide minimized progress pill for a running archive unpack (renders nothing when idle).
                         com.winlator.star.ui.UnpackProgressPill()
 
-                        if (!compact && !full && !homeBleed && !framed) legend(cutoutEnd)
+                        // XMB home: no legend on any tab, only the floating Search below.
+                        if (!compact && !full && !xmbHome) legend(cutoutEnd)
                     }
                 }
-                // Framed: the legend spans the whole width under the page rail and the page, its items where they were.
-                if (framed && !full) legend(frame)
                 if (compact && !full) {
-                    DeckBottomBar(current = tab, onTab = { nav.goTab(it) }, dpad = !xmbHome)
+                    DeckBottomBar(current = tab, tabs = tabs, onTab = { nav.goTab(it) }, dpad = !xmbHome)
                 }
             }
 
-            // XMB home: the tabs and status float over the XMB's own space above its game row, clear of the camera hole,
-            // and Search sits bottom right. No backgrounds, so the XMB's backdrop shows through.
+            // XMB home: the tabs and status float over the XMB's own space above its game row, clear of the camera hole.
+            // No backgrounds, so the XMB's backdrop shows through.
             if (homeBleed) {
                 DeckFloatingBar(
                     current = tab,
+                    tabs = tabs,
                     avatarUrl = account?.displayAvatarUrl,
                     portrait = !rails,
                     startInset = cutout.calculateStartPadding(dir),
@@ -735,11 +742,19 @@ private fun DeckShellContent(
                     onAccount = { AccountUiBus.requestMyAccount() },
                     modifier = Modifier.align(Alignment.TopStart).padding(top = cutout.calculateTopPadding()),
                 )
+            }
+            // XMB home, every tab but the phone layout (which has its bars): the only hint is a muted Search bottom right,
+            // clear of the camera frame. It may sit over a page's corner.
+            if (xmbHome && !compact) {
+                val ss = rememberScreenScale()
                 DeckFloatingSearch(
                     onSearch = { (deckActions.search.value ?: openSearch)() },
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(end = 16.dp + cutout.calculateEndPadding(dir), bottom = 12.dp + cutout.calculateBottomPadding()),
+                        .padding(
+                            end = ss.dp(16f) + maxOf(frame, cutout.calculateEndPadding(dir)),
+                            bottom = ss.dp(12f) + cutout.calculateBottomPadding(),
+                        ),
                 )
             }
 
@@ -789,9 +804,11 @@ private class DeckNav(private val navController: NavHostController) {
         }
     }
 
+    /** The tabs L1/R1 move through (the XMB home has no Stores tab: its stores are cards on Home). */
+    var tabs: List<DeckTab> = DeckTab.entries
+
     /** Move [delta] tabs along, wrapping; returns the tab now shown. */
     fun cycle(delta: Int): DeckTab {
-        val tabs = DeckTab.entries
         val i = tabs.indexOf(deckTabOf(currentRoute()))
         val t = tabs[(i + delta + tabs.size) % tabs.size]
         goTab(t)
@@ -835,6 +852,7 @@ private fun deckPageTitle(context: Context, route: String, id: Int): String = wh
 @Composable
 private fun DeckTopBar(
     current: DeckTab,
+    tabs: List<DeckTab>,
     wide: Boolean,
     tabRequesters: Map<DeckTab, FocusRequester>,
     avatarUrl: String?,
@@ -881,7 +899,7 @@ private fun DeckTopBar(
                     .horizontalScroll(rememberScrollState())
                     .padding(vertical = 4.dp),
             ) {
-                DeckTab.entries.forEach { t ->
+                tabs.forEach { t ->
                     DeckTabButton(
                         t,
                         selected = t == current,
@@ -1089,6 +1107,7 @@ private fun DeckStatus(avatarUrl: String?, showBattery: Boolean, onAccount: () -
 @Composable
 private fun DeckFloatingBar(
     current: DeckTab,
+    tabs: List<DeckTab>,
     avatarUrl: String?,
     portrait: Boolean,
     startInset: Dp,
@@ -1101,22 +1120,25 @@ private fun DeckFloatingBar(
     val accent = MaterialTheme.colorScheme.primary
     val clock = rememberDeckClock()
     val battery = rememberDeckBattery()
-    // Portrait leaves 34 dp above the game row, landscape a good deal more.
+    // Sized with the screen, as the XMB's own clear space above its game row is (its peek clip is 50 of the same units):
+    // portrait leaves 34 there, landscape a good deal more.
+    val ss = rememberScreenScale()
+    val k = if (portrait) 0.8f else 1f
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(ss.dp(6f)),
         modifier = modifier
             .fillMaxWidth()
-            .padding(start = 16.dp + startInset, end = 16.dp + endInset, top = if (portrait) 2.dp else 6.dp)
-            .height(if (portrait) 30.dp else 40.dp),
+            .padding(start = ss.dp(16f) + startInset, end = ss.dp(16f) + endInset, top = ss.dp(if (portrait) 2f else 6f))
+            .height(ss.dp(40f * k)),
     ) {
         FloatingBumper("L1") { onCycle(-1) }
-        DeckTab.entries.forEach { t ->
+        tabs.forEach { t ->
             val selected = t == current
             val ink = if (selected) Color.White else Color.White.copy(alpha = 0.55f)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(ss.dp(6f)),
                 modifier = Modifier
                     .fillMaxHeight()
                     .clip(RoundedCornerShape(10.dp))
@@ -1134,28 +1156,28 @@ private fun DeckFloatingBar(
                             )
                         }
                     }
-                    .padding(horizontal = 8.dp),
+                    .padding(horizontal = ss.dp(8f)),
             ) {
-                Icon(t.icon, contentDescription = t.label, tint = ink, modifier = Modifier.size(if (portrait) 16.dp else 18.dp))
+                Icon(t.icon, contentDescription = t.label, tint = ink, modifier = Modifier.size(ss.dp(18f * k)))
                 if (selected) {
-                    Text(t.label, color = ink, fontSize = if (portrait) 13.sp else 15.sp, fontWeight = FontWeight.Light, maxLines = 1)
+                    Text(t.label, color = ink, fontSize = ss.sp(15f * k), fontWeight = FontWeight.Light, maxLines = 1)
                 }
             }
         }
         FloatingBumper("R1") { onCycle(1) }
         Spacer(Modifier.weight(1f))
-        DeckRotateButton(tint = Color(0xFFAAAAAA), size = if (portrait) 28.dp else 34.dp, iconSize = if (portrait) 16.dp else 18.dp)
+        DeckRotateButton(tint = Color(0xFFAAAAAA), size = ss.dp(34f * k), iconSize = ss.dp(18f * k))
         Box(modifier = Modifier.alpha(0.75f)) { com.winlator.star.store.SteamConnectionPill(compact = true) }
-        Text(clock, color = Color(0xFFDDDDDD), fontSize = if (portrait) 12.sp else 15.sp, fontWeight = FontWeight.Light, maxLines = 1)
+        Text(clock, color = Color(0xFFDDDDDD), fontSize = ss.sp(15f * k), fontWeight = FontWeight.Light, maxLines = 1)
         if (battery >= 0) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     imageVector = if (battery <= 20) Icons.Filled.BatteryAlert else Icons.Filled.BatteryFull,
                     contentDescription = null,
                     tint = Color(0xFFAAAAAA),
-                    modifier = Modifier.size(14.dp),
+                    modifier = Modifier.size(ss.dp(14f)),
                 )
-                Text("$battery%", color = Color(0xFFAAAAAA), fontSize = if (portrait) 11.sp else 13.sp, fontWeight = FontWeight.Light, maxLines = 1)
+                Text("$battery%", color = Color(0xFFAAAAAA), fontSize = ss.sp(13f * k), fontWeight = FontWeight.Light, maxLines = 1)
             }
         }
         Box(
@@ -1166,7 +1188,7 @@ private fun DeckFloatingBar(
                 .padding(2.dp)
                 .alpha(0.85f),
         ) {
-            AccountAvatar(avatarUrl = avatarUrl, size = if (portrait) 22.dp else 26.dp, fallbackTint = Color(0xFFDDDDDD))
+            AccountAvatar(avatarUrl = avatarUrl, size = ss.dp(26f * k), fallbackTint = Color(0xFFDDDDDD))
         }
     }
 }
@@ -1188,21 +1210,22 @@ private fun FloatingBumper(text: String, onClick: () -> Unit) {
     }
 }
 
-/** The XMB home's only hint: a muted "Y Search" in the bottom-right corner, tappable like the button. */
+/** The XMB home's only hint, on every tab: a muted "Y Search" in the bottom-right corner, tappable like the button. */
 @Composable
 private fun DeckFloatingSearch(onSearch: () -> Unit, modifier: Modifier = Modifier) {
+    val ss = rememberScreenScale()
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(ss.dp(6f)),
         modifier = modifier
             .clip(RoundedCornerShape(10.dp))
             .dpadFocus(false)
             .clickable(onClick = onSearch)
-            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .padding(horizontal = ss.dp(8f), vertical = ss.dp(4f))
             .alpha(0.75f),
     ) {
         DeckGlyph("Y", GlyphKind.Y)
-        Text("Search", color = Color(0xFFDDDDDD), fontSize = 14.sp, fontWeight = FontWeight.Light, maxLines = 1)
+        Text("Search", color = Color(0xFFDDDDDD), fontSize = ss.sp(14f), fontWeight = FontWeight.Light, maxLines = 1)
     }
 }
 
@@ -1726,11 +1749,12 @@ private fun LegendItem(glyphs: List<Pair<String, GlyphKind>>, label: String, thi
 }
 
 @Composable
-private fun DeckBottomBar(current: DeckTab, onTab: (DeckTab) -> Unit, dpad: Boolean = true) {
+private fun DeckBottomBar(current: DeckTab, tabs: List<DeckTab>, onTab: (DeckTab) -> Unit, dpad: Boolean = true) {
     val cs = MaterialTheme.colorScheme
     val line = deckLine()
     var moreOpen by remember { mutableStateOf(false) }
-    val moreTabs = DeckTab.entries.filter { it !in PORTRAIT_MAIN }
+    val mainTabs = PORTRAIT_MAIN.filter { it in tabs }
+    val moreTabs = tabs.filter { it !in PORTRAIT_MAIN }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -1740,7 +1764,7 @@ private fun DeckBottomBar(current: DeckTab, onTab: (DeckTab) -> Unit, dpad: Bool
             .drawBehind { drawRect(line, topLeft = Offset.Zero, size = Size(size.width, 1f)) }
             .padding(horizontal = 6.dp),
     ) {
-        PORTRAIT_MAIN.forEach { t ->
+        mainTabs.forEach { t ->
             BottomBarItem(t.icon, t.label, selected = t == current, modifier = Modifier.weight(1f), dpad = dpad) { onTab(t) }
         }
         Box(modifier = Modifier.weight(1f)) {

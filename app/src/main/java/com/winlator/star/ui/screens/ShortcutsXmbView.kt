@@ -1,8 +1,10 @@
 package com.winlator.star.ui.screens
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.annotation.DrawableRes
 import android.content.res.Configuration
 import android.hardware.input.InputManager
 import android.os.Build
@@ -72,6 +74,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -83,20 +86,20 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -109,9 +112,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -123,11 +127,14 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.winlator.star.container.Shortcut
 import com.winlator.star.inputcontrols.ExternalController
 import com.winlator.star.ui.LocalTopBarOverlayInset
+import com.winlator.star.ui.deck.rememberScreenScale
 import com.winlator.star.ui.findActivity
 import com.winlator.star.ui.theme.DangerRed
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.ceil
@@ -145,8 +152,13 @@ internal data class XmbAction(
     val danger: Boolean = false,
     /** Opens a nested XMB column (Settings, Game Details, tools…) instead of running [onClick]. */
     val menu: ((XmbScope) -> XmbMenu)? = null,
+    /** An upper-row card's picture (a store's logo on its colours); without one the card shows [icon]. */
+    val art: XmbCardArt? = null,
     val onClick: () -> Unit = {},
 )
+
+/** A logo on a brand background, drawn as an upper-row card and, frosted, as the home's backdrop. [tintWhite] = draw the logo white. */
+internal data class XmbCardArt(@DrawableRes val logo: Int, val colors: List<Color>, val tintWhite: Boolean = false)
 
 /**
  * Games-tab XMB layout (PS3 cross media bar). Games run along a horizontal bar and the focused
@@ -277,13 +289,29 @@ internal fun ShortcutsXmbView(
     DisposableEffect(Unit) { onDispose { onNestedChange(false) } }
     BackHandler(enabled = nested) { nav.pop() }
 
-    // The row above the games. Leaving it always lands back on Play; opening a nested menu closes it.
+    // The row above the games, a second bar that runs like the games: the chosen card sits enlarged at the cross with
+    // the earlier ones to its left. Leaving it always lands back on Play; opening a nested menu closes it.
     var upOpen by remember { mutableStateOf(false) }
     var upSel by remember { mutableIntStateOf(0) }
+    val upPos = remember { mutableFloatStateOf(0f) } // the cards' visual position, fractional mid-swipe
+    var upJob by remember { mutableStateOf<Job?>(null) }
     val upperOpen = upOpen && upperRow.isNotEmpty() && !nested
     val upIdx = upSel.coerceIn(0, (upperRow.size - 1).coerceAtLeast(0))
     val upT by animateFloatAsState(if (upperOpen) 1f else 0f, tween(300), label = "xmbUpper")
-    fun closeUpper() { upOpen = false; act = 0 }
+    fun upSettle(i: Int) {
+        val t = i.coerceIn(0, (upperRow.size - 1).coerceAtLeast(0))
+        upSel = t
+        upJob?.cancel()
+        upJob = scope.launch {
+            animate(upPos.floatValue, t.toFloat(), animationSpec = spring(dampingRatio = 0.9f, stiffness = 420f)) { v, _ ->
+                upPos.floatValue = v
+            }
+        }
+    }
+    // Up from the games always lands on the first card.
+    fun openUpper() { upJob?.cancel(); upSel = 0; upPos.floatValue = 0f; upOpen = true }
+    // Closed, the peeking row eases back to its start.
+    fun closeUpper() { upOpen = false; act = 0; upSettle(0) }
     fun runUpper(a: XmbAction) { closeUpper(); runAction(a) }
     LaunchedEffect(nested) { if (nested) upOpen = false }
     BackHandler(enabled = upperOpen) { closeUpper() }
@@ -340,12 +368,16 @@ internal fun ShortcutsXmbView(
     }
     val hasPad = rememberGamepadConnected()
 
+    // Centred home: the edge the cards' peek is cut at, clear of the host's floating tab bar, scaled with the screen
+    // as that bar is.
+    val ss = rememberScreenScale()
+    val clipTop = ss.dp(XMB_PEEK_CLIP).value
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val m = remember(maxWidth, maxHeight, topInset) { XmbMetrics(maxWidth.value, maxHeight.value - topInset.value) }
         // Centred home: the row is drawn larger while it's the only thing on screen (and under the open cards),
         // as large as fits between the peeking cards and the bottom edge, at most 1.3x. The options shrink it back.
         val homeK = if (!centeredHome) 1f
-            else min(1.3f, (m.h / 2f - XMB_PEEK_CLIP - m.sH / 2f - 10f) * 2f / m.fH).coerceAtLeast(1f)
+            else min(1.3f, (m.h / 2f - clipTop - m.sH / 2f - 10f) * 2f / m.fH).coerceAtLeast(1f)
         // Read where it's used (draw / drag), so the animation doesn't recompose the view.
         val rowScale = { 1f + (homeK - 1f) * cT }
         val pitchPx = with(density) { m.pitch.dp.toPx() }
@@ -357,7 +389,14 @@ internal fun ShortcutsXmbView(
         val swipeBackPx = with(density) { 60.dp.toPx() }
         val hDrag = rememberDraggableState { delta ->
             if (nav.depth > 0) { swipe += delta; return@rememberDraggableState }
-            if (upperOpen) return@rememberDraggableState
+            // The open cards follow the finger like the games (at their larger size).
+            if (upperOpen) {
+                upJob?.cancel()
+                val p = (upPos.floatValue - delta / (pitchPx * homeK)).coerceIn(-0.45f, upperRow.size - 1 + 0.45f)
+                upPos.floatValue = p
+                upSel = p.roundToInt().coerceIn(0, upperRow.lastIndex)
+                return@rememberDraggableState
+            }
             settleJob?.cancel()
             // One cover's step on screen, so the row follows the finger at the larger size too.
             val p = (pos.floatValue - delta / (pitchPx * rowScale())).coerceIn(-0.45f, n - 1 + 0.45f)
@@ -405,8 +444,8 @@ internal fun ShortcutsXmbView(
                     // The row above the games: Left/Right pick a card, the games stay where they are.
                     if (upperOpen) {
                         return@onPreviewKeyEvent when (e.key) {
-                            Key.DirectionLeft -> { upSel = (upIdx - 1).coerceAtLeast(0); true }
-                            Key.DirectionRight -> { upSel = (upIdx + 1).coerceAtMost(upperRow.lastIndex); true }
+                            Key.DirectionLeft -> { upSettle(upIdx - 1); true }
+                            Key.DirectionRight -> { upSettle(upIdx + 1); true }
                             Key.DirectionUp -> true
                             Key.DirectionDown, Key.ButtonB, Key.Escape -> { closeUpper(); true }
                             Key.ButtonA, Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> { runUpper(upperRow[upIdx]); true }
@@ -423,7 +462,7 @@ internal fun ShortcutsXmbView(
                             Key.ButtonL1 -> if (inDeckShell) false else { settleTo(target - 5); true }
                             Key.ButtonR1 -> if (inDeckShell) false else { settleTo(target + 5); true }
                             Key.DirectionDown -> true
-                            Key.DirectionUp -> if (upperRow.isNotEmpty() && !selectionMode) { upOpen = true; true } else false
+                            Key.DirectionUp -> if (upperRow.isNotEmpty() && !selectionMode) { openUpper(); true } else false
                             Key.ButtonA, Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> { optsOpen = true; act = 0; true }
                             Key.ButtonB -> if (selectionMode) { onExitSelection(); true } else false
                             else -> false
@@ -455,34 +494,42 @@ internal fun ShortcutsXmbView(
                     onDragStarted = { swipe = 0f },
                     onDragStopped = { velocity ->
                         if (nav.depth > 0) { if (swipe > swipeBackPx) nav.pop() }
-                        else if (!upperOpen) settleTo((pos.floatValue - velocity / (pitchPx * rowScale()) * 0.14f).roundToInt())
+                        else if (upperOpen) upSettle((upPos.floatValue - velocity / (pitchPx * homeK) * 0.14f).roundToInt())
+                        else settleTo((pos.floatValue - velocity / (pitchPx * rowScale()) * 0.14f).roundToInt())
                     },
                 ),
         ) {
-            // Background: accent glow → the focused cover, blurred → shade → the moving waves.
-            Box(
-                Modifier.fillMaxSize().background(
-                    Brush.radialGradient(
-                        0f to accent.copy(alpha = 0.50f), 0.48f to accent.copy(alpha = 0.10f), 0.85f to Color.Black,
-                        center = Offset(wPx * 0.18f, 0f), radius = max(wPx, hPx) * 1.1f,
+            if (centeredHome) {
+                // Centred home: frosted glass over the focused game's cover, or the chosen card's art while the cards are
+                // up. No accent tint; the accent stays on the focus rings.
+                val art = if (upperOpen) upperRow.getOrNull(upIdx)?.art else null
+                XmbFrostedBackdrop(cover = if (upperOpen) null else focused.icon, art = art, modifier = Modifier.fillMaxSize())
+            } else {
+                // Background: accent glow → the focused cover, blurred → shade → the moving waves.
+                Box(
+                    Modifier.fillMaxSize().background(
+                        Brush.radialGradient(
+                            0f to accent.copy(alpha = 0.50f), 0.48f to accent.copy(alpha = 0.10f), 0.85f to Color.Black,
+                            center = Offset(wPx * 0.18f, 0f), radius = max(wPx, hPx) * 1.1f,
+                        )
                     )
                 )
-            )
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                Crossfade(targetState = focused.icon, animationSpec = tween(600), label = "xmbBackdrop") { bmp ->
-                    if (bmp != null) {
-                        Image(
-                            bitmap = remember(bmp) { bmp.asImageBitmap() },
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize().blur(14.dp).alpha(0.34f),
-                        )
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    Crossfade(targetState = focused.icon, animationSpec = tween(600), label = "xmbBackdrop") { bmp ->
+                        if (bmp != null) {
+                            Image(
+                                bitmap = remember(bmp) { bmp.asImageBitmap() },
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize().blur(14.dp).alpha(0.34f),
+                            )
+                        }
                     }
                 }
             }
             Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Color.Black.copy(alpha = 0.55f), 0.55f to Color.Black.copy(alpha = 0.1f), 1f to Color.Black.copy(alpha = 0.45f))))
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.4f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.9f))))
-            XmbWaves(accent, Modifier.fillMaxSize())
+            XmbWaves(if (centeredHome) Color.White else accent, Modifier.fillMaxSize())
             // Faint shade behind a see-through top bar so its title and buttons stay readable.
             if (topInset > 0.dp) {
                 Box(Modifier.fillMaxWidth().height(topInset + 24.dp).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.35f), Color.Transparent))))
@@ -596,7 +643,7 @@ internal fun ShortcutsXmbView(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             if (meta.isNotEmpty()) {
                                 Text(
-                                    meta, color = Color(0xFFC4C4C4), fontSize = 12.sp, maxLines = 1,
+                                    meta, color = Color(0xFFC4C4C4), fontSize = if (centeredHome) ss.sp(12f) else 12.sp, maxLines = 1,
                                     overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
                                 )
                             }
@@ -646,12 +693,19 @@ internal fun ShortcutsXmbView(
                         val back = remember { MutableInteractionSource() }
                         Box(Modifier.fillMaxSize().xmbClick(back) { closeUpper() })
                     }
-                    val onCard: (Int) -> Unit = { i -> upSel = i; if (upperOpen) runUpper(upperRow[i]) else upOpen = true }
+                    // Open: a tap on another card brings it to the cross, on the chosen one runs it. Peeking: any card opens the row.
+                    val onCard: (Int) -> Unit = { i ->
+                        when {
+                            !upperOpen -> openUpper()
+                            i != upIdx -> upSettle(i)
+                            else -> runUpper(upperRow[i])
+                        }
+                    }
                     // The cards peek above the centred row, their top half cut off under the host's floating tab bar.
-                    Box(Modifier.fillMaxSize().padding(top = XMB_PEEK_CLIP.dp).clipToBounds()) {
-                        XmbUpperRow(
-                            upperRow, if (upperOpen) upIdx else -1, upT, m, accent,
-                            enabled = upperOpen || centered, peek = peekT, clipTop = XMB_PEEK_CLIP, onTap = onCard,
+                    Box(Modifier.fillMaxSize().padding(top = clipTop.dp).clipToBounds()) {
+                        XmbUpperBar(
+                            upperRow, upIdx, upPos, upT, peekT, m, homeK, clipTop, accent,
+                            enabled = upperOpen || centered, metaSize = ss.sp(12f), onTap = onCard,
                         )
                     }
                 }
@@ -824,100 +878,188 @@ private fun XmbActionRow(action: XmbAction, selected: Boolean, accent: Color, ic
     }
 }
 
-/** Centred home: the cards' peek is cut off this far (dp) from the top, clear of the host's floating tab bar. */
+/** Centred home: the cards' peek is cut off this far (dp, on a 412 dp phone) from the top, clear of the host's floating tab bar. */
 private const val XMB_PEEK_CLIP = 50f
 
 /** How long (ms) a chosen card waits before its cut-off text starts scrolling. */
 private const val XMB_MARQUEE_DELAY = 700
 
-// The row above the games: translucent cards in the XMB's colours where the game row was, the chosen one
-// larger with an accent ring and glow (like the focused cover). [t] is the open animation, 0..1. [peek] is the
-// resting state: the cards sit half above [clipTop], which the caller clips at, dimmed.
+// The row above the games, drawn and moved like the game row: portrait cards (a store's logo on its colours, or an
+// icon), the chosen one enlarged at the cross with the earlier ones to its left, and its name and details beside it.
+// [open] is the open animation, 0..1; [peek] the resting state, where the cards sit small and dimmed with only their
+// lower half below [clipTop], which the caller clips at. Open, the bar takes the game row's larger size ([scale]).
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun XmbUpperRow(
+private fun XmbUpperBar(
     cards: List<XmbAction>,
     sel: Int,
-    t: Float,
+    pos: MutableFloatState,
+    open: Float,
+    peek: Float,
     m: XmbMetrics,
+    scale: Float,
+    clipTop: Float,
     accent: Color,
     enabled: Boolean,
-    peek: Float,
-    clipTop: Float,
+    metaSize: TextUnit,
     onTap: (Int) -> Unit,
 ) {
-    val k = cards.size
-    val gap = m.gap * 2f
-    val tH = m.sH
-    val tW = min(tH * 1.3f, (m.w - m.cross - 16f - gap * (k - 1)) / k).coerceAtLeast(64f)
-    val yOpen = m.top + (m.fH - tH) / 2f
-    // Peeking: the cards' middle line sits on the clip edge, so only their lower half shows.
-    val yPeek = clipTop - tH / 2f
-    Row(
+    // In the caller's clipped box (its top at clipTop): peeking, the small cards' middle sits on the clip edge; open,
+    // the bar sits where the game row does, below the floating tab bar.
+    val yPeek = -m.sH / 2f
+    val yOpen = max(m.top, clipTop + 6f) - clipTop
+    val y = yPeek + (yOpen - yPeek) * open
+    val s = 1f + (scale - 1f) * open
+    val boxH = (m.h - clipTop).coerceAtLeast(1f)
+    Box(
         Modifier
-            .offset(m.cross.dp, (yPeek - clipTop).dp)
+            .fillMaxSize()
             .graphicsLayer {
-                alpha = max(t, 0.5f * peek)
-                translationY = (t * (yOpen - yPeek)).dp.toPx()
+                alpha = max(open, 0.5f * peek)
+                translationY = y.dp.toPx()
+                scaleX = s
+                scaleY = s
+                transformOrigin = TransformOrigin(m.cross / m.w, (m.fH / 2f) / boxH)
             },
-        horizontalArrangement = Arrangement.spacedBy(gap.dp),
-        verticalAlignment = Alignment.CenterVertically,
     ) {
         cards.forEachIndexed { i, c ->
             key(c.label) {
-                val on = i == sel
-                val sc by animateFloatAsState(if (on) 1.12f else 1f, spring(dampingRatio = 0.8f, stiffness = 500f), label = "xmbCardScale")
-                val shape = RoundedCornerShape(12.dp)
-                val src = remember { MutableInteractionSource() }
-                Column(
-                    Modifier
-                        .zIndex(if (on) 1f else 0f)
-                        .size(tW.dp, tH.dp)
-                        .graphicsLayer { scaleX = sc; scaleY = sc; alpha = if (on) 1f else 0.62f }
-                        .drawBehind {
-                            if (on) for (r in 1..3) {
-                                val g = r * 3.dp.toPx()
-                                drawRoundRect(
-                                    accent.copy(alpha = 0.18f / r),
-                                    topLeft = Offset(-g, -g),
-                                    size = Size(size.width + 2 * g, size.height + 2 * g),
-                                    cornerRadius = CornerRadius(12.dp.toPx() + g),
-                                    style = Stroke(width = 3.dp.toPx()),
-                                )
-                            }
-                        }
-                        .clip(shape)
-                        .background(Color.White.copy(alpha = if (on) 0.12f else 0.08f))
-                        .border(if (on) 2.dp else 1.dp, if (on) accent else Color.White.copy(alpha = 0.16f), shape)
-                        .then(if (enabled) Modifier.xmbClick(src) { onTap(i) } else Modifier)
-                        .padding(10.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    Icon(
-                        c.icon, contentDescription = null, tint = if (on) Color.White else Color(0xFFCFCFCF),
-                        modifier = Modifier.size(min(36f, tH * 0.3f).dp),
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    // The name stays still (two lines at most); only the chosen card's subtitle, when it doesn't fit,
-                    // scrolls right to left after a short pause, starting over each time the card is chosen.
-                    Text(
-                        c.label, color = if (on) Color.White else Color.White.copy(alpha = 0.7f),
-                        fontSize = 14.sp, fontWeight = if (on) FontWeight.Normal else FontWeight.Light,
-                        textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                    )
-                    val sub = c.subtitle
-                    if (on && sub != null) {
-                        Text(
-                            sub, color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp,
-                            textAlign = TextAlign.Center, maxLines = 1,
-                            modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = XMB_MARQUEE_DELAY),
-                        )
-                    }
-                }
+                XmbUpperCard(c, i, pos, m, accent, grow = open, focused = i == sel && open > 0.5f, enabled = enabled) { onTap(i) }
             }
         }
     }
+    // The chosen card's name and details, right of it under the rest of the bar, as a game's are.
+    val chosen = cards.getOrNull(sel) ?: return
+    AnimatedContent(
+        targetState = chosen,
+        contentKey = { it.label },
+        transitionSpec = { (fadeIn(tween(220)) + slideInVertically(tween(220)) { it / 6 }) togetherWith fadeOut(tween(90)) },
+        label = "xmbCardTitle",
+        modifier = Modifier
+            .offset(m.titleX.dp, (yOpen + m.sH + 8f).dp)
+            .width((m.titleW - (scale - 1f) * (m.fW + 16f)).coerceAtLeast(80f).dp)
+            .graphicsLayer {
+                alpha = open
+                val e = scale - 1f
+                translationX = (e * (m.titleX - m.cross)).dp.toPx()
+                translationY = (e * (m.sH + 8f - m.fH / 2f)).dp.toPx()
+            },
+    ) { c ->
+        Column {
+            Text(
+                c.label, color = Color.White, fontSize = m.titleSize.sp, lineHeight = (m.titleSize * 1.15f).sp,
+                maxLines = m.titleLines, overflow = TextOverflow.Ellipsis,
+            )
+            // Details that don't fit scroll right to left after a short pause.
+            c.subtitle?.let {
+                Text(
+                    it, color = Color(0xFFC4C4C4), fontSize = metaSize, maxLines = 1,
+                    modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = XMB_MARQUEE_DELAY),
+                )
+            }
+        }
+    }
+}
+
+// One upper-row card, placed like a game cover: once the bar is open ([grow]) the chosen card grows to full size at the
+// cross and the later ones make room for it.
+@Composable
+private fun XmbUpperCard(
+    card: XmbAction,
+    index: Int,
+    pos: MutableFloatState,
+    m: XmbMetrics,
+    accent: Color,
+    grow: Float,
+    focused: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(8.dp)
+    val src = remember { MutableInteractionSource() }
+    val art = card.art
+    Box(
+        Modifier
+            .zIndex(if (focused) 1f else 0f)
+            .size(m.fW.dp, m.fH.dp)
+            .graphicsLayer {
+                val u = index - pos.floatValue
+                val t = (1f - abs(u)).coerceAtLeast(0f) * grow
+                val sc = (m.sH + (m.fH - m.sH) * t) / m.fH
+                translationX = (m.cross + u * m.pitch + m.grow * grow * u.coerceIn(0f, 1f)).dp.toPx()
+                scaleX = sc
+                scaleY = sc
+                transformOrigin = TransformOrigin(0f, 0f)
+                alpha = ((if (u >= 0f) 0.82f else 0.82f + u * 0.32f) + 0.18f * t).coerceIn(0f, 1f)
+            }
+            .then(if (focused) Modifier.shadow(14.dp, shape, ambientColor = accent, spotColor = accent) else Modifier)
+            .clip(shape)
+            .background(if (art != null) Brush.linearGradient(art.colors) else Brush.linearGradient(listOf(Color.White.copy(alpha = 0.12f), Color.White.copy(alpha = 0.06f))))
+            .border(if (focused) 2.dp else 1.dp, if (focused) accent else Color.White.copy(alpha = 0.14f), shape)
+            .then(if (enabled) Modifier.xmbClick(src, onClick) else Modifier),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (art != null) {
+            Image(
+                painterResource(art.logo), contentDescription = card.label, contentScale = ContentScale.Fit,
+                colorFilter = if (art.tintWhite) ColorFilter.tint(Color.White) else null,
+                modifier = Modifier.fillMaxSize(0.62f),
+            )
+        } else {
+            Icon(card.icon, contentDescription = card.label, tint = Color.White.copy(alpha = 0.9f), modifier = Modifier.size((m.fW * 0.36f).dp))
+        }
+    }
+}
+
+// Centred home backdrop: frosted glass over [cover] (a game) or [art] (a store's logo on its colours), the veil darker
+// over bright pictures so the white text stays readable. Real blur from Android 12; before that a tiny copy of the
+// cover, stretched with smooth filtering, gives the same soft look.
+@Composable
+private fun XmbFrostedBackdrop(cover: Bitmap?, art: XmbCardArt?, modifier: Modifier) {
+    Crossfade(targetState = cover to art, modifier = modifier, animationSpec = tween(600), label = "xmbFrost") { (bmp, a) ->
+        val tiny = remember(bmp) { bmp?.let { runCatching { Bitmap.createScaledBitmap(it, 12, 18, true) }.getOrNull() } }
+        val shade by produceState(0.5f, tiny, a) { value = withContext(Dispatchers.Default) { xmbFrostShade(tiny, a) } }
+        Box(Modifier.fillMaxSize().background(Color(0xFF0C0C0C))) {
+            when {
+                a != null -> {
+                    Box(Modifier.fillMaxSize().background(Brush.linearGradient(a.colors)))
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        Image(
+                            painterResource(a.logo), contentDescription = null, contentScale = ContentScale.Fit,
+                            colorFilter = if (a.tintWhite) ColorFilter.tint(Color.White) else null,
+                            modifier = Modifier.fillMaxSize(0.8f).align(Alignment.Center).blur(48.dp).alpha(0.45f),
+                        )
+                    }
+                }
+                bmp != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> Image(
+                    bitmap = remember(bmp) { bmp.asImageBitmap() }, contentDescription = null,
+                    contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().blur(40.dp),
+                )
+                tiny != null -> Image(
+                    bitmap = remember(tiny) { tiny.asImageBitmap() }, contentDescription = null,
+                    contentScale = ContentScale.Crop, filterQuality = FilterQuality.Low, modifier = Modifier.fillMaxSize(),
+                )
+            }
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = shade)))
+        }
+    }
+}
+
+/** The frost's veil: 0.35 over a dark picture, up to 0.75 over a white one. */
+private fun xmbFrostShade(tiny: Bitmap?, art: XmbCardArt?): Float {
+    val lum = when {
+        art != null -> art.colors.map { it.luminance() }.average().toFloat()
+        tiny != null -> runCatching {
+            var sum = 0f
+            for (x in 0 until tiny.width) for (y in 0 until tiny.height) {
+                val p = tiny.getPixel(x, y)
+                sum += (0.2126f * ((p shr 16) and 0xFF) + 0.7152f * ((p shr 8) and 0xFF) + 0.0722f * (p and 0xFF)) / 255f
+            }
+            sum / (tiny.width * tiny.height)
+        }.getOrDefault(0.4f)
+        else -> 0f
+    }
+    return 0.35f + 0.4f * lum.coerceIn(0f, 1f)
 }
 
 // Right / lower pane: store badges, the same spec chips as the list card, playtime and Game Details.
