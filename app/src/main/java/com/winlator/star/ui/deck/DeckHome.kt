@@ -248,15 +248,16 @@ internal fun DeckHome(
     LaunchedEffect(shortcuts) { launcher.resumePendingRelaunch(shortcuts) }
 
     // The XMB home's store cards say whether each store is signed in, and the Friends card shows only while signed in
-    // to Steam; re-read on resume, so coming back from a store's sign-in updates them.
-    var signedIn by remember { mutableStateOf(DeckStore.entries.associateWith { isSignedIn(context, it) }) }
+    // to Steam; re-read on resume, so coming back from a store's sign-in updates them. Read only in that mode.
+    val readSignedIn = { if (AppThemeState.deckXmbHome.value) DeckStore.entries.associateWith { isSignedIn(context, it) } else emptyMap() }
+    var signedIn by remember { mutableStateOf(readSignedIn()) }
     // Refresh whenever the app resumes, as the Games screen does, so playtime and new games show up.
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 vm.refresh()
-                signedIn = DeckStore.entries.associateWith { isSignedIn(context, it) }
+                signedIn = readSignedIn()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -269,6 +270,7 @@ internal fun DeckHome(
     }
     // XMB home (Appearance > Deck Mode): Home is the XMB, whatever view was last picked. The picked view is kept for turning it off.
     val xmbHome by AppThemeState.deckXmbHome.collectAsState()
+    LaunchedEffect(xmbHome) { signedIn = readSignedIn() }
     val mode = if (xmbHome) LibraryMode.XMB else savedMode
     var filter by remember {
         mutableStateOf(LibraryFilter(sort = runCatching { LibrarySort.valueOf(prefs.getString(PREF_SORT, null) ?: "") }.getOrDefault(LibrarySort.NAME)))
@@ -545,8 +547,8 @@ internal fun DeckHome(
                     showHints = !xmbHome,
                     upperRow = xmbUpperRow,
                     centeredHome = xmbHome,
-                    takeFocus = { !deckActions.navHold.value },
-                    focusTick = deckActions.enterTick.intValue,
+                    takeFocus = { !xmbHome || !deckActions.navHold.value },
+                    focusTick = if (xmbHome) deckActions.enterTick.intValue else 0,
                 )
             }
         }

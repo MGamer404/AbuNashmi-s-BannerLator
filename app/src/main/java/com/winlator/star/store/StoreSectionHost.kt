@@ -276,7 +276,7 @@ private fun SectionRail(
 
         Spacer(Modifier.height(8.dp))
         HorizontalDivider(
-            modifier = Modifier.width(railWidth - 16.dp),
+            modifier = Modifier.width(if (xmb) railWidth - 16.dp else RAIL_WIDTH - 24.dp),
             thickness = 1.dp,
             color = MaterialTheme.colorScheme.outline,
         )

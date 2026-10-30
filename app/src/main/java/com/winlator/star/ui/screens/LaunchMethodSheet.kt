@@ -424,8 +424,9 @@ fun LaunchMethodSheet(
     } else null
 
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
-    // The Deck interface gets its own landscape layout (three columns, controller first); everything else keeps the card below.
-    val deckStyle = AppThemeState.uiStyle.collectAsState().value == AppThemeState.UI_STYLE_DECK
+    // The Deck interface's XMB home gets its own landscape layout (three columns, controller first); everything else keeps the card below.
+    val deckStyle = AppThemeState.uiStyle.collectAsState().value == AppThemeState.UI_STYLE_DECK &&
+        AppThemeState.deckXmbHome.collectAsState().value
 
     val rawLabel = when { !notInstalled -> "Raw .exe"; hasPc -> "Download"; else -> "Not on PC" }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {

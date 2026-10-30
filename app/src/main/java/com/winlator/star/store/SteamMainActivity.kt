@@ -642,7 +642,7 @@ private fun StorefrontRail(
         HorizontalDivider(
             // Explicit width rather than the fillMaxWidth() default. Belt-and-braces: the Column's
             // exact width already contains it, but this is the modifier that caused the bug.
-            modifier = Modifier.width(railWidth - 16.dp),
+            modifier = Modifier.width(if (xmb) railWidth - 16.dp else RAIL_WIDTH - 24.dp),
             thickness = 1.dp,
             color = MaterialTheme.colorScheme.outline,
         )
