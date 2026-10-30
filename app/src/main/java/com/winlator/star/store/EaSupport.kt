@@ -36,8 +36,11 @@ object EaSupport {
     const val EXTRA_EA = "eaSupport"
     const val EXTRA_JAVELIN = "eaAntiCheat"
 
-    /** Catalog component names that provide wine-mono, most preferred first (10.4.1 = device-proven). */
-    private val MONO_COMPONENTS = listOf("mono-10.4.1", "mono-10.3.0", "mono-10.1.0", "mono")
+    /**
+     * Catalog component names that provide wine-mono, most preferred first. 10.1.0 is the one EA Desktop
+     * was proven with: the catalog's "mono-10.4.1" entry downloaded the 10.1.0 package until 2026-10-26.
+     */
+    private val MONO_COMPONENTS = listOf("mono-10.1.0", "mono-10.4.1", "mono-10.3.0", "mono")
 
     data class Profile(
         /** Launch goes through EA Desktop (Link2EA chain) — needs SteamLite + the chain env + EA Desktop installed. */

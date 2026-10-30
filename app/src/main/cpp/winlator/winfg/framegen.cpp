@@ -237,6 +237,9 @@ void FrameGen::barrier(VkCommandBuffer cmd, VkImage img, VkImageLayout from, VkI
 //   expand flowLvl[0] -> flowExpA/flowExpB
 //   synth(prev,curr,flowExpA,flowExpB, alpha) -> out
 
+static void destroyScratch(const DeviceDispatch* dd, VkDevice dev, VkDescriptorPool pool);
+static bool scratchOwnedBy(VkDescriptorPool pool);
+
 void FrameGen::destroy() {
     if (!device_) return;
     dd_->DeviceWaitIdle(device_);
@@ -257,6 +260,9 @@ void FrameGen::destroy() {
         gmSsbo_[s] = VK_NULL_HANDLE; gmSsboMem_[s] = VK_NULL_HANDLE; gmSsboPtr_[s] = nullptr;
     }
     gmBuffersReady_ = false;
+    // The process-wide scratch (UBOs + sets from descPool_) belongs to this FrameGen: free it, or the
+    // next FrameGen at the same size would bind sets from the destroyed pool (driver crash).
+    if (descPool_ && scratchOwnedBy(descPool_)) destroyScratch(dd_, device_, descPool_);
     if (descPool_) dd_->DestroyDescriptorPool(device_, descPool_, nullptr);
     if (linear_) dd_->DestroySampler(device_, linear_, nullptr);
     descPool_ = VK_NULL_HANDLE; linear_ = VK_NULL_HANDLE; device_ = VK_NULL_HANDLE; ready_ = false;

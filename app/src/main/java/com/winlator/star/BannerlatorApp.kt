@@ -26,7 +26,7 @@ class BannerlatorApp : Application() {
         super.onCreate()
         com.winlator.star.core.DirectAudioSupport.init(this)
 
-        // The Xbox sign-in window runs in its own process (":xboxlogin", isolated WebView data). None of
+        // The Xbox sign-in window and the cloud player run in their own process (":xboxlogin", isolated WebView data). None of
         // the start-up work below belongs there; the xinput restore in particular must never run beside a
         // live game session in the main process.
         if (com.winlator.star.store.xbox.XboxLoginActivity.isLoginProcess()) return

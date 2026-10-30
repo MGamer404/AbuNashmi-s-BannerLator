@@ -67,6 +67,11 @@ public final class PackageInstaller {
     }
 
     private void installPackage(File msi, File out, File work, OfflineTools.Progress span, Result total) throws IOException {
+        installPackage(msi, out, work, span, total, 0);
+    }
+
+    private void installPackage(File msi, File out, File work, OfflineTools.Progress span, Result total, int depth) throws IOException {
+        List<File> nested;
         try (MsiDatabase db = new MsiDatabase(msi)) {
             MsiLayout layout = new MsiLayout(db, out, user, tools, span);
             layout.install(work);
@@ -79,6 +84,21 @@ public final class PackageInstaller {
             total.registryCount += layout.registryCount;
             total.registry.addAll(layout.registry);
             for (String n : layout.notes) total.addNote(n);
+            nested = layout.nestedPackages;
+        }
+        // A package its own custom action installs with msiexec, from where this one put it.
+        for (File p : nested) {
+            if (depth >= 2) {
+                total.addNote(p.getName() + ": not installed (packages nested too deep)");
+                continue;
+            }
+            try {
+                installPackage(p, out, work, (f, text) -> span.report(-1, text), total, depth + 1);
+                total.packages.add(p.getName());
+            } catch (IOException e) {
+                // The package that ran it is in place either way; this one is named in the notes.
+                total.addNote(p.getName() + ": not installed: " + e.getMessage());
+            }
         }
     }
 

@@ -6,7 +6,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.time.Instant
 
-/** One PC game from the Microsoft Store catalog, with how this account can play it. */
+/** One game from the Microsoft Store catalog, with how this account can play it: installed on the device ([pc]), streamed ([cloud]) or both. */
 data class XboxGame(
     val id: String,
     val title: String,
@@ -19,10 +19,51 @@ data class XboxGame(
     val market: String = "US",
     /** "owned", "gamepass" or "" (neither). */
     val access: String = "",
+    /** Has a PC (MSIXVC) package that can be installed. */
+    val pc: Boolean = true,
+    /** Can be streamed with Xbox Cloud Gaming on this account. */
+    val cloud: Boolean = false,
+    /** The product that streams when it is not this one (the console edition of a PC game). */
+    val cloudId: String? = null,
 ) {
     val owned get() = access == "owned"
     val gamePass get() = access == "gamepass"
     val storeUrl get() = "https://www.xbox.com/games/store/$id"
+    /** Starts the game in Microsoft's cloud player; the page also signs in when needed. */
+    val cloudUrl get() = "https://www.xbox.com/play/launch/${title.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-').ifEmpty { "game" }}/${cloudId ?: id}"
+}
+
+/**
+ * One card per game: Microsoft lists a game's console and PC editions as separate products, so a cloud-only
+ * product whose title matches a PC game is folded into it (the PC card then also streams).
+ */
+internal fun mergeEditions(games: List<XboxGame>): List<XboxGame> {
+    fun key(title: String) = title.lowercase().replace(Regex("[^a-z0-9]+"), "")
+    val cloudOnly = games.filter { !it.pc && it.cloud }.groupBy { key(it.title) }
+    val folded = HashSet<String>()
+    val merged = games.mapNotNull { game ->
+        when {
+            !game.pc -> game
+            game.cloud -> game
+            else -> cloudOnly[key(game.title)]?.firstOrNull()?.let { console ->
+                folded.add(console.id)
+                game.copy(cloud = true, cloudId = console.id)
+            } ?: game
+        }
+    }
+    return merged.filter { it.id !in folded }
+}
+
+/**
+ * Microsoft's public Xbox Cloud Gaming lists (catalog.gamepass.com "sigls", ids as used by redphx's Better xCloud,
+ * MIT): the Game Pass cloud games, and every cloud game including those streamed from an owned copy.
+ */
+internal data class XboxCloudCatalog(val gamePass: Set<String>, val all: Set<String>) {
+    fun streams(id: String, access: String): Boolean = when (access) {
+        "gamepass" -> id in gamePass
+        "owned" -> id in all || id in gamePass
+        else -> false
+    }
 }
 
 /**
@@ -89,6 +130,17 @@ internal object XboxCatalog {
 
     private fun timestamp(value: String): Instant = java.time.OffsetDateTime.parse(value).toInstant()
 
+    private const val CLOUD_GAME_PASS = "29a81209-df6f-41fd-a528-2ae6b91f719c"
+    private const val CLOUD_ALL = "ce573635-7c18-4d0c-9d68-90b932393470"
+
+    fun cloudCatalog(market: String = Xodus.market()): XboxCloudCatalog =
+        XboxCloudCatalog(cloudList(CLOUD_GAME_PASS, market), cloudList(CLOUD_ALL, market))
+
+    private fun cloudList(id: String, market: String): Set<String> {
+        val body = getArray("https://catalog.gamepass.com/sigls/v2?id=$id&language=en-us&market=$market")
+        return objects(body).mapNotNull { it.optString("id").uppercase().takeIf { id -> productId.matches(id) } }.toSet()
+    }
+
     fun products(ids: List<String>, access: Map<String, String> = emptyMap(), market: String = Xodus.market()): List<XboxGame> =
         rawProducts(ids, market).mapNotNull { product(it, access, market) }
 
@@ -112,7 +164,7 @@ internal object XboxCatalog {
         return products(objects(body.optJSONArray("productsList")).map { it.optString("productId") }.take(24), access)
     }
 
-    internal fun product(json: JSONObject, access: Map<String, String>, market: String = Xodus.market()): XboxGame? {
+    internal fun product(json: JSONObject, access: Map<String, String>, market: String = Xodus.market(), cloud: XboxCloudCatalog? = null): XboxGame? {
         val id = json.optString("ProductId").uppercase()
         if (!productId.matches(id) || json.optString("ProductType") != "Game") return null
         val localized = objects(json.optJSONArray("LocalizedProperties")).firstOrNull() ?: return null
@@ -121,7 +173,9 @@ internal object XboxCatalog {
             objects(it.optJSONObject("Sku")?.optJSONObject("Properties")?.optJSONArray("Packages"))
         }
         val pc = packages.filter { pkg -> objects(pkg.optJSONArray("PlatformDependencies")).any { it.optString("PlatformName") == "Windows.Desktop" } }
-        if (pc.none { it.optString("PackageFormat").equals("MSIXVC", true) }) return null
+        val installable = pc.any { it.optString("PackageFormat").equals("MSIXVC", true) }
+        val streams = cloud?.streams(id, access[id].orEmpty()) == true
+        if (!installable && !streams) return null
         val images = objects(localized.optJSONArray("Images"))
         fun image(vararg kinds: String): String? = kinds.firstNotNullOfOrNull { purpose ->
             images.firstOrNull { it.optString("ImagePurpose") == purpose }?.optString("Uri")?.let { raw ->
@@ -133,13 +187,16 @@ internal object XboxCatalog {
         }
         return XboxGame(id, title, image("SuperHeroArt", "Hero", "BoxArt"), image("TitledPoster", "Poster", "BoxArt"),
             localized.optString("PublisherName"), localized.optString("DeveloperName"), localized.optString("ProductDescription"),
-            pc.maxOfOrNull { it.optLong("MaxDownloadSizeInBytes") } ?: 0L, market, access[id].orEmpty())
+            if (installable) pc.maxOfOrNull { it.optLong("MaxDownloadSizeInBytes") } ?: 0L else 0L, market, access[id].orEmpty(), installable, streams)
     }
 
     fun objects(array: JSONArray?): List<JSONObject> = if (array == null) emptyList() else
         (0 until array.length()).mapNotNull { array.optJSONObject(it) }
 
-    private fun get(url: String): JSONObject {
+    private fun get(url: String): JSONObject = JSONObject(fetch(url))
+    private fun getArray(url: String): JSONArray = JSONArray(fetch(url))
+
+    private fun fetch(url: String): String {
         val connection = URL(url).openConnection() as HttpURLConnection
         try {
             connection.connectTimeout = 15_000; connection.readTimeout = 30_000
@@ -147,7 +204,7 @@ internal object XboxCatalog {
             connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Bannerlator")
             check(connection.responseCode == 200) { "Microsoft Store could not be reached. Try again." }
             val text = connection.inputStream.use { it.readBytes() }.also { require(it.size <= 16_000_000) }
-            return JSONObject(String(text, Charsets.UTF_8))
+            return String(text, Charsets.UTF_8)
         } catch (e: java.io.IOException) {
             error("Microsoft Store could not be reached. Try again.")
         } finally { connection.disconnect() }

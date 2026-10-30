@@ -5,6 +5,7 @@ import android.util.Base64
 import android.util.Log
 import com.winlator.star.components.offline.OfflineTools
 import com.winlator.star.components.offline.PackageInstaller
+import com.winlator.star.components.offline.PrefixPlacer
 import com.winlator.star.components.offline.RegValue
 import com.winlator.star.components.offline.WineRegistryFile
 import com.winlator.star.container.Container
@@ -304,7 +305,8 @@ object OfflineComponentInstaller {
                 "set_register_key" -> registryStep(step)?.let { stage.registry += it } ?: return "a registry value this can't write: ${step.str("key")}"
                 // The DLLs register_dll names are ones Wine ships and has registered at the same path, so
                 // the native file now there is the one the registration loads. "Uninstall Wine Mono" is the
-                // mscoree override beside it. delete_dlls makes room for a copy that is made anyway.
+                // mscoree override beside it, and the earlier Mono's files going as the new one is placed
+                // (clearOldMono). delete_dlls makes room for a copy that is made anyway.
                 "register_dll", "uninstall", "delete_dlls" -> Unit
                 else -> return "unsupported step ${step.action}"
             }
@@ -318,6 +320,9 @@ object OfflineComponentInstaller {
         part(0f)
         val journal = ComponentUndo.open(wine.parentFile!!, c.name)
         try {
+            if (c.steps.any { it.action == "uninstall" && it.str("file_name").equals("Wine Mono", ignoreCase = true) }) {
+                clearOldMono(journal, stage, wine).takeIf { it > 0 }?.let { Log.i(TAG, "${c.name}: removed $it file(s) of the earlier Wine Mono") }
+            }
             if (stage.drive.isDirectory) journal.place(stage.drive, File(wine, "drive_c"))
             onProgress(0.95f)
             onStage("writing the registry")
@@ -339,6 +344,18 @@ object OfflineComponentInstaller {
         OfflineTools.deleteTree(temp)
         return null
     }
+
+    /**
+     * "Uninstall Wine Mono" ahead of a Wine Mono: the files of the one in the prefix that the new one
+     * does not have (another version's assemblies) are taken out, each noted so removing the component
+     * puts them back. Nothing goes when the component brings no Mono of its own (.NET Framework). The
+     * placeholder DLLs Mono's setup had Wine make under Microsoft.NET stay: they are the same for every
+     * version and cannot be made here.
+     */
+    private fun clearOldMono(journal: ComponentUndo.Journal, stage: Stage, wine: File): Int =
+        PrefixPlacer.removeStale(File(stage.drive, "windows/mono"), PrefixPlacer.resolve(File(wine, "drive_c"), "windows/mono")) {
+            journal.beforeWrite(it)
+        }
 
     /** An archive a catalog step downloaded: a tar.xz/zip here, an installer or cabinet by [PackageInstaller]. */
     private fun openArchive(engine: PackageInstaller, file: File, dest: File): Boolean = try {

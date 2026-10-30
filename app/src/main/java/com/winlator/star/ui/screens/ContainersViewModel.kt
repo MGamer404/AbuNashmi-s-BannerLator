@@ -166,7 +166,7 @@ class ContainersViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun updateLayer(container: Container, targetEntry: String) {
-        runLayerJob("Updating layer to ${ContainerLayerUpdater.codeLabel(targetEntry)}…") { contents ->
+        runLayerJob("Updating layer to ${ContainerLayerUpdater.layerLabel(targetEntry, container.wineVersion)}…") { contents ->
             layerUpdater.update(contents, container, targetEntry)
         }
     }
@@ -228,7 +228,7 @@ class ContainersViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun revertLayer(container: Container, snapshot: ContainerLayerUpdater.Snapshot) {
-        runLayerJob("Reverting layer to ${ContainerLayerUpdater.codeLabel(snapshot.oldEntry)}…") { contents ->
+        runLayerJob("Reverting layer to ${ContainerLayerUpdater.layerLabel(snapshot.oldEntry, container.wineVersion)}…") { contents ->
             layerUpdater.revert(contents, container, snapshot)
         }
     }

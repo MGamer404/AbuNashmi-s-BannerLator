@@ -113,6 +113,8 @@ object XboxDownloads {
                 XboxInstallState.put(app, XboxInstallState.Installed(game.id, game.title, folder.path, exe, info.version, contentId,
                     game.market, game.access, game.posterUrl, game.heroUrl, System.currentTimeMillis()))
                 StoreDownloadHooks.markInstalled(Store.XBOX, game.id, folder.path, game.sizeBytes)
+                // A Games entry added before the download now launches the installed game.
+                XboxCloudShortcuts.onInstalled(app, game.id, java.io.File(folder, exe).path)
                 XboxDiag.log(app, "installed ${game.id} exe=${exe.substringAfterLast('/')} version=${info.version}")
             } catch (e: Exception) {
                 XboxDiag.log(app, "download ${game.id} failed: ${e.javaClass.simpleName}")

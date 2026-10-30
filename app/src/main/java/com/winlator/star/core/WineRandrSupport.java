@@ -27,6 +27,7 @@ public final class WineRandrSupport {
     private WineRandrSupport() {}
 
     private static final Map<String, Boolean> cache = new HashMap<>();
+    private static final Map<String, Boolean> literalModesetCache = new HashMap<>();
 
     /** Capability for the layer described by an already-resolved {@link WineInfo}. */
     public static boolean isXrandrCapable(WineInfo wineInfo) {
@@ -63,17 +64,42 @@ public final class WineRandrSupport {
     }
 
     /**
+     * True when the layer's win32u reads "EmulateModeset" literally ("Y" = emulate). Valve's Wine changed
+     * this on 2026-09-01 (b385d4d2, "fixup! HACK: fshack: win32u: Emulate modesetting by default"); before
+     * it, "Y" turned emulation OFF like "EmulateModelist" still does. The flip is a one-character change
+     * with no string of its own, so we look for the next win32u change in Valve's history, the Intel
+     * "InfPath" = "igd_faux.inf" hack (d324dfed): its value name stays in win32u.so as the UTF-16 array
+     * L"InfPath" (the ASCII value is inlined, so it can't be searched for). No other win32u code uses it.
+     * Proton 10.0-4, 11.0-2 and GE up to 11-7 lack it; GE 11-7.1+, CachyOS 20261005 and DroidDeck 11-9.1 have it.
+     */
+    public static boolean usesLiteralEmulateModeset(WineInfo wineInfo) {
+        if (wineInfo == null || wineInfo.path == null) return false;
+        String key = wineInfo.identifier();
+        Boolean cached = literalModesetCache.get(key);
+        if (cached != null) return cached;
+
+        File win32u = new File(wineInfo.path, "lib/wine/aarch64-unix/win32u.so");
+        if (!win32u.isFile()) win32u = new File(wineInfo.path, "lib/wine/x86_64-unix/win32u.so");
+        boolean literal = win32u.isFile()
+                && fileContainsAny(win32u, "InfPath\0".getBytes(StandardCharsets.UTF_16LE));
+        literalModesetCache.put(key, literal);
+        return literal;
+    }
+
+    /**
      * Streaming ASCII substring search — true if the file contains ANY marker. Reads in chunks with a
      * small carry-over so a marker split across a chunk boundary is still found. Markers are plain
      * ASCII, so a byte-wise compare is exact.
      */
     private static boolean fileContainsAny(File file, String... markers) {
         byte[][] needles = new byte[markers.length][];
+        for (int i = 0; i < markers.length; i++) needles[i] = markers[i].getBytes(StandardCharsets.US_ASCII);
+        return fileContainsAny(file, needles);
+    }
+
+    private static boolean fileContainsAny(File file, byte[]... needles) {
         int maxNeedle = 0;
-        for (int i = 0; i < markers.length; i++) {
-            needles[i] = markers[i].getBytes(StandardCharsets.US_ASCII);
-            maxNeedle = Math.max(maxNeedle, needles[i].length);
-        }
+        for (byte[] needle : needles) maxNeedle = Math.max(maxNeedle, needle.length);
         final int chunk = 64 * 1024;
         byte[] buf = new byte[chunk + maxNeedle];
         try (FileInputStream in = new FileInputStream(file)) {

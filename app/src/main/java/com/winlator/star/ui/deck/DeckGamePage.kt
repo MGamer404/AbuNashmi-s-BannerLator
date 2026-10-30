@@ -85,6 +85,7 @@ import com.winlator.star.store.SteamAchievementStore
 import com.winlator.star.ui.DeckDialogBars
 import com.winlator.star.ui.DeckDialogScaled
 import com.winlator.star.ui.screens.GameMenuAction
+import androidx.compose.ui.draw.alpha
 import com.winlator.star.ui.screens.ShortcutActionDialogs
 import com.winlator.star.ui.screens.ShortcutLaunchDialogs
 import com.winlator.star.ui.screens.ShortcutsViewModel
@@ -511,6 +512,11 @@ private fun menuTitle(a: GameMenuAction): String = when (a) {
 }
 
 /** The grouped game menu, as cards of rows. Used on the game page's side column and in [DeckGameMenuSheet]. */
+/** Game-menu actions that need the installed copy of the game. */
+private val NEEDS_INSTALL = setOf(GameMenuAction.CLONE, GameMenuAction.COPY_TO_DRIVE_C, GameMenuAction.CHANGE_EXE,
+    GameMenuAction.ADD_TO_HOME, GameMenuAction.EXPORT, GameMenuAction.CLOUD_SAVES, GameMenuAction.BACKUP_SAVES,
+    GameMenuAction.RESTORE_SAVES, GameMenuAction.COMMUNITY_CONFIGS, GameMenuAction.VIEW_LOGS, GameMenuAction.PROPERTIES)
+
 @Composable
 internal fun DeckGameMenuList(
     s: Shortcut,
@@ -520,18 +526,23 @@ internal fun DeckGameMenuList(
     firstRequester: FocusRequester? = null,
 ) {
     val groups = remember(s) { gameMenuGroups(s) }
+    // An Xbox entry not downloaded yet: options that need the installed game say so and do nothing.
+    val notInstalled = remember(s) { com.winlator.star.store.xbox.XboxCloudShortcuts.isNotInstalled(s) }
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         groups.forEachIndexed { gi, group ->
             DeckCard {
                 group.forEachIndexed { i, (key, entry) ->
                     if (i > 0) DeckRowDivider()
+                    val blocked = notInstalled && (key == ENTRY_CONTAINER || entry.action in NEEDS_INSTALL)
                     DeckRow(
                         title = entry.title,
-                        subtitle = entry.hint,
+                        subtitle = if (blocked) "Download the game first" else entry.hint,
                         danger = entry.danger,
-                        modifier = if (gi == 0 && i == 0 && firstRequester != null) Modifier.focusRequester(firstRequester) else Modifier,
+                        modifier = (if (gi == 0 && i == 0 && firstRequester != null) Modifier.focusRequester(firstRequester) else Modifier)
+                            .then(if (blocked) Modifier.alpha(0.45f) else Modifier),
                         onClick = {
                             when {
+                                blocked -> Unit
                                 key == ENTRY_PLAY -> onPlay()
                                 key == ENTRY_CONTAINER -> onContainer()
                                 entry.action != null -> onAction(entry.action)

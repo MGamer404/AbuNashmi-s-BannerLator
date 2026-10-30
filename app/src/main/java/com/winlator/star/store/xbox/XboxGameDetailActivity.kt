@@ -62,6 +62,8 @@ class XboxGameDetailActivity : ComponentActivity() {
     private var status by mutableStateOf<String?>(null)
     private var addToShortcuts by mutableStateOf<com.winlator.star.store.compose.AddToShortcutsRequest?>(null)
     private var addResult by mutableStateOf<com.winlator.star.store.compose.AddShortcutResult?>(null)
+    /** Containers to pick from for a Games entry's download (opened from its launch options), or null. */
+    private var downloadPicker by mutableStateOf<List<com.winlator.star.container.Container>?>(null)
 
     @OptIn(ExperimentalLayoutApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -72,9 +74,16 @@ class XboxGameDetailActivity : ComponentActivity() {
         game = XboxGame(i.getStringExtra("id").orEmpty(), i.getStringExtra("title").orEmpty(), i.getStringExtra("hero"),
             i.getStringExtra("poster"), i.getStringExtra("publisher").orEmpty(), i.getStringExtra("developer").orEmpty(),
             i.getStringExtra("description").orEmpty(), i.getLongExtra("size", 0L), i.getStringExtra("market") ?: Xodus.market(),
-            i.getStringExtra("access").orEmpty())
+            i.getStringExtra("access").orEmpty(), i.getBooleanExtra("pc", true), i.getBooleanExtra("cloud", false),
+            i.getStringExtra("cloudId"))
         refresh()
         observeRegistry()
+        // Opened by Download on a not-installed Games entry: pick the container, then install (the entry is
+        // moved there and completed when the install finishes).
+        if (intent.getStringExtra(XboxCloudShortcuts.EXTRA_SHORTCUT) != null && savedInstanceState == null &&
+            XboxInstallState.get(this, game.id) == null && game.pc && game.access.isNotEmpty()) {
+            StarLaunchBridge.loadContainers(this) { containers -> if (!containers.isNullOrEmpty()) downloadPicker = containers }
+        }
         setContent {
             WinlatorTheme {
                 var tab by androidx.compose.runtime.remember { mutableStateOf(0) }
@@ -84,14 +93,39 @@ class XboxGameDetailActivity : ComponentActivity() {
                     busy != null -> StorePrimaryAction.Progress(busy!!, 0f)
                     inst != null -> StorePrimaryAction.Button("Add to Games", ::addToGames)
                     game.access.isEmpty() -> StorePrimaryAction.Button("Not in your library", {}, enabled = false)
+                    !game.pc -> StorePrimaryAction.Button("Stream", ::stream)
                     else -> StorePrimaryAction.Button("Install", ::install)
                 }
+                val secondary = if (game.cloud && game.pc && game.access.isNotEmpty()) StorePrimaryAction.Button("Stream", ::stream) else null
                 val gear = buildList {
+                    if (inst == null && !downloading && game.cloud && game.access.isNotEmpty() && intent.getStringExtra(XboxCloudShortcuts.EXTRA_SHORTCUT) == null)
+                        add(StoreGearItem("➕", "Add to Games (stream now, download later)") {
+                            XboxCloudShortcuts.addNotInstalled(this@XboxGameDetailActivity, game) { ok, message ->
+                                addResult = com.winlator.star.store.compose.AddShortcutResult(game.title, ok, message,
+                                    note = if (ok) "Not installed yet: Stream it now, or Download it from its launch options." else null)
+                            }
+                        })
                     if (downloading) add(StoreGearItem("🗑", "Cancel download", danger = true) { XboxDownloads.cancel(game.id) })
                     if (inst != null && !downloading) {
                         add(StoreGearItem("🔄", "Update / verify") { update(inst) })
                         add(StoreGearItem("🗑️", "Uninstall", danger = true, onClick = ::confirmUninstall))
                     }
+                }
+                downloadPicker?.let { containers ->
+                    com.winlator.star.store.compose.ContainerPickerDialog(
+                        gameName = game.title,
+                        containers = containers,
+                        onDismiss = { downloadPicker = null },
+                        note = { c -> Regex("""Proton-(\d+)""").find(c.wineVersion.orEmpty())?.groupValues?.get(1)?.toIntOrNull()
+                            ?.takeIf { it < 11 }?.let { "Older Proton: Xbox support uses compatibility modules here. Proton 11 recommended." } },
+                        onSelected = { container ->
+                            downloadPicker = null
+                            XboxCloudShortcuts.rememberDownload(this@XboxGameDetailActivity, game.id,
+                                intent.getStringExtra(XboxCloudShortcuts.EXTRA_SHORTCUT)!!,
+                                intent.getIntExtra(XboxCloudShortcuts.EXTRA_SHORTCUT_CONTAINER, container.id), container.id)
+                            install()
+                        },
+                    )
                 }
                 addToShortcuts?.let { req ->
                     com.winlator.star.store.compose.ContainerPickerDialog(
@@ -133,13 +167,14 @@ class XboxGameDetailActivity : ComponentActivity() {
                         Spacer(Modifier.height(4.dp))
                         when {
                             inst != null -> StoreStatusText("Installed · ${inst.exe.substringAfterLast('/')}${if (inst.version.isNotBlank()) " · v${inst.version}" else ""}", StoreDetailState.INSTALLED)
-                            game.gamePass -> StoreStatusText("Included with PC Game Pass")
-                            game.owned -> StoreStatusText("Owned")
+                            game.gamePass -> StoreStatusText(if (game.pc) "Included with PC Game Pass" else "Included with Game Pass · cloud only")
+                            game.owned -> StoreStatusText(if (game.pc) "Owned" else "Owned · cloud only")
                             else -> StoreStatusText("Not owned by this account")
                         }
                         status?.let { Spacer(Modifier.height(2.dp)); StoreStatusText(it, StoreDetailState.FAILED) }
                     },
                     primary = primary,
+                    secondary = secondary,
                     gear = gear,
                     tabs = listOf("Details"),
                     selectedTab = tab,
@@ -157,10 +192,14 @@ class XboxGameDetailActivity : ComponentActivity() {
                             Text(game.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         StoreSection(title = "How it runs") {
-                            Text("The PC version is downloaded with your license and runs in a Wine container you pick when " +
+                            if (game.pc) Text("Install: the PC version is downloaded with your license and runs in a Wine container you pick when " +
                                 "adding it to Games. Each launch checks the license with Microsoft, so play online the first time. " +
                                 "Cloud saves are ${if (XboxMainActivity.cloudSaves(this@XboxGameDetailActivity)) "on" else "off"} (Xbox › Profile).",
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (game.cloud) Text("Stream: plays on Microsoft's servers with Xbox Cloud Gaming — nothing to download, " +
+                                "but it needs a steady connection and an Xbox plan that includes cloud play. The first stream may ask you to sign in once.",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = if (game.pc) 6.dp else 0.dp))
                         }
                     }
                 }
@@ -211,6 +250,11 @@ class XboxGameDetailActivity : ComponentActivity() {
                     .setNegativeButton("Cancel", null).show()
             }
         }
+    }
+
+    private fun stream() {
+        XboxDiag.log(applicationContext, "cloud stream ${game.id}")
+        startActivity(XboxCloudPlayerActivity.intent(this, game))
     }
 
     private fun update(inst: XboxInstallState.Installed) {

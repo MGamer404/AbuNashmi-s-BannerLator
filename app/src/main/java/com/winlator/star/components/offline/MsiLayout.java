@@ -36,7 +36,7 @@ public final class MsiLayout {
 
     private static final String SKIP = "\u0000skip";
     private static final int COMPONENT_64BIT = 0x100;
-    private static final int SET_PROPERTY = 51, SET_DIRECTORY = 35, ERROR_ACTION = 19;
+    private static final int SET_PROPERTY = 51, SET_DIRECTORY = 35, ERROR_ACTION = 19, EXE_IN_FOLDER = 34;
     private static final String SFP_CACHE_ACTION = "CDirSystemSFPCacheDir";
     private static final String[] HANDLED_ACTIONS = {"Wdsfpca_", "SxsInstallCA", "SxsUninstallCA"};
     private static final String[] UNSUPPORTED_TABLES = {"SelfReg", "Class", "ProgId", "TypeLib", "Extension", "Verb",
@@ -52,7 +52,12 @@ public final class MsiLayout {
     private final OfflineTools.Progress span;
     public final List<String> notes = new ArrayList<>();
     public final List<RegValue> registry = new ArrayList<>();
+    /** Packages this one installs with its own msiexec run (wine-mono's support package), as laid out under [out]. */
+    public final List<File> nestedPackages = new ArrayList<>();
     public int fileCount, assemblyCount, registryCount;
+    private int missingFiles;
+    /** The custom actions that run code: {name, condition, target}, kept until the features are chosen. */
+    private final List<String[]> codeActions = new ArrayList<>();
     private final Map<String, String> files = new HashMap<>();
     private final Map<String, String> knownFolders = new LinkedHashMap<>();
     private final Map<String, String> props = new HashMap<>();
@@ -292,7 +297,6 @@ public final class MsiLayout {
         }
         List<Map.Entry<String, Object[]>> ordered = new ArrayList<>(sequence.entrySet());
         ordered.sort((x, y) -> Integer.compare((Integer) x.getValue()[0], (Integer) y.getValue()[0]));
-        List<String> skipped = new ArrayList<>();
         boolean sfp = pkg.hasTable("_SfpCaInf");
         for (Map.Entry<String, Object[]> e : ordered) {
             String name = e.getKey();
@@ -306,8 +310,30 @@ public final class MsiLayout {
                 if (!conditions.evaluate(condition, true)) continue;
                 props.put(row.get("Source"), format(row.getOrDefault("Target", "")));
                 setByAction.add(row.get("Source"));
-            } else if (kind != ERROR_ACTION && conditions.evaluate(condition, true)) {
-                skipped.add(name);
+            } else if (kind != ERROR_ACTION) {
+                codeActions.add(new String[]{name, condition, kind == EXE_IN_FOLDER ? row.getOrDefault("Target", "") : ""});
+            }
+        }
+    }
+
+    private static final Pattern MSIEXEC_INSTALL = Pattern.compile("(?i)^\\s*\"?(?:[^\"]*\\\\)?msiexec(?:\\.exe)?\"?\\s+/i\\s+(?:\"([^\"]+)\"|(\\S+))");
+
+    /**
+     * The code-running custom actions whose conditions hold, now that the features are chosen (a
+     * condition such as "&wine_mono=3" asks for one): one that installs a package this one placed
+     * ("msiexec /i [$support]\winemono-support.msi") goes to [nestedPackages], the rest to the notes.
+     */
+    private void runCodeActions() {
+        List<String> skipped = new ArrayList<>();
+        for (String[] a : codeActions) {
+            if (!conditions.evaluate(a[1], true)) continue;
+            Matcher m = MSIEXEC_INSTALL.matcher(a[2].isEmpty() ? "" : format(a[2]));
+            String rel = m.find() ? winToRel(m.group(1) != null ? m.group(1) : m.group(2)) : null;
+            File nested = rel != null && rel.toLowerCase(Locale.ROOT).endsWith(".msi") ? new File(out, rel) : null;
+            if (nested != null && nested.isFile()) {
+                if (!nestedPackages.contains(nested)) nestedPackages.add(nested);
+            } else {
+                skipped.add(a[0]);
             }
         }
         if (!skipped.isEmpty()) {
@@ -449,6 +475,9 @@ public final class MsiLayout {
             for (File f : OfflineTools.walkFiles(dest)) {
                 String rel = f.getPath().substring(base.length()).replace(File.separatorChar, '/');
                 found.putIfAbsent(rel, f);
+                // A File key with backslashes in it (wine-mono's "bin\libmono-2.0-x86.dll") comes out of
+                // the cabinet as folders, so it is found by that name too.
+                if (rel.indexOf('/') >= 0) found.putIfAbsent(rel.replace('/', '\\'), f);
             }
         }
         return found;
@@ -526,6 +555,7 @@ public final class MsiLayout {
                 fileCount++;
             }
         }
+        missingFiles = missing;
         if (missing > 0) notes.add(missing + " file(s) were not in the package's cabinets");
     }
 
@@ -674,8 +704,12 @@ public final class MsiLayout {
         }
         span.report(0.9, "writing the registry values");
         installRegistry();
+        runCodeActions();
         check();
-        if (fileCount == 0 && registry.isEmpty()) throw new NothingToInstall("the package installs nothing here");
+        if (fileCount == 0 && registry.isEmpty()) {
+            if (missingFiles > 0) throw new NothingToInstall("none of the package's " + missingFiles + " files were found in its cabinets");
+            throw new NothingToInstall("the package installs nothing here");
+        }
         span.report(1.0, "done");
     }
 

@@ -188,6 +188,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -4080,7 +4081,9 @@ private fun ShortcutItemLayoutL(
     val backendLabel = spec.backendLabel
     // An Android game has no Wine components to show; its package name says what it is instead.
     val isAndroid = remember(shortcut) { AndroidGames.isAndroidEntry(shortcut) }
-    val subtitle = if (isAndroid) AndroidGames.packageOf(shortcut).orEmpty() else spec.meta
+    val xboxNotInstalled = remember(shortcut) { com.winlator.star.store.xbox.XboxCloudShortcuts.isNotInstalled(shortcut) }
+    val subtitle = if (isAndroid) AndroidGames.packageOf(shortcut).orEmpty()
+        else if (xboxNotInstalled) "Not installed · Stream now, or Download from its launch options" else spec.meta
 
     // Floating card to match the Containers list (rounded surfaceVariant panel + outline
     // border + side margins) instead of a flat edge-to-edge row.
@@ -4193,6 +4196,7 @@ private fun ShortcutItemLayoutL(
             )
         }
         ShortcutOverflowButton(
+            installed = !xboxNotInstalled,
             onSettings = onSettings,
             onRemove = onRemove,
             onClone = onClone,
@@ -4216,6 +4220,8 @@ private fun ShortcutItemLayoutL(
 // Shared overflow (⋮) button + menu for the list-view cards.
 @Composable
 private fun ShortcutOverflowButton(
+    /** False for an Xbox entry not downloaded yet: options that need the installed game are greyed out. */
+    installed: Boolean = true,
     // Null = the item doesn't apply to this entry (an Android game has no Wine side) and is hidden.
     onSettings: (() -> Unit)?,
     onRemove: () -> Unit,
@@ -4258,6 +4264,7 @@ private fun ShortcutOverflowButton(
             if (onClone != null) {
                 MenuItemDivider()
                 DropdownMenuItem(
+                    enabled = installed,
                     text = { Text("Clone to container") },
                     leadingIcon = { Icon(Icons.Filled.ContentCopy, null) },
                     onClick = { menuExpanded = false; onClone() },
@@ -4266,6 +4273,7 @@ private fun ShortcutOverflowButton(
             if (onCopyToDriveC != null) {
                 MenuItemDivider()
                 DropdownMenuItem(
+                    enabled = installed,
                     text = { Text("Copy to Drive C…") },
                     leadingIcon = { Icon(Icons.Filled.DriveFileMove, null, tint = MaterialTheme.colorScheme.primary) },
                     onClick = { menuExpanded = false; onCopyToDriveC() },
@@ -4274,6 +4282,7 @@ private fun ShortcutOverflowButton(
             if (onChangeExe != null) {
                 MenuItemDivider()
                 DropdownMenuItem(
+                    enabled = installed,
                     text = { Text("Change executable…") },
                     leadingIcon = { Icon(Icons.Filled.SwapHoriz, null, tint = MaterialTheme.colorScheme.primary) },
                     onClick = { menuExpanded = false; onChangeExe() },
@@ -4281,6 +4290,7 @@ private fun ShortcutOverflowButton(
             }
             MenuItemDivider()
             DropdownMenuItem(
+                    enabled = installed,
                 text = { Text("Add to home screen") },
                 leadingIcon = { Icon(Icons.Filled.AddToHomeScreen, null) },
                 onClick = { menuExpanded = false; onAddToHome() },
@@ -4288,6 +4298,7 @@ private fun ShortcutOverflowButton(
             if (onExport != null) {
                 MenuItemDivider()
                 DropdownMenuItem(
+                    enabled = installed,
                     text = { Text("Export") },
                     leadingIcon = { Icon(Icons.Filled.Upload, null) },
                     onClick = { menuExpanded = false; onExport() },
@@ -4303,6 +4314,7 @@ private fun ShortcutOverflowButton(
             if (onCloudSaves != null) {
                 MenuItemDivider()
                 DropdownMenuItem(
+                    enabled = installed,
                     text = { Text("Cloud Saves") },
                     leadingIcon = { Icon(Icons.Filled.CloudSync, null, tint = MaterialTheme.colorScheme.primary) },
                     onClick = { menuExpanded = false; onCloudSaves() },
@@ -4312,6 +4324,7 @@ private fun ShortcutOverflowButton(
             if (onBackupSaves != null) {
                 MenuItemDivider()
                 DropdownMenuItem(
+                    enabled = installed,
                     text = { Text("Back up saves") },
                     leadingIcon = { Icon(Icons.Filled.Archive, null, tint = MaterialTheme.colorScheme.primary) },
                     onClick = { menuExpanded = false; onBackupSaves() },
@@ -4320,6 +4333,7 @@ private fun ShortcutOverflowButton(
             if (onRestoreSaves != null) {
                 MenuItemDivider()
                 DropdownMenuItem(
+                    enabled = installed,
                     text = { Text("Restore saves") },
                     leadingIcon = { Icon(Icons.Filled.Unarchive, null, tint = MaterialTheme.colorScheme.primary) },
                     onClick = { menuExpanded = false; onRestoreSaves() },
@@ -4334,6 +4348,7 @@ private fun ShortcutOverflowButton(
             if (onCommunityConfigs != null) {
                 MenuItemDivider()
                 DropdownMenuItem(
+                    enabled = installed,
                     text = { Text("Community configs") },
                     leadingIcon = { Icon(Icons.Filled.Public, null, tint = MaterialTheme.colorScheme.primary) },
                     onClick = { menuExpanded = false; onCommunityConfigs() },
@@ -4342,6 +4357,7 @@ private fun ShortcutOverflowButton(
             if (onViewLogs != null) {
                 MenuItemDivider()
                 DropdownMenuItem(
+                    enabled = installed,
                     text = { Text("View logs") },
                     leadingIcon = { Icon(Icons.Filled.Description, null) },
                     onClick = { menuExpanded = false; onViewLogs() },
@@ -4349,6 +4365,7 @@ private fun ShortcutOverflowButton(
             }
             MenuItemDivider()
             DropdownMenuItem(
+                    enabled = installed,
                 text = { Text("Properties") },
                 leadingIcon = { Icon(Icons.Filled.Info, null) },
                 onClick = { menuExpanded = false; onProperties() },
@@ -4383,6 +4400,8 @@ private fun ShortcutGridItem(
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     val isAndroidTile = remember(shortcut) { AndroidGames.isAndroidEntry(shortcut) }
+    val xboxNotInstalled = remember(shortcut) { com.winlator.star.store.xbox.XboxCloudShortcuts.isNotInstalled(shortcut) }
+    val installed = !xboxNotInstalled
 
     Box(
         modifier = Modifier
@@ -4471,7 +4490,8 @@ private fun ShortcutGridItem(
                 // Android games have no container to name (their home is not one).
                 if (!shortcut.container?.name.isNullOrEmpty() && !isAndroidTile) {
                     Text(
-                        text = shortcut.container?.name ?: "",
+                        // A not-installed Xbox entry only sits in its container until it is downloaded.
+                        text = if (xboxNotInstalled) "Not installed · Stream" else shortcut.container?.name ?: "",
                         fontSize = 10.sp,
                         color = Color.White.copy(alpha = 0.7f),
                         maxLines = 1,
@@ -4568,50 +4588,50 @@ private fun ShortcutGridItem(
             DropdownMenuItem(text = { Text("Remove") }, leadingIcon = { Icon(Icons.Filled.Delete, null) }, onClick = { menuExpanded = false; onRemove() })
             if (onClone != null) {
                 MenuItemDivider()
-                DropdownMenuItem(text = { Text("Clone to container") }, leadingIcon = { Icon(Icons.Filled.ContentCopy, null) }, onClick = { menuExpanded = false; onClone() })
+                DropdownMenuItem(enabled = installed, text = { Text("Clone to container") }, leadingIcon = { Icon(Icons.Filled.ContentCopy, null) }, onClick = { menuExpanded = false; onClone() })
             }
             if (onCopyToDriveC != null) {
                 MenuItemDivider()
-                DropdownMenuItem(text = { Text("Copy to Drive C…") }, leadingIcon = { Icon(Icons.Filled.DriveFileMove, null, tint = MaterialTheme.colorScheme.primary) }, onClick = { menuExpanded = false; onCopyToDriveC() })
+                DropdownMenuItem(enabled = installed, text = { Text("Copy to Drive C…") }, leadingIcon = { Icon(Icons.Filled.DriveFileMove, null, tint = MaterialTheme.colorScheme.primary) }, onClick = { menuExpanded = false; onCopyToDriveC() })
             }
             if (onChangeExe != null) {
                 MenuItemDivider()
-                DropdownMenuItem(text = { Text("Change executable…") }, leadingIcon = { Icon(Icons.Filled.SwapHoriz, null, tint = MaterialTheme.colorScheme.primary) }, onClick = { menuExpanded = false; onChangeExe() })
+                DropdownMenuItem(enabled = installed, text = { Text("Change executable…") }, leadingIcon = { Icon(Icons.Filled.SwapHoriz, null, tint = MaterialTheme.colorScheme.primary) }, onClick = { menuExpanded = false; onChangeExe() })
             }
             MenuItemDivider()
-            DropdownMenuItem(text = { Text("Add to home screen") }, leadingIcon = { Icon(Icons.Filled.AddToHomeScreen, null) }, onClick = { menuExpanded = false; onAddToHome() })
+            DropdownMenuItem(enabled = installed, text = { Text("Add to home screen") }, leadingIcon = { Icon(Icons.Filled.AddToHomeScreen, null) }, onClick = { menuExpanded = false; onAddToHome() })
             if (onExport != null) {
                 MenuItemDivider()
-                DropdownMenuItem(text = { Text("Export") }, leadingIcon = { Icon(Icons.Filled.Upload, null) }, onClick = { menuExpanded = false; onExport() })
+                DropdownMenuItem(enabled = installed, text = { Text("Export") }, leadingIcon = { Icon(Icons.Filled.Upload, null) }, onClick = { menuExpanded = false; onExport() })
             }
             MenuItemDivider()
             DropdownMenuItem(text = { Text("Game Details") }, leadingIcon = { Icon(Icons.Filled.Edit, null, tint = MaterialTheme.colorScheme.primary) }, onClick = { menuExpanded = false; onGameDetails() })
             // Steam-origin only — opens the Save Manager focused on this game.
             if (onCloudSaves != null) {
                 MenuItemDivider()
-                DropdownMenuItem(text = { Text("Cloud Saves") }, leadingIcon = { Icon(Icons.Filled.CloudSync, null, tint = MaterialTheme.colorScheme.primary) }, onClick = { menuExpanded = false; onCloudSaves() })
+                DropdownMenuItem(enabled = installed, text = { Text("Cloud Saves") }, leadingIcon = { Icon(Icons.Filled.CloudSync, null, tint = MaterialTheme.colorScheme.primary) }, onClick = { menuExpanded = false; onCloudSaves() })
             }
             // Custom-import games only — local save backup/restore (the non-Steam equivalent).
             if (onBackupSaves != null) {
                 MenuItemDivider()
-                DropdownMenuItem(text = { Text("Back up saves") }, leadingIcon = { Icon(Icons.Filled.Archive, null, tint = MaterialTheme.colorScheme.primary) }, onClick = { menuExpanded = false; onBackupSaves() })
+                DropdownMenuItem(enabled = installed, text = { Text("Back up saves") }, leadingIcon = { Icon(Icons.Filled.Archive, null, tint = MaterialTheme.colorScheme.primary) }, onClick = { menuExpanded = false; onBackupSaves() })
             }
             if (onRestoreSaves != null) {
                 MenuItemDivider()
-                DropdownMenuItem(text = { Text("Restore saves") }, leadingIcon = { Icon(Icons.Filled.Unarchive, null, tint = MaterialTheme.colorScheme.primary) }, onClick = { menuExpanded = false; onRestoreSaves() })
+                DropdownMenuItem(enabled = installed, text = { Text("Restore saves") }, leadingIcon = { Icon(Icons.Filled.Unarchive, null, tint = MaterialTheme.colorScheme.primary) }, onClick = { menuExpanded = false; onRestoreSaves() })
             }
             MenuItemDivider()
             DropdownMenuItem(text = { Text("Scrape cover") }, leadingIcon = { Icon(Icons.Filled.Search, null, tint = MaterialTheme.colorScheme.primary) }, onClick = { menuExpanded = false; onScrapeCover() })
             if (onCommunityConfigs != null) {
                 MenuItemDivider()
-                DropdownMenuItem(text = { Text("Community configs") }, leadingIcon = { Icon(Icons.Filled.Public, null, tint = MaterialTheme.colorScheme.primary) }, onClick = { menuExpanded = false; onCommunityConfigs() })
+                DropdownMenuItem(enabled = installed, text = { Text("Community configs") }, leadingIcon = { Icon(Icons.Filled.Public, null, tint = MaterialTheme.colorScheme.primary) }, onClick = { menuExpanded = false; onCommunityConfigs() })
             }
             if (onViewLogs != null) {
                 MenuItemDivider()
-                DropdownMenuItem(text = { Text("View logs") }, leadingIcon = { Icon(Icons.Filled.Description, null) }, onClick = { menuExpanded = false; onViewLogs() })
+                DropdownMenuItem(enabled = installed, text = { Text("View logs") }, leadingIcon = { Icon(Icons.Filled.Description, null) }, onClick = { menuExpanded = false; onViewLogs() })
             }
             MenuItemDivider()
-            DropdownMenuItem(text = { Text("Properties") }, leadingIcon = { Icon(Icons.Filled.Info, null) }, onClick = { menuExpanded = false; onProperties() })
+            DropdownMenuItem(enabled = installed, text = { Text("Properties") }, leadingIcon = { Icon(Icons.Filled.Info, null) }, onClick = { menuExpanded = false; onProperties() })
         }
     }
 }
@@ -5293,6 +5313,9 @@ internal fun ShortcutSettingsDialogScreen(
 ) {
     val context = LocalContext.current
     val res = context.resources
+    // An Xbox entry not downloaded yet: its settings apply to the installed copy, so they are shown greyed out,
+    // ignore touches, and OK stores nothing.
+    val xboxNotInstalled = remember(shortcut) { com.winlator.star.store.xbox.XboxCloudShortcuts.isNotInstalled(shortcut) }
     // Controller / D-pad state for this editor (see the SettingsDpad model above).
     val dp = remember { SettingsDpad() }
 
@@ -6292,6 +6315,7 @@ internal fun ShortcutSettingsDialogScreen(
     }
 
     fun save() {
+        if (xboxNotInstalled) return
         val newName = name.trim()
         if (newName.isNotEmpty() && newName != shortcut.name) {
             renameShortcut(shortcut, newName)
@@ -6483,6 +6507,10 @@ internal fun ShortcutSettingsDialogScreen(
                         }
                     }
                     Divider(color = DividerColor)
+                    if (xboxNotInstalled) Text(
+                        "Not installed yet: these settings apply once the game is downloaded (launch options › Download).",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
 
                     // Scrollable tab content — ONE region shared by both orientations (portrait pins the
                     // tab strip above it; landscape puts the rail beside it). Scrolls internally so the
@@ -6493,7 +6521,13 @@ internal fun ShortcutSettingsDialogScreen(
                     val contentScroll = rememberScrollState()
                     val mainContent: @Composable () -> Unit = {
                         Column(
-                            modifier = Modifier.fillMaxSize().verticalScroll(contentScroll).padding(12.dp),
+                            modifier = Modifier.fillMaxSize()
+                                .then(if (xboxNotInstalled) Modifier.alpha(0.4f).pointerInput(Unit) {
+                                    awaitPointerEventScope {
+                                        while (true) awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial).changes.forEach { it.consume() }
+                                    }
+                                } else Modifier)
+                                .verticalScroll(contentScroll).padding(12.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             when (selectedTab) {

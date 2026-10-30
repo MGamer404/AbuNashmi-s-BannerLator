@@ -141,6 +141,7 @@ internal fun rememberedLaunchLabel(s: Shortcut): String? {
         "RealSteam" -> "SteamLite (real Steam)"
         "Goldberg" -> "Goldberg (offline)"
         "Raw" -> "the game's .exe directly"
+        "Stream" -> "Xbox Cloud Gaming"
         else -> null
     }
 }

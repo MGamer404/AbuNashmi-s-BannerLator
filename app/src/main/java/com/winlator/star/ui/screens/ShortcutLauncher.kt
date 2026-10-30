@@ -270,6 +270,12 @@ class ShortcutLauncher internal constructor(
         }
     }
 
+    /** Launch method "Stream" on an Xbox shortcut: Xbox Cloud Gaming, nothing starts in Wine. */
+    fun streamXbox(shortcut: Shortcut) {
+        activity.startActivity(com.winlator.star.store.xbox.XboxCloudPlayerActivity.intent(activity,
+            shortcut.getExtra("xboxProductId", ""), shortcut.name ?: ""))
+    }
+
     fun requestLaunch(shortcut: Shortcut) {
         // Nothing about the launch-method popup (SteamLite/Goldberg/Raw) applies to an Android app.
         if (AndroidGames.isAndroidEntry(shortcut)) { launchAndroidGame(shortcut); return }
@@ -311,6 +317,9 @@ class ShortcutLauncher internal constructor(
             remembered && shortcut.getExtra("launchMode", "") == "Goldberg" && isSteamOriginShortcut(shortcut) -> {
                 launchWithGoldberg(shortcut, null)
             }
+            remembered && shortcut.getExtra("launchMode", "") == "Stream" && isXboxShortcut(shortcut) -> streamXbox(shortcut)
+            // A not-installed Xbox entry has nothing to run yet: only a remembered Stream skips the choice.
+            com.winlator.star.store.xbox.XboxCloudShortcuts.isNotInstalled(shortcut) -> launchChoiceFor = shortcut
             remembered -> launchShortcutNow(activity, shortcut)
             else -> launchChoiceFor = shortcut
         }
@@ -469,7 +478,9 @@ fun ShortcutLaunchDialogs(launcher: ShortcutLauncher, onRemove: (Shortcut) -> Bo
                 when (mode) {
                     "Goldberg" -> launcher.launchWithGoldberg(s, goldbergMode ?: GoldbergMode.REGULAR)
                     "AppSteam" -> launcher.launchWithAppSteam(s)
-                    "Raw" -> {
+                    "Stream" -> launcher.streamXbox(s)
+                    // Raw on a not-installed Xbox entry is Download: the game's store page installs it.
+                    "Raw" -> if (com.winlator.star.store.xbox.XboxCloudShortcuts.isNotInstalled(s)) com.winlator.star.store.xbox.XboxCloudShortcuts.openDownload(activity, s) else {
                         // Raw: run the game's .exe directly with no Steam layer (Epic/GOG/Custom, or a
                         // Steam game the user chose to run raw). The launchMode="Raw" extra is inert to the
                         // launch pipeline (only "RealSteam" stages the agent), so this is a plain launch.

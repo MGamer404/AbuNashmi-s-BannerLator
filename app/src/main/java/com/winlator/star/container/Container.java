@@ -1249,7 +1249,8 @@ public class Container {
     // Unlock the game's own in-game refresh dropdown by turning OFF Wine's win32u display-mode
     // emulation (which otherwise discards the rates our RandR extension advertises and hardcodes the
     // guest to {60, current}). Applied as the two "X11 Driver" registry values EmulateModelist /
-    // EmulateModeset = "Y" (INVERTED semantics: "Y" disables emulation). Default ON — the whole
+    // EmulateModeset (EmulateModelist "Y" disables; EmulateModeset "Y" on older layers, "N" on layers
+    // with Valve's 2026-09-01 win32u fixup, see WineRandrSupport.usesLiteralEmulateModeset). Default ON — the whole
     // refresh feature is opt-in-by-hardware; the toggle lets a user turn it off if a game misbehaves
     // with the reduced (container-res-capped) resolution ladder emulation-off produces.
     public boolean isUnlockGameRefreshRate() {

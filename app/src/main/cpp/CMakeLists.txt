@@ -114,8 +114,21 @@ target_link_libraries(ssbs
         dl
 )
 
+# Locale fix: Android's setlocale(…, "") always answers "C.UTF-8", so Wine ignored the container's
+# LC_ALL and ran CJK games with code page 1252. Loaded via LD_PRELOAD for every game (see locale_fix.c).
+add_library(locale_fix SHARED
+        winlator/locale_fix.c
+)
+
+target_compile_options(locale_fix PRIVATE -Wall -Wextra)
+
+target_link_libraries(locale_fix
+        dl
+)
+
 add_library(vulkan_renderer SHARED
         winlator/vulkan_jni.cpp
+        winlator/stream_jni.cpp
         winlator/VulkanRendererContext.cpp
         winlator/VulkanRendererScanout.cpp
         winlator/lsfg/lsfg_probe.cpp
@@ -185,6 +198,7 @@ target_compile_options(vulkan_renderer PRIVATE
 target_link_libraries(vulkan_renderer
         log
         android
+        nativewindow
         vulkan
         adrenotools
         dxbc

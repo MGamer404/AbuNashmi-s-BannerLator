@@ -385,8 +385,8 @@ fun ContainersScreen(
                 )
             }
             is ConfirmAction.UpdateLayer -> {
-                val newLabel = ContainerLayerUpdater.codeLabel(action.target)
-                val oldLabel = ContainerLayerUpdater.codeLabel(action.container.wineVersion)
+                val newLabel = ContainerLayerUpdater.layerLabel(action.target, action.container.wineVersion)
+                val oldLabel = ContainerLayerUpdater.layerLabel(action.container.wineVersion, action.target)
                 val remote = action.remote
                 OutlinedAlertDialog(
                     onDismissRequest = { confirmDialog = null },
@@ -424,7 +424,7 @@ fun ContainersScreen(
                 )
             }
             is ConfirmAction.LayerHelp -> {
-                val newLabel = ContainerLayerUpdater.codeLabel(action.target)
+                val newLabel = ContainerLayerUpdater.layerLabel(action.target, action.container.wineVersion)
                 OutlinedAlertDialog(
                     onDismissRequest = { confirmDialog = null },
                     title = { Text("About layer updates") },
@@ -432,8 +432,9 @@ fun ContainersScreen(
                         Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                             Text(
                                 "A layer is the set of Wine/Proton files a container runs on. " +
-                                    "\"${action.container.name}\" runs on ${action.container.wineVersion}; a newer build " +
-                                    "of the same layer, ${action.target}, is " +
+                                    "\"${action.container.name}\" runs on ${action.container.wineVersion}; " +
+                                    (if (newLabel == ContainerLayerUpdater.codeLabel(action.target)) "a newer build of the same layer, "
+                                    else "a newer DroidDeck-Proton version, ") + "${action.target}, is " +
                                     (if (action.remote != null) "available in the catalog. The $newLabel layer will be " +
                                         "downloaded" + layerSizeHint(action.remote) + " first."
                                     else "installed.") + "\n\n" +
@@ -447,7 +448,7 @@ fun ContainersScreen(
                             )
                             if (action.snapshot != null) {
                                 Text(
-                                    text = "A ${ContainerLayerUpdater.codeLabel(action.snapshot.oldEntry)} snapshot from an " +
+                                    text = "A ${ContainerLayerUpdater.layerLabel(action.snapshot.oldEntry, action.container.wineVersion)} snapshot from an " +
                                         "earlier update exists — revert is available in the menu.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = OnSurfaceVariant,
@@ -471,7 +472,7 @@ fun ContainersScreen(
                 )
             }
             is ConfirmAction.RevertLayer -> {
-                val oldLabel = ContainerLayerUpdater.codeLabel(action.snapshot.oldEntry)
+                val oldLabel = ContainerLayerUpdater.layerLabel(action.snapshot.oldEntry, action.container.wineVersion)
                 OutlinedAlertDialog(
                     onDismissRequest = { confirmDialog = null },
                     title = { Text("Revert layer to $oldLabel?") },
@@ -809,7 +810,7 @@ private fun ContainerItem(
                                 Spacer(Modifier.width(4.dp))
                             }
                             Text(
-                                text = "Update layer \u2192 ${ContainerLayerUpdater.codeLabel(layerTarget)}",
+                                text = "Update layer \u2192 ${ContainerLayerUpdater.layerLabel(layerTarget, container.wineVersion)}",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
@@ -907,7 +908,7 @@ private fun ContainerItem(
                         MenuItemDivider()
                         DropdownMenuItem(
                             text = {
-                                val label = ContainerLayerUpdater.codeLabel(menuTarget)
+                                val label = ContainerLayerUpdater.layerLabel(menuTarget, container.wineVersion)
                                 Text(if (layerNeedsDownload) "Download & update layer to $label…" else "Update layer to $label…")
                             },
                             leadingIcon = { Icon(if (layerNeedsDownload) Icons.Filled.CloudDownload else Icons.Filled.Upgrade, null) },
@@ -917,7 +918,7 @@ private fun ContainerItem(
                     if (layerSnapshot != null) {
                         MenuItemDivider()
                         DropdownMenuItem(
-                            text = { Text("Revert layer to ${ContainerLayerUpdater.codeLabel(layerSnapshot.oldEntry)}…") },
+                            text = { Text("Revert layer to ${ContainerLayerUpdater.layerLabel(layerSnapshot.oldEntry, container.wineVersion)}…") },
                             leadingIcon = { Icon(Icons.Filled.SettingsBackupRestore, null) },
                             onClick = { menuExpanded = false; onRevertLayer(layerSnapshot) },
                         )

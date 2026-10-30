@@ -26,18 +26,18 @@ internal object XboxLibraryCache {
     fun clear(app: Context) { prefs(app).edit().remove("library").commit() }
 
     internal fun encode(account: String, market: String, games: List<XboxGame>, now: Long = System.currentTimeMillis()): String =
-        JSONObject().put("schema", 1).put("account", account).put("market", market).put("savedAt", now)
+        JSONObject().put("schema", 2).put("account", account).put("market", market).put("savedAt", now)
             .put("games", JSONArray().apply {
                 for (game in games) put(JSONObject().put("id", game.id).put("title", game.title)
                     .put("image", game.heroUrl).put("poster", game.posterUrl).put("description", game.description)
                     .put("developer", game.developer).put("publisher", game.publisher).put("size", game.sizeBytes)
-                    .put("access", game.access))
+                    .put("access", game.access).put("pc", game.pc).put("cloud", game.cloud).put("cloudId", game.cloudId))
             }).toString()
 
     internal fun decode(text: String?, account: String, market: String, now: Long = System.currentTimeMillis()): Snapshot? = runCatching {
         require(text != null && text.length <= 8_000_000)
         val json = JSONObject(text)
-        require(json.getInt("schema") == 1 && json.getString("account") == account && json.getString("market") == market)
+        require(json.getInt("schema") == 2 && json.getString("account") == account && json.getString("market") == market)
         val savedAt = json.getLong("savedAt")
         require(savedAt > 0 && savedAt <= now + 60_000)
         val rows = json.getJSONArray("games")
@@ -49,7 +49,8 @@ internal object XboxLibraryCache {
             val access = row.getString("access")
             require(id.matches(Regex("[A-Z0-9]{12}")) && title.isNotBlank() && access in setOf("owned", "gamepass"))
             XboxGame(id, title, row.optString("image").takeIf { it.isNotEmpty() }, row.optString("poster").takeIf { it.isNotEmpty() },
-                row.optString("publisher"), row.optString("developer"), row.optString("description"), row.optLong("size"), market, access)
+                row.optString("publisher"), row.optString("developer"), row.optString("description"), row.optLong("size"), market, access,
+                row.getBoolean("pc"), row.getBoolean("cloud"), row.optString("cloudId").takeIf { it.matches(Regex("[A-Z0-9]{12}")) })
         }
         require(games.map { it.id }.distinct().size == games.size)
         Snapshot(games, savedAt)

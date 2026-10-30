@@ -612,6 +612,22 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
             ld_preload += fakeinputDest.getAbsolutePath();
         }
 
+        // Locale fix: Android's setlocale(…, "") ignores LC_ALL and answers "C.UTF-8", which Wine read as an
+        // unknown locale -> en-US -> code page 1252 (GBK / Shift-JIS games showed mojibake). liblocale_fix.so
+        // hands Wine the LC_ALL name instead. LOCALE_FIX_DISABLE=1 in the env vars turns it off.
+        File localeFixDest = new File(imageFs.getLibDir(), "liblocale_fix.so");
+        File localeFixSrc = new File(nativeLibDir, "liblocale_fix.so");
+        try {
+            if (localeFixSrc.exists()) FileUtils.copy(localeFixSrc, localeFixDest);
+            else if (!localeFixDest.exists()) Log.e("GuestLauncher", "liblocale_fix.so NOT FOUND in APK: " + localeFixSrc.getAbsolutePath());
+        } catch (Exception e) {
+            Log.e("GuestLauncher", "Failed to copy liblocale_fix.so: " + e.getMessage());
+        }
+        if (localeFixDest.exists()) {
+            if (!ld_preload.isEmpty()) ld_preload += ":";
+            ld_preload += localeFixDest.getAbsolutePath();
+        }
+
         // Force SSBS (arm64ec only): Wine's arm64 signal return rebuilds PSTATE from a Windows CONTEXT
         // and clears SSBS, so game threads run with speculative store bypass disabled. Rebuilt layers
         // honour WINE_FORCE_SSBS; libssbs.so sets the bit from outside for layers that predate it.

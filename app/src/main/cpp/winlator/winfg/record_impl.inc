@@ -48,6 +48,10 @@ struct ScratchState {
     VkDescriptorSet sGmReduce[winfg::FrameGen::kGmSlots]{};
     std::vector<VkDescriptorSet> sGmPrewarp[winfg::FrameGen::kGmSlots]; // sized kLevels; [flowFinest()..) used
     VkExtent2D builtFor{0,0};
+    // The FrameGen pool every set above came from. The scratch is process-wide, so a FrameGen
+    // created after another one (frame gen re-enabled, renderer rebuilt) must not reuse sets
+    // from the old, destroyed pool.
+    VkDescriptorPool pool = VK_NULL_HANDLE;
     bool built = false;
     bool flowInited = false;   // flow images laid out once, then persist (temporal predictor)
 };
@@ -190,6 +194,8 @@ static void destroyScratch(const DeviceDispatch* dd, VkDevice dev, VkDescriptorP
     S = ScratchState{};   // built=false -> next record() rebuilds via ensureScratch
 }
 
+static bool scratchOwnedBy(VkDescriptorPool pool) { return g_scratch.built && g_scratch.pool == pool; }
+
 // ── perf_preset apply / live rebuild ─────────────────────────────────────────
 // Sets the config, resolves the perf_preset -> finest-solved-level, and — when
 // that level changed while resources are already live — safely rebuilds the
@@ -323,7 +329,9 @@ void FrameGen::record(VkCommandBuffer cmd, VkImageView prevView, VkImageView cur
     const Pipe& flowP   = m4 ? pFlowM4_   : pFlow_;
     const Pipe& expandP = m4 ? pExpandM4_ : pExpand_;
 
-    if (!g_scratch.built || g_scratch.builtFor.width != extent_.width || g_scratch.builtFor.height != extent_.height) {
+    if (!g_scratch.built || g_scratch.pool != descPool_ ||
+        g_scratch.builtFor.width != extent_.width || g_scratch.builtFor.height != extent_.height) {
+        if (g_scratch.built && g_scratch.pool != descPool_) g_scratch = ScratchState{};  // its pool is gone with its owner
         ensureScratch(this, dd_, device_, memProps_, descPool_, linear_, extent_,
                       pyrA_, pyrB_, pyrAs_, flowLvl_, flowExpA_, flowExpB_,
                       pLuma_, pDown_, flowP, expandP, pSynth_, pGmReduce_, pGmPrewarp_,
@@ -642,7 +650,7 @@ static bool ensureScratch(FrameGen* fg, const DeviceDispatch* dd, VkDevice dev,
     wImg(dd, dev, S.sSynth, 34, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, expA.view, samp, GEN);
     wImg(dd, dev, S.sSynth, 35, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, expB.view, samp, GEN);
 
-    S.builtFor = ext; S.built = true;
+    S.builtFor = ext; S.built = true; S.pool = pool;
     return true;
 }
 

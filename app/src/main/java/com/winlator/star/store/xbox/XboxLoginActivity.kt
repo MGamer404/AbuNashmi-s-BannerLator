@@ -20,9 +20,10 @@ import java.util.concurrent.TimeUnit
 /**
  * Microsoft sign-in for the Xbox store (ported from DroidDeck, GPL-3.0). It drives
  * `xodus-cli --external-webview-stdio login` in an isolated WebView: the page bridge only talks to the
- * allowed Microsoft/Xbox HTTPS origins in the main frame, and cookies and page storage are cleared for every
- * attempt. Runs in its own process (":xboxlogin") with its own WebView data directory, so clearing them
- * never signs the user out of the other stores' web logins.
+ * allowed Microsoft/Xbox HTTPS origins in the main frame, and cookies are cleared when an attempt starts. The
+ * Microsoft session the sign-in leaves is kept for the cloud player (XboxCloudActivity), which shares this
+ * process (":xboxlogin") and its WebView data directory; store sign-out deletes that data. The other stores'
+ * web logins live elsewhere and are never touched.
  */
 class XboxLoginActivity : ComponentActivity() {
     private lateinit var host: LinearLayout
@@ -34,7 +35,7 @@ class XboxLoginActivity : ComponentActivity() {
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
-        runCatching { WebView.setDataDirectorySuffix("xboxlogin") }
+        runCatching { WebView.setDataDirectorySuffix(WEBVIEW_SUFFIX) }
         super.onCreate(savedInstanceState)
         host = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.BLACK) }
         status = TextView(this).apply { setTextColor(Color.WHITE); text = "Preparing Microsoft sign-in…"; setPadding(24, 16, 24, 16) }
@@ -46,7 +47,7 @@ class XboxLoginActivity : ComponentActivity() {
             status.text = "Update Android System WebView to sign in to Xbox."
             return
         }
-        CookieManager.getInstance().removeAllCookies { begin() }
+        CookieManager.getInstance().removeAllCookies { android.webkit.WebStorage.getInstance().deleteAllData(); begin() }
     }
 
     private fun begin() {
@@ -175,13 +176,13 @@ class XboxLoginActivity : ComponentActivity() {
         val current = child; child = null
         Thread({ runCatching { current?.close() } }, "xbox-login-close").start()
         disposeView()
-        CookieManager.getInstance().removeAllCookies(null)
-        android.webkit.WebStorage.getInstance().deleteAllData()
+        CookieManager.getInstance().flush()
         super.onDestroy()
     }
 
     companion object {
         const val PROCESS_SUFFIX = ":xboxlogin"
+        const val WEBVIEW_SUFFIX = "xboxlogin"
 
         /** True in the sign-in process (BannerlatorApp skips its start-up work there). */
         fun isLoginProcess(): Boolean = runCatching {

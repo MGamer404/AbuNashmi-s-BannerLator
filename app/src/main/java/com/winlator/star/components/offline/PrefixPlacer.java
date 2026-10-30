@@ -4,7 +4,12 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
+import java.util.Set;
+import java.util.function.Consumer;
 
 /**
  * Puts a laid-out component (its drive_c tree) into a container's Wine prefix. Windows names
@@ -54,6 +59,35 @@ public final class PrefixPlacer {
         Files.copy(src.toPath(), temp.toPath(), StandardCopyOption.REPLACE_EXISTING);
         Files.move(temp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         return true;
+    }
+
+    /**
+     * Deletes the files under [old] (a folder of the prefix) that [fresh] (the same folder, laid out
+     * anew) does not have, whatever their case, and the folders that leaves empty. [before] gets each
+     * file just before it goes. Returns how many went.
+     */
+    public static int removeStale(File fresh, File old, Consumer<File> before) {
+        if (!fresh.isDirectory() || !old.isDirectory()) return 0;
+        Set<String> keep = new HashSet<>();
+        int base = fresh.getPath().length() + 1;
+        for (File f : OfflineTools.walkFiles(fresh)) keep.add(f.getPath().substring(base).toLowerCase(Locale.ROOT));
+        base = old.getPath().length() + 1;
+        Set<File> emptied = new HashSet<>();
+        int removed = 0;
+        for (File f : OfflineTools.walkFiles(old)) {
+            if (keep.contains(f.getPath().substring(base).toLowerCase(Locale.ROOT))) continue;
+            before.accept(f);
+            if (f.delete()) {
+                removed++;
+                emptied.add(f.getParentFile());
+            }
+        }
+        List<File> folders = new ArrayList<>(emptied);
+        folders.sort((a, b) -> Integer.compare(b.getPath().length(), a.getPath().length()));
+        for (File d : folders) {
+            while (d != null && !d.equals(old) && d.delete()) d = d.getParentFile();
+        }
+        return removed;
     }
 
     /** [parent]/[name] as the prefix spells it when a folder by that name exists in any case. */
