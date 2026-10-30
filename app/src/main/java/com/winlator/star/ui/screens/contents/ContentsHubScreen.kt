@@ -377,8 +377,14 @@ private fun SourceListPane(
         }
     }
 
+    // XMB home with results inline: the results are items of the same list as the search field, so typing the first
+    // letter does not move the field to another place in the layout (which would drop its focus and the typing).
+    val inlineResults = xmbHome && showInlineResults
+    val searchResults = if (inlineResults) vm.searchResults.collectAsState().value else emptyList()
+    val searching = if (inlineResults) vm.searching.collectAsState().value else false
+
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp)) {
-        if (xmbHome && (query.isBlank() || !showInlineResults)) {
+        if (xmbHome) {
             // XMB home: the search field and the header are the list's first items, so they scroll away with the
             // repositories and come back when you scroll up.
             LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
@@ -387,14 +393,38 @@ private fun SourceListPane(
                     searchField()
                     Spacer(Modifier.height(12.dp))
                 }
-                item(key = "header") {
-                    listHeader()
-                    Spacer(Modifier.height(6.dp))
-                }
-                itemsIndexed(sources, key = { i, s -> "$i-${s.name}-${s.driverOnly}" }) { _, source ->
-                    RepoCard(source, isSelected = selected == source,
-                        onClick = { vm.selectSource(source) }, onMenu = { onMenu(source) })
-                    Spacer(Modifier.height(10.dp))
+                if (query.isBlank() || !showInlineResults) {
+                    item(key = "header") {
+                        listHeader()
+                        Spacer(Modifier.height(6.dp))
+                    }
+                    itemsIndexed(sources, key = { i, s -> "$i-${s.name}-${s.driverOnly}" }) { _, source ->
+                        RepoCard(source, isSelected = selected == source,
+                            onClick = { vm.selectSource(source) }, onMenu = { onMenu(source) })
+                        Spacer(Modifier.height(10.dp))
+                    }
+                } else if (searching) {
+                    item(key = "searching") {
+                        Box(Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = cs.primary)
+                        }
+                    }
+                } else {
+                    item(key = "results-count") {
+                        Text("${searchResults.size} result${if (searchResults.size != 1) "s" else ""}",
+                            style = MaterialTheme.typography.titleMedium, color = cs.onSurface)
+                        Spacer(Modifier.height(8.dp))
+                    }
+                    if (searchResults.isEmpty()) {
+                        item(key = "results-none") {
+                            Text("No components match “$query”.", color = cs.onSurfaceVariant, modifier = Modifier.padding(vertical = 24.dp))
+                        }
+                    } else {
+                        itemsIndexed(searchResults, key = { i, it -> "$i-${it.sourceName}-${it.type}-${it.downloadUrl}" }) { _, item ->
+                            ComponentRow(vm, item, showSource = true)
+                            Spacer(Modifier.height(10.dp))
+                        }
+                    }
                 }
             }
             return@Column

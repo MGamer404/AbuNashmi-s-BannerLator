@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Backspace
@@ -109,7 +110,7 @@ import kotlinx.coroutines.launch
 // also arrive as analog axes on pads that report only that; those come through the window's motion dispatch (pressed
 // past 0.6, released below 0.3, the same hysteresis as DeckInput.onMotion).
 
-private const val PANEL_HEIGHT = 0.45f
+private const val PANEL_HEIGHT = 0.5f
 private const val PANEL_SIDE_MARGIN = 0.055f
 private const val PREVIEW_SHARE = 0.14f
 private const val PREVIEW_BEFORE = 40
@@ -314,7 +315,11 @@ internal fun XmbKeyboardPanel(
                 }
             }
             w.callback = wrapper
-            onDispose { w.callback = original }
+            onDispose {
+                w.callback = original
+                // An analog trigger still held as the panel closes (R2 pressed for Done) must not act on the page behind.
+                if (state.shiftAxis || state.rightTriggerDown) XmbTriggerGuard.arm()
+            }
         }
         CompositionLocalProvider(LocalDensity provides density, LocalDeckDensity provides density) {
             BoxWithConstraints(
@@ -595,10 +600,10 @@ private fun CharLabel(cap: Cap, context: KeyContext, ink: Color) {
     val hint = if (cap.letter || cap.shifted == cap.base) null else (if (context.shift) cap.base else cap.shifted)
     Box(Modifier.fillMaxSize()) {
         if (hint != null) {
-            KeyText(hint, unit.asSp(0.22f), ink.copy(alpha = 0.55f), FontWeight.Normal, Modifier.align(Alignment.TopCenter).padding(top = unit * 0.14f))
+            KeyText(hint, unit.asSp(0.24f), ink.copy(alpha = 0.55f), FontWeight.Normal, Modifier.align(Alignment.TopCenter).padding(top = unit * 0.14f))
         }
         KeyText(
-            main, unit.asSp(if (hint != null) 0.38f else 0.46f), ink, FontWeight.Normal,
+            main, unit.asSp(if (hint != null) 0.4f else 0.5f), ink, FontWeight.Normal,
             Modifier.align(Alignment.Center).padding(top = if (hint != null) unit * 0.2f else 0.dp),
         )
     }
@@ -623,7 +628,58 @@ private fun IconLabel(
         if (label != null) KeyText(label, unit.asSp(0.3f), ink, FontWeight.Bold)
         if (glyph != null && showGlyph) {
             Spacer(Modifier.size(unit * 0.1f))
-            DeckGlyph(glyph, glyphKind)
+            KeyGlyph(glyph, glyphKind, unit)
         }
+    }
+}
+
+/** A controller button glyph sized from the key, so it always fits inside it. */
+@Composable
+private fun KeyGlyph(text: String, kind: GlyphKind, unit: Dp) {
+    val cs = MaterialTheme.colorScheme
+    val round = kind == GlyphKind.X || kind == GlyphKind.Y
+    val side = unit * 0.5f
+    val shape = if (round) CircleShape else RoundedCornerShape(side * 0.28f)
+    val fill = when (kind) {
+        GlyphKind.BUMPER -> cs.surfaceContainerHigh.copy(alpha = 0.7f)
+        GlyphKind.X, GlyphKind.Y -> cs.surfaceVariant
+        else -> Color.Transparent
+    }
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .height(side)
+            .widthIn(min = if (round) side else side * 1.3f)
+            .background(fill, shape)
+            .border(1.dp, cs.onSurfaceVariant.copy(alpha = 0.6f), shape)
+            .padding(horizontal = side * 0.18f),
+    ) {
+        KeyText(text, unit.asSp(0.26f), cs.onSurface, FontWeight.ExtraBold)
+    }
+}
+
+/**
+ * After the panel closes with an analog trigger still held (R2 pressed for Done, or L2 held as Shift), the page behind it
+ * would see that trigger cross its press threshold and act on it as a fresh press (switch tab). Until the triggers are let
+ * go, the pages' trigger readers ([DeckInput.onMotion], StoreXmbInput.onMotion) skip them.
+ */
+internal object XmbTriggerGuard {
+    private const val EXPIRES_MS = 3000L
+
+    @Volatile
+    private var armedAt = 0L
+
+    fun arm() {
+        armedAt = android.os.SystemClock.uptimeMillis()
+    }
+
+    /** True while a trigger held when the panel closed is still down: the page must ignore this motion event's triggers. */
+    fun holding(left: Float, right: Float): Boolean {
+        if (armedAt == 0L) return false
+        if (android.os.SystemClock.uptimeMillis() - armedAt > EXPIRES_MS || (left <= TRIGGER_UP && right <= TRIGGER_UP)) {
+            armedAt = 0L
+            return false
+        }
+        return true
     }
 }

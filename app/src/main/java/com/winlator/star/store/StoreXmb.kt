@@ -86,6 +86,7 @@ import kotlinx.coroutines.launch
 import com.winlator.star.ui.deck.ScreenScale
 import com.winlator.star.ui.deck.XmbEditTapCatcher
 import com.winlator.star.ui.deck.XmbKeyboardHost
+import com.winlator.star.ui.deck.XmbTriggerGuard
 import com.winlator.star.ui.deck.XmbScreenWindow
 import com.winlator.star.ui.deck.rememberXmbEdit
 import com.winlator.star.ui.deck.xmbEditField
@@ -182,6 +183,7 @@ internal object StoreXmbInput {
         if ((ev.source and InputDevice.SOURCE_JOYSTICK) != InputDevice.SOURCE_JOYSTICK) return
         val l = maxOf(ev.getAxisValue(MotionEvent.AXIS_LTRIGGER), ev.getAxisValue(MotionEvent.AXIS_BRAKE))
         val r = maxOf(ev.getAxisValue(MotionEvent.AXIS_RTRIGGER), ev.getAxisValue(MotionEvent.AXIS_GAS))
+        if (XmbTriggerGuard.holding(l, r)) return
         val lNow = if (l2Down) l > 0.3f else l > 0.6f
         val rNow = if (r2Down) r > 0.3f else r > 0.6f
         if (lNow && !l2Down) fire(-1)
