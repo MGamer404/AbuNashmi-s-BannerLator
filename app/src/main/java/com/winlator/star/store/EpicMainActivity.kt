@@ -42,7 +42,6 @@ import androidx.compose.ui.unit.dp
 import com.winlator.star.core.AppOrientation
 import com.winlator.star.store.download.DownloadRegistry
 import com.winlator.star.store.download.DownloadsButton
-import com.winlator.star.ui.theme.WinlatorTheme
 
 /**
  * The Epic section's host — flipped from a login card + "View Game Library" button to a
@@ -83,7 +82,7 @@ class EpicMainActivity : ComponentActivity() {
         startTab = intent?.getIntExtra(EXTRA_TAB, 0) ?: 0
         refreshView()
         setContent {
-            WinlatorTheme { StoreXmbScreen {
+            StoreXmbTheme {
                 if (isLoggedIn) {
                     EpicStorefrontHost(
                         initialTab = startTab,
@@ -102,7 +101,7 @@ class EpicMainActivity : ComponentActivity() {
                     })
                     resultBarMsg?.let { UninstallResultBar(it) { resultBarMsg = null } }
                 }
-            } }
+            }
         }
     }
 

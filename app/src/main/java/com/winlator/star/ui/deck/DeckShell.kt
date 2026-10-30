@@ -251,8 +251,8 @@ private fun DeckShellContent(
     val tab = deckTabOf(currentRoute)
 
     val nav = remember(navController) { DeckNav(navController) }
-    // XMB home: no Stores tab; the stores are cards in Home's upper row. Its route stays for search and the other modes.
-    val tabs = if (xmbHome) DeckTab.entries - DeckTab.STORES else DeckTab.entries
+    // XMB mode: no Stores tab; the stores are cards in Home's upper row. Its route stays for search and the other modes.
+    val tabs = remember(xmbHome) { if (xmbHome) DeckTab.entries - DeckTab.STORES else DeckTab.entries }
     SideEffect { nav.tabs = tabs }
     val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
@@ -342,18 +342,19 @@ private fun DeckShellContent(
 
     // Landscape hides Android's navigation bar; a swipe in from the edge shows it for a moment, as in a game.
     // It comes back on leaving the Deck style or turning to portrait. Games and stores are other activities with their own windows,
-    // and it is hidden again whenever this one resumes. The status bar stays.
+    // and it is hidden again whenever this one resumes. The status bar stays (except in the XMB mode, below).
     val activity = context as? android.app.Activity
     val lifecycleOwner = LocalLifecycleOwner.current
-    // The XMB home locks the app to its own orientation (AppOrientation.deckMode); turning it off, or switching back to
-    // Classic, re-runs or disposes this after the pref has changed, so applying again hands the window back to Auto & co.
+    // The XMB mode locks the app to its own orientation (AppOrientation.deckMode). Turning it off, or switching back to
+    // Classic, disposes this after the pref has changed, so applying again hands the window back to the Appearance setting.
     DisposableEffect(activity, xmbHome) {
-        activity?.let { AppOrientation.apply(it) }
-        onDispose { activity?.let { AppOrientation.apply(it) } }
+        if (!xmbHome || activity == null) return@DisposableEffect onDispose {}
+        AppOrientation.apply(activity)
+        onDispose { AppOrientation.apply(activity) }
     }
     // Re-run when the full-screen XMB closes: it shows the system bars again on its way out.
     val xmbShown = deckActions.fullscreen.value
-    // XMB home: the status bar goes too, on every tab and in both orientations, like a console.
+    // XMB mode: the status bar goes too, on every tab and in both orientations, like a console.
     DisposableEffect(rails, xmbHome, activity, lifecycleOwner, xmbShown) {
         val window = activity?.window
         if (!(rails || xmbHome) || window == null) return@DisposableEffect onDispose {}
@@ -375,28 +376,29 @@ private fun DeckShellContent(
             controller.show(bars)
         }
     }
-    // XMB home: the shell lays itself out edge to edge (the window no longer pads for the bars and the camera hole),
-    // so Home's XMB can run under the notch while every other page keeps clear of it through the insets below.
+    // XMB mode: the shell lays itself out edge to edge (the window no longer pads for the bars) and reaches under the
+    // camera hole on every tab, so Android never adds its own black strip and switching tabs doesn't resize the screen.
+    // Only Home draws its content into the hole; every other page keeps clear of it through the insets below.
     DisposableEffect(xmbHome, activity) {
         val window = activity?.window
         if (!xmbHome || window == null) return@DisposableEffect onDispose {}
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        onDispose { WindowCompat.setDecorFitsSystemWindows(window, true) }
-    }
-    // Only Home draws its content into the camera hole, but the window reaches it on every tab, so Android never adds its
-    // own black strip and switching tabs doesn't resize the screen; the other tabs keep clear through the insets below.
-    val homeBleed = xmbHome && currentRoute == DeckRoutes.HOME && !compact
-    // XMB home: Home's floating tab bar on every tab, except the phone layout, too narrow for it (it keeps its bars).
-    val floatTabs = xmbHome && !compact
-    DisposableEffect(xmbHome, activity) {
-        val window = activity?.window
-        if (!xmbHome || window == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return@DisposableEffect onDispose {}
-        val before = window.attributes.layoutInDisplayCutoutMode
-        window.attributes = window.attributes.also {
-            it.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        val cutoutBefore = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) window.attributes.layoutInDisplayCutoutMode else 0
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window.attributes = window.attributes.also {
+                it.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
         }
-        onDispose { window.attributes = window.attributes.also { it.layoutInDisplayCutoutMode = before } }
+        onDispose {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                window.attributes = window.attributes.also { it.layoutInDisplayCutoutMode = cutoutBefore }
+            }
+            WindowCompat.setDecorFitsSystemWindows(window, true)
+        }
     }
+    val homeBleed = xmbHome && currentRoute == DeckRoutes.HOME && !compact
+    // XMB mode: Home's floating tab bar on every tab, except the phone layout, too narrow for it (it keeps its bars).
+    val floatTabs = xmbHome && !compact
 
     // Settings and Appearance are the Settings tab's two pages: in landscape they sit on the page-tab rail, and L2/R2 swap them.
     val settingsPages = rails && (currentRoute == Screen.Settings.route || currentRoute == Screen.Appearance.route)
@@ -502,23 +504,9 @@ private fun DeckShellContent(
                     deckActions.navHold.value = focused
                 }
                 val goBack = { if (backDispatcher != null) backDispatcher.onBackPressed() else nav.back() }
-                val legend: @Composable (Dp) -> Unit = { endInset ->
-                    DeckLegend(
-                        thin = rails,
-                        endInset = endInset,
-                        atHome = currentRoute == DeckRoutes.HOME,
-                        subTabLabel = if (deckActions.subTab.value != null) deckActions.subTabLabel.value else null,
-                        optionsLabel = if (deckActions.options.value != null) deckActions.optionsLabel.value else null,
-                        onCycle = { switchMenu(1) },
-                        onSubCycle = { deckActions.subTab.value?.invoke(1) },
-                        onBack = goBack,
-                        onOptions = { deckActions.options.value?.invoke() },
-                        onSearch = { (deckActions.search.value ?: openSearch)() },
-                    )
-                }
                 // Home's XMB view takes the whole screen; the XMB has its own hints, menus and game row.
                 val full = deckActions.fullscreen.value && currentRoute == DeckRoutes.HOME
-                // XMB home, every tab but Home (which floats it over the XMB) and the phone layout: the same floating bar as
+                // XMB mode, every tab but Home (which floats it over the XMB) and the phone layout: the same floating bar as
                 // Home, at the same place, with the page starting right under it.
                 if (floatTabs && !full && !homeBleed) {
                     DeckFloatingBar(
@@ -533,8 +521,9 @@ private fun DeckShellContent(
                         onAccount = onAccount,
                     )
                 }
-                // Landscape is rails | content (or, with the XMB home, the page rail | content under the top bar); portrait keeps the top bar over the content. The NavHost stays in one slot either way.
-                // Framed, only this middle part sits inside the frame: the top bar and the legend sandwich it edge to edge.
+                // Landscape is rails | content (in the XMB mode: the page's own tab rail | content, under the floating tab bar);
+                // portrait keeps the top bar over the content. The NavHost stays in one slot either way.
+                // Framed (XMB mode, tabs other than Home), only this middle part sits inside the even camera frame.
                 Row(modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = frame)) {
                     if (rails && !full) {
                         if (!topTabs) {
@@ -581,8 +570,7 @@ private fun DeckShellContent(
                         } else if (!rails) {
                             DeckTopBar(
                                 current = tab,
-                                tabs = tabs,
-                                wide = cfg.screenWidthDp >= DECK_WIDE_TABS_DP,
+                                wide =cfg.screenWidthDp >= DECK_WIDE_TABS_DP,
                                 tabRequesters = tabRequesters,
                                 avatarUrl = account?.displayAvatarUrl,
                                 onTab = { nav.goTab(it) },
@@ -714,8 +702,21 @@ private fun DeckShellContent(
                         // App-wide minimized progress pill for a running archive unpack (renders nothing when idle).
                         com.winlator.star.ui.UnpackProgressPill()
 
-                        // XMB home: no legend on any tab, only the floating Search below.
-                        if (!compact && !full && !xmbHome) legend(cutoutEnd)
+                        // XMB mode: no legend on any tab, only the floating Search below.
+                        if (!compact && !full && !xmbHome) {
+                            DeckLegend(
+                                thin = rails,
+                                endInset = cutoutEnd,
+                                atHome = currentRoute == DeckRoutes.HOME,
+                                subTabLabel = if (deckActions.subTab.value != null) deckActions.subTabLabel.value else null,
+                                optionsLabel = if (deckActions.options.value != null) deckActions.optionsLabel.value else null,
+                                onCycle = { switchMenu(1) },
+                                onSubCycle = { deckActions.subTab.value?.invoke(1) },
+                                onBack = goBack,
+                                onOptions = { deckActions.options.value?.invoke() },
+                                onSearch = { (deckActions.search.value ?: openSearch)() },
+                            )
+                        }
                     }
                 }
                 if (compact && !full) {
@@ -800,13 +801,18 @@ private class DeckNav(private val navController: NavHostController) {
         }
     }
 
-    /** The tabs L1/R1 move through (the XMB home has no Stores tab: its stores are cards on Home). */
+    /** The tabs L1/R1 move through (the XMB mode has no Stores tab: its stores are cards on Home). */
     var tabs: List<DeckTab> = DeckTab.entries
 
-    /** Move [delta] tabs along, wrapping; returns the tab now shown. */
+    /**
+     * Move one tab along ([delta] is 1 or -1), wrapping; returns the tab now shown. Steps through the full tab order and
+     * skips any tab not in [tabs], so it also works from a tab the bar doesn't list (Stores, reached from search).
+     */
     fun cycle(delta: Int): DeckTab {
-        val i = tabs.indexOf(deckTabOf(currentRoute()))
-        val t = tabs[(i + delta + tabs.size) % tabs.size]
+        val all = DeckTab.entries
+        var i = all.indexOf(deckTabOf(currentRoute()))
+        do { i = (i + delta + all.size) % all.size } while (all[i] !in tabs)
+        val t = all[i]
         goTab(t)
         return t
     }
@@ -891,7 +897,7 @@ private fun DeckTopBar(
                     .horizontalScroll(rememberScrollState())
                     .padding(vertical = 4.dp),
             ) {
-                tabs.forEach { t ->
+                DeckTab.entries.forEach { t ->
                     DeckTabButton(
                         t,
                         selected = t == current,

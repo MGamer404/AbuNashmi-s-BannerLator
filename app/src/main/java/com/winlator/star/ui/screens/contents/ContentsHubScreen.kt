@@ -116,8 +116,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.winlator.star.R
 import com.winlator.star.ui.deck.XmbTapToEdit
+import com.winlator.star.ui.deck.xmbDoneActions
 import com.winlator.star.ui.deck.rememberXmbHome
-import androidx.compose.foundation.text.KeyboardActions
 import com.winlator.star.contents.AdrenotoolsManager
 import com.winlator.star.contents.WaylandGameDriverManager
 import com.winlator.star.contents.ContentProfile
@@ -360,7 +360,7 @@ private fun SourceListPane(
                     }
                 },
                 singleLine = true,
-                keyboardActions = if (xmbHome) KeyboardActions(onDone = { stopEditing() }) else KeyboardActions.Default,
+                keyboardActions = xmbDoneActions(stopEditing),
             )
         }
     }

@@ -3,9 +3,8 @@
 package com.winlator.star.ui.screens
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.text.KeyboardActions
 import com.winlator.star.ui.deck.XmbTapToEdit
-import com.winlator.star.ui.deck.rememberXmbHome
+import com.winlator.star.ui.deck.xmbDoneActions
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -97,7 +96,6 @@ internal fun AndroidGamePickerDialog(
         title = { Text("Add Android game") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                val xmbSearch = rememberXmbHome()
                 XmbTapToEdit(Modifier.fillMaxWidth()) { fieldModifier, stopEditing ->
                     OutlinedTextField(
                         value = query,
@@ -105,7 +103,7 @@ internal fun AndroidGamePickerDialog(
                         label = { Text("Search installed apps") },
                         singleLine = true,
                         modifier = fieldModifier,
-                        keyboardActions = if (xmbSearch) KeyboardActions(onDone = { stopEditing() }) else KeyboardActions.Default,
+                        keyboardActions = xmbDoneActions(stopEditing),
                     )
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

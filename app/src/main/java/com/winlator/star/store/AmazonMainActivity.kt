@@ -41,7 +41,6 @@ import androidx.compose.ui.unit.dp
 import com.winlator.star.core.AppOrientation
 import com.winlator.star.store.download.DownloadRegistry
 import com.winlator.star.store.download.DownloadsButton
-import com.winlator.star.ui.theme.WinlatorTheme
 
 /**
  * The Amazon Games section's host — flipped from a login card + "View Game Library" button to the
@@ -82,7 +81,7 @@ class AmazonMainActivity : ComponentActivity() {
         startTab = intent?.getIntExtra(EXTRA_TAB, 0) ?: 0
         refreshView()
         setContent {
-            WinlatorTheme { StoreXmbScreen {
+            StoreXmbTheme {
                 if (isLoggedIn) {
                     AmazonStorefrontHost(
                         initialTab = startTab,
@@ -101,7 +100,7 @@ class AmazonMainActivity : ComponentActivity() {
                     })
                     resultBarMsg?.let { UninstallResultBar(it) { resultBarMsg = null } }
                 }
-            } }
+            }
         }
     }
 

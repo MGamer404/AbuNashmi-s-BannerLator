@@ -61,11 +61,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
-import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -85,7 +82,6 @@ import com.winlator.star.R
 import com.winlator.star.store.download.DownloadsButton
 import com.winlator.star.ui.deck.rememberScreenScale
 import com.winlator.star.ui.theme.LocalAccentDim
-import com.winlator.star.ui.theme.WinlatorTheme
 
 /**
  * The Steam section's host — flipped from library-first to **store-first**.
@@ -152,7 +148,7 @@ class SteamMainActivity : ComponentActivity() {
         applyIntent(intent)
 
         setContent {
-            WinlatorTheme { StoreXmbScreen {
+            StoreXmbTheme {
                 if (loggedIn.value) {
                     SteamStorefrontHost(
                         initialTab = startTab.value,
@@ -162,7 +158,7 @@ class SteamMainActivity : ComponentActivity() {
                 } else {
                     SteamBootScreen()
                 }
-            } }
+            }
         }
 
         if (needsNotificationPermission()) {
@@ -264,7 +260,9 @@ fun SteamStorefrontHost(
     val library = rememberSteamLibrary()
     val friends by SteamFriendsStore.friends.collectAsState()
 
-    var tab by remember { mutableStateOf(initialTab) }
+    // XMB home: no Friends tab (the home has a Friends card), so a Friends start lands on Store instead.
+    val xmb = LocalStoreXmb.current
+    var tab by remember { mutableStateOf(if (xmb && initialTab == SteamTab.FRIENDS) SteamTab.STORE else initialTab) }
     // Tab transitions at info level: enough to reconstruct a session from the log.
     LaunchedEffect(tab) { StorefrontLog.i(StorefrontLog.HOST, "tab -> ${tab.name}") }
     var libraryViewMode by remember { mutableStateOf("grid") }
@@ -331,24 +329,10 @@ fun SteamStorefrontHost(
         if (tab == SteamTab.STORE) onClose() else tab = SteamTab.STORE
     }
 
-    // XMB home: no Friends tab (the home has a Friends card), so a Friends start or link lands on Store instead.
-    val xmb = LocalStoreXmb.current
     val railTabs = if (xmb) SteamTab.values().filter { it != SteamTab.FRIENDS } else SteamTab.values().toList()
-    LaunchedEffect(xmb, tab) { if (xmb && tab == SteamTab.FRIENDS) tab = SteamTab.STORE }
 
     // XMB home: L2 / R2 step through the rail's tabs and then its end actions (wrapping) from anywhere on the screen.
-    // A tab switches at once and focus moves into its content, since whatever held it went away with the old tab.
-    val tabScope = rememberCoroutineScope()
-    val railStops = remember { XmbRailStops() }
-    StoreTabCycle(enabled = xmb) { delta ->
-        xmbRailCycle(delta, railTabs.size, railTabs.indexOf(tab).coerceAtLeast(0), railStops) { i ->
-            tab = railTabs[i]
-            tabScope.launch {
-                repeat(2) { withFrameNanos { } }
-                runCatching { contentFocus.requestFocus() }
-            }
-        }
-    }
+    val railStops = rememberXmbRailCycle(xmb, railTabs.size, railTabs.indexOf(tab).coerceAtLeast(0), contentFocus) { tab = railTabs[it] }
 
     val content: @Composable (Modifier) -> Unit = { mod ->
         when (tab) {

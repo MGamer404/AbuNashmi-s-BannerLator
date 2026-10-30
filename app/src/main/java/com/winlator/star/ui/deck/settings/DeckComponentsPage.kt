@@ -542,10 +542,11 @@ private fun FoldToggle(title: String, subtitle: String, open: Boolean, onClick: 
 private fun ComponentSearch(state: DeckComponentsState) {
     val cs = MaterialTheme.colorScheme
     val xmbHome = rememberXmbHome()
-    val edit = rememberXmbEdit()
+    // Only the XMB home has a typing state to start; the other Deck modes keep the plain focus.
+    val edit = if (xmbHome) rememberXmbEdit() else null
     // Y opens the bar: in the XMB home it takes focus and starts typing, as A on it would.
     SideEffect {
-        state.openSearch = if (xmbHome) ({ runCatching { edit.outer.requestFocus() }; edit.start() }) else ({ state.searchFocus.requestFocus() })
+        state.openSearch = if (edit != null) ({ runCatching { edit.outer.requestFocus() }; edit.start() }) else ({ state.searchFocus.requestFocus() })
     }
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)) {
         XmbTapToEdit(

@@ -73,10 +73,9 @@ import com.winlator.star.reshade.ReshadeLoadout
 import com.winlator.star.reshade.ReshadeManager
 import com.winlator.star.ui.DeckDialogBars
 import com.winlator.star.ui.DeckDialogScaled
-import androidx.compose.foundation.text.KeyboardActions
 import com.winlator.star.ui.deck.XmbTapToEdit
+import com.winlator.star.ui.deck.xmbDoneActions
 import com.winlator.star.ui.deck.deckFocusRing
-import com.winlator.star.ui.deck.rememberXmbHome
 import com.winlator.star.ui.screens.OutlinedAlertDialog
 import com.winlator.star.ui.screens.ReshadeLoadoutState
 import kotlinx.coroutines.CoroutineScope
@@ -564,7 +563,6 @@ private fun CatalogDialog(sec: DeckReshadeSection) {
                         )
                     }
                     Spacer(Modifier.height(10.dp))
-                    val xmbSearch = rememberXmbHome()
                     XmbTapToEdit(Modifier.fillMaxWidth(), RoundedCornerShape(14.dp)) { fieldModifier, stopEditing ->
                         OutlinedTextField(
                             value = query,
@@ -574,7 +572,7 @@ private fun CatalogDialog(sec: DeckReshadeSection) {
                             leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                             shape = RoundedCornerShape(14.dp),
                             modifier = fieldModifier,
-                            keyboardActions = if (xmbSearch) KeyboardActions(onDone = { stopEditing() }) else KeyboardActions.Default,
+                            keyboardActions = xmbDoneActions(stopEditing),
                         )
                     }
                     sec.error?.let { Text(it, color = cs.error, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp)) }

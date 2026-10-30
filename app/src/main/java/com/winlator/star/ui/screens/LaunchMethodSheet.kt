@@ -425,7 +425,7 @@ fun LaunchMethodSheet(
 
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     // The Deck interface's XMB home gets its own landscape layout (three columns, controller first); everything else keeps the card below.
-    val deckStyle = AppThemeState.uiStyle.collectAsState().value == AppThemeState.UI_STYLE_DECK &&
+    val xmbHome = AppThemeState.uiStyle.collectAsState().value == AppThemeState.UI_STYLE_DECK &&
         AppThemeState.deckXmbHome.collectAsState().value
 
     val rawLabel = when { !notInstalled -> "Raw .exe"; hasPc -> "Download"; else -> "Not on PC" }
@@ -433,7 +433,7 @@ fun LaunchMethodSheet(
       androidx.compose.runtime.CompositionLocalProvider(LocalRawLabel provides rawLabel) {
         DeckDialogBars()
         DeckDialogScaled {
-            if (landscape && deckStyle) {
+            if (landscape && xmbHome) {
                 DeckLandscapeCard(
                     shortcut, source, appId, isSteam, hasDetails, enabledMethods, accent,
                     method, { method = it }, goldbergMode, { goldbergMode = it },
@@ -859,21 +859,17 @@ private fun DeckLandscapeCard(
                                     Spacer(Modifier.height(10.dp))
                                     DeckOptionRow(
                                         title = "Controller passthrough", badge = "NEW",
-                                        subtitle = "Send the pad straight to the game. For classic games (HL2, CS:S).",
+                                        subtitle = SUB_PASSTHROUGH,
                                         accent = accent, onHelp = { toggleHelp(HELP_PASS) }, onClick = { onPassthrough(!passthrough) },
                                     ) { DeckPill(passthrough, accent) }
                                     DeckOptionRow(
                                         title = "Steam Input", badge = "NEW",
-                                        subtitle = "Only for games that see pads through Steam alone (No Man's Sky). Keep OFF for games that already use a pad.",
+                                        subtitle = SUB_STEAM_INPUT,
                                         accent = accent, onHelp = { toggleHelp(HELP_STEAMINPUT) }, onClick = { onSteamInput(!steamInput) },
                                     ) { DeckPill(steamInput, accent) }
                                     DeckOptionRow(
                                         title = "Requires secure (VAC) launch", badge = "NEW",
-                                        subtitle = when (detectedVac) {
-                                            true -> "Detected: VAC-secured. Steam must start it (up to ~60 s wait)."
-                                            false -> "Detected: no VAC. Direct start after ~15 s is fine."
-                                            null -> "Auto-detected from Steam's app info."
-                                        },
+                                        subtitle = vacSubtitle(detectedVac),
                                         accent = accent, onHelp = { toggleHelp(HELP_VAC) }, onClick = { onSecureLaunch(!secureLaunch) },
                                     ) { DeckPill(secureLaunch, accent) }
                                 }
@@ -896,7 +892,7 @@ private fun DeckLandscapeCard(
                                 if (hasDetails) {
                                     DeckOptionRow(
                                         title = "Full details & achievements", badge = null,
-                                        subtitle = if (roomy) "Details, achievements, DLC and cloud saves." else null,
+                                        subtitle = if (roomy) SUB_DETAILS else null,
                                         accent = accent, onHelp = { toggleHelp(HELP_DETAILS) }, onClick = openDetails,
                                     ) {
                                         Icon(Icons.Filled.ChevronRight, contentDescription = "Open details", tint = accent, modifier = Modifier.size(20.dp))
@@ -904,7 +900,7 @@ private fun DeckLandscapeCard(
                                 }
                                 DeckOptionRow(
                                     title = "Remember my choice", badge = null,
-                                    subtitle = if (roomy) "Skip this popup next time for ${shortcut.name}." else null,
+                                    subtitle = if (roomy) rememberSubtitle(shortcut.name) else null,
                                     accent = accent, onHelp = { toggleHelp(HELP_REMEMBER) }, onClick = { onRemember(!rememberChoice) },
                                 ) { DeckPill(rememberChoice, accent) }
                                 // Steam-only game-files maintenance.
@@ -1247,6 +1243,19 @@ private fun MethodDesc(method: LaunchMethod, source: GameSource, vacDetected: Bo
     )
 }
 
+// The option rows' subtitles, shared by OptionsBlock and the Deck three-column card.
+private const val SUB_DETAILS = "Details, achievements, DLC and cloud saves."
+private const val SUB_PASSTHROUGH = "Send the pad straight to the game. For classic games (HL2, CS:S)."
+private const val SUB_STEAM_INPUT = "Only for games that see pads through Steam alone (No Man's Sky). Keep OFF for games that already use a pad."
+
+private fun vacSubtitle(detectedVac: Boolean?): String = when (detectedVac) {
+    true -> "Detected: VAC-secured. Steam must start it (up to ~60 s wait)."
+    false -> "Detected: no VAC. Direct start after ~15 s is fine."
+    null -> "Auto-detected from Steam's app info."
+}
+
+private fun rememberSubtitle(gameName: String): String = "Skip this popup next time for $gameName."
+
 /** The option rows: Full details (Steam), Controller passthrough (Steam), Requires secure (VAC) launch (Steam), Remember. */
 @Composable
 private fun ColumnScope.OptionsBlock(
@@ -1271,7 +1280,7 @@ private fun ColumnScope.OptionsBlock(
         OptionRow(
             title = "Full details & achievements",
             badge = null,
-            subtitle = if (compact) null else "Details, achievements, DLC and cloud saves.",
+            subtitle = if (compact) null else SUB_DETAILS,
             accent = accent,
             compact = compact,
             onHelp = { toggleHelp(HELP_DETAILS) },
@@ -1285,7 +1294,7 @@ private fun ColumnScope.OptionsBlock(
         OptionRow(
             title = "Controller passthrough",
             badge = "NEW",
-            subtitle = if (compact) null else "Send the pad straight to the game. For classic games (HL2, CS:S).",
+            subtitle = if (compact) null else SUB_PASSTHROUGH,
             accent = accent,
             compact = compact,
             onHelp = { toggleHelp(HELP_PASS) },
@@ -1294,7 +1303,7 @@ private fun ColumnScope.OptionsBlock(
         OptionRow(
             title = "Steam Input",
             badge = "NEW",
-            subtitle = if (compact) null else "Only for games that see pads through Steam alone (No Man's Sky). Keep OFF for games that already use a pad.",
+            subtitle = if (compact) null else SUB_STEAM_INPUT,
             accent = accent,
             compact = compact,
             onHelp = { toggleHelp(HELP_STEAMINPUT) },
@@ -1303,11 +1312,7 @@ private fun ColumnScope.OptionsBlock(
         OptionRow(
             title = "Requires secure (VAC) launch",
             badge = "NEW",
-            subtitle = if (compact) null else when (detectedVac) {
-                true -> "Detected: VAC-secured. Steam must start it (up to ~60 s wait)."
-                false -> "Detected: no VAC. Direct start after ~15 s is fine."
-                null -> "Auto-detected from Steam's app info."
-            },
+            subtitle = if (compact) null else vacSubtitle(detectedVac),
             accent = accent,
             compact = compact,
             onHelp = { toggleHelp(HELP_VAC) },
@@ -1317,7 +1322,7 @@ private fun ColumnScope.OptionsBlock(
     OptionRow(
         title = "Remember my choice",
         badge = null,
-        subtitle = if (compact) null else "Skip this popup next time for ${shortcut.name}.",
+        subtitle = if (compact) null else rememberSubtitle(shortcut.name),
         accent = accent,
         compact = compact,
         onHelp = { toggleHelp(HELP_REMEMBER) },

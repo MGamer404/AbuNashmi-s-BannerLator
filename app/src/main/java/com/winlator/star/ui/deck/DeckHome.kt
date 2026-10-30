@@ -261,10 +261,12 @@ internal fun DeckHome(
     val readSignedIn = { DeckStore.entries.associateWith { isSignedIn(context, it) } }
     var signedIn by remember {
         mutableStateOf<Map<DeckStore, Boolean>>(
-            if (!AppThemeState.deckXmbHome.value) emptyMap() else lastSignedIn ?: readSignedIn().also { lastSignedIn = it },
+            if (!xmbHome) emptyMap() else lastSignedIn ?: readSignedIn().also { lastSignedIn = it },
         )
     }
+    // Counts the app's resumes while Home is up (not the first one, replayed as Home opens: its read is the one above).
     var resumes by remember { mutableIntStateOf(0) }
+    val xmbNow by rememberUpdatedState(xmbHome)
     LaunchedEffect(xmbHome, resumes) {
         if (!xmbHome) { signedIn = emptyMap(); return@LaunchedEffect }
         val read = withContext(Dispatchers.IO) { readSignedIn() }
@@ -282,7 +284,7 @@ internal fun DeckHome(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 if (!(attaching && justCreated)) vm.refresh()
-                resumes++
+                if (!attaching && xmbNow) resumes++
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)

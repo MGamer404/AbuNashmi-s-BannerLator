@@ -1,8 +1,7 @@
 package com.winlator.star.store
 
-import com.winlator.star.ui.deck.rememberXmbHome
 import com.winlator.star.ui.deck.XmbTapToEdit
-import androidx.compose.foundation.text.KeyboardActions
+import com.winlator.star.ui.deck.xmbDoneActions
 import android.app.AlertDialog
 import android.content.Intent
 import android.content.SharedPreferences
@@ -686,7 +685,6 @@ private fun EpicGamesScreen(
             DownloadsButton()
         }
 
-        val xmbSearch = rememberXmbHome()
         XmbTapToEdit(Modifier.fillMaxWidth()) { fieldModifier, stopEditing ->
             OutlinedTextField(
                 value = searchQuery,
@@ -694,7 +692,7 @@ private fun EpicGamesScreen(
                 placeholder = { Text("Search games\u2026", color = MaterialTheme.colorScheme.onSurfaceVariant) },
                 singleLine = true,
                 modifier = fieldModifier,
-                keyboardActions = if (xmbSearch) KeyboardActions(onDone = { stopEditing() }) else KeyboardActions.Default,
+                keyboardActions = xmbDoneActions(stopEditing),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedTextColor = MaterialTheme.colorScheme.onSurface,
                     unfocusedTextColor = MaterialTheme.colorScheme.onSurface,

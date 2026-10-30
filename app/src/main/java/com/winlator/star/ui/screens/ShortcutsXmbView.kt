@@ -32,7 +32,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
@@ -86,15 +85,15 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
@@ -301,6 +300,11 @@ internal fun ShortcutsXmbView(
     var upJob by remember { mutableStateOf<Job?>(null) }
     val upperOpen = upOpen && upperRow.isNotEmpty() && !nested
     val upIdx = upSel.coerceIn(0, (upperRow.size - 1).coerceAtLeast(0))
+    // The card list changes while the screen is up (Friends appears once you sign in): keep the same card chosen.
+    LaunchedEffect(upperRow) {
+        val i = upperRow.indexOfFirst { it.label == upLabel }
+        if (i >= 0 && i != upSel) { upJob?.cancel(); upSel = i; upPos.floatValue = i.toFloat() }
+    }
     LaunchedEffect(upIdx, upperRow) { upLabel = upperRow.getOrNull(upIdx)?.label }
     val upT by animateFloatAsState(if (upperOpen) 1f else 0f, tween(300), label = "xmbUpper")
     fun upSettle(i: Int) {
@@ -317,8 +321,6 @@ internal fun ShortcutsXmbView(
     fun openUpper() { upJob?.cancel(); upSel = 0; upPos.floatValue = 0f; upOpen = true }
     // Closed, the peeking row eases back to its start.
     fun closeUpper() { upOpen = false; act = 0; upSettle(0) }
-    // Running a card leaves the row open on it, so Back from that card's screen returns to the same card.
-    fun runUpper(a: XmbAction) = runAction(a)
     LaunchedEffect(nested) { if (nested) upOpen = false }
     BackHandler(enabled = upperOpen) { closeUpper() }
     fun closeOpts() { optsOpen = false; act = 0 }
@@ -364,15 +366,17 @@ internal fun ShortcutsXmbView(
     // Space under a see-through top bar: the backdrop fills it, the bar/cover layout starts below it.
     val topInset = LocalTopBarOverlayInset.current
 
+    // The clock ticks, and the pad is watched, only while something shows them: a host with its own status line and no
+    // hints would otherwise recompose this view every 15 s for nothing.
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) { while (true) { now = System.currentTimeMillis(); delay(15_000L) } }
+    if (showClock) LaunchedEffect(Unit) { while (true) { now = System.currentTimeMillis(); delay(15_000L) } }
     val clock = remember(now / 60_000L) {
         DateUtils.formatDateTime(
             context, now,
             DateUtils.FORMAT_SHOW_WEEKDAY or DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_NO_YEAR or DateUtils.FORMAT_ABBREV_ALL,
         ) + "  " + DateUtils.formatDateTime(context, now, DateUtils.FORMAT_SHOW_TIME)
     }
-    val hasPad = rememberGamepadConnected()
+    val hasPad = showHints && rememberGamepadConnected()
 
     // Centred home: the edge the cards' peek is cut at, clear of the host's floating tab bar, scaled with the screen
     // as that bar is.
@@ -381,9 +385,9 @@ internal fun ShortcutsXmbView(
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val m = remember(maxWidth, maxHeight, topInset) { XmbMetrics(maxWidth.value, maxHeight.value - topInset.value) }
         // Centred home: the row is drawn larger while it's the only thing on screen (and under the open cards),
-        // as large as fits between the peeking cards and the bottom edge, at most 1.3x. The options shrink it back.
+        // as large as fits between the peeking cards and the bottom edge, at most XMB_HOME_MAX_GROW. The options shrink it back.
         val homeK = if (!centeredHome) 1f
-            else min(1.3f, (m.h / 2f - clipTop - m.sH / 2f - 10f) * 2f / m.fH).coerceAtLeast(1f)
+            else min(XMB_HOME_MAX_GROW, (m.h / 2f - clipTop - m.sH / 2f - 10f) * 2f / m.fH.coerceAtLeast(1f)).coerceAtLeast(1f)
         // Read where it's used (draw / drag), so the animation doesn't recompose the view.
         val rowScale = { 1f + (homeK - 1f) * cT * (1f - upT) }
         val pitchPx = with(density) { m.pitch.dp.toPx() }
@@ -454,9 +458,8 @@ internal fun ShortcutsXmbView(
                             Key.DirectionRight -> { upSettle(upIdx + 1); true }
                             Key.DirectionUp -> true
                             Key.DirectionDown, Key.ButtonB, Key.Escape -> { closeUpper(); true }
-                            Key.ButtonA, Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> { runUpper(upperRow[upIdx]); true }
-                            Key.ButtonL1 -> if (inDeckShell) false else { settleTo(target - 5); true }
-                            Key.ButtonR1 -> if (inDeckShell) false else { settleTo(target + 5); true }
+                            // Running a card leaves the row open on it, so Back from that card's screen returns to the same card.
+                            Key.ButtonA, Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> { runAction(upperRow[upIdx]); true }
                             else -> false
                         }
                     }
@@ -596,8 +599,9 @@ internal fun ShortcutsXmbView(
                 val lower = (m.h - m.sH * 0.5f - m.top).coerceAtLeast(0f)
                 // Centred home: the row rests in the middle of the screen until the options open under it.
                 val centreShift = (m.h - m.fH) / 2f - m.top
-                // Everything that belongs to the options layout fades out while centred or with the cards up.
-                val optsA = (1f - upT) * (1f - cT)
+                // Everything that belongs to the options layout fades out while centred or with the cards up. A lambda,
+                // read in the graphics layers, so the fade doesn't recompose this view every frame.
+                val optsA = { (1f - upT) * (1f - cT) }
                 Box(Modifier.fillMaxSize().graphicsLayer {
                     alpha = rootAlpha
                     translationY = (1f - rootAlpha) * -12.dp.toPx() + (cT * centreShift * (1f - upT) + upT * lower).dp.toPx()
@@ -682,7 +686,7 @@ internal fun ShortcutsXmbView(
                         .offset(m.colX.dp, m.colTop.dp)
                         .width((m.iconBox + 12f + m.labelW).dp)
                         .height((m.nVis * m.rowH + m.extra).dp)
-                        .graphicsLayer { alpha = optsA }
+                        .graphicsLayer { alpha = optsA() }
                         .draggable(vDrag, Orientation.Vertical, onDragStarted = { vAcc = 0f }),
                 ) {
                     actions.forEachIndexed { i, a ->
@@ -704,13 +708,15 @@ internal fun ShortcutsXmbView(
 
                 if (m.infoW >= 120f && m.infoH >= 40f) {
                     Column(
-                        Modifier.offset(m.infoX.dp, m.infoY.dp).width(m.infoW.dp).height(m.infoH.dp).graphicsLayer { alpha = optsA }.clipToBounds(),
+                        Modifier.offset(m.infoX.dp, m.infoY.dp).width(m.infoW.dp).height(m.infoH.dp).graphicsLayer { alpha = optsA() }.clipToBounds(),
                     ) {
                         XmbInfo(focused, playtime, if (m.port) 6 else 3, storeBadges)
                     }
                 }
                 }
-                if (centeredHome && upperRow.isNotEmpty() && (upperOpen || upT > 0.01f || peekT > 0.01f)) {
+                // Composed while the cards show or animate; derived, so the animation doesn't recompose this view per frame.
+                val upperShown by remember(upperOpen) { derivedStateOf { upperOpen || upT > 0.01f || peekT > 0.01f } }
+                if (centeredHome && upperRow.isNotEmpty() && upperShown) {
                     // A tap anywhere off the cards (the lowered games included) goes back to them.
                     if (upperOpen) {
                         val back = remember { MutableInteractionSource() }
@@ -721,27 +727,30 @@ internal fun ShortcutsXmbView(
                         when {
                             !upperOpen -> openUpper()
                             i != upIdx -> upSettle(i)
-                            else -> runUpper(upperRow[i])
+                            else -> runAction(upperRow[i])
                         }
                     }
                     // The cards peek above the centred row and run up under the host's floating tab bar, fading out toward
-                    // the top edge (an offscreen layer masked by a gradient) instead of stopping at a hard line.
+                    // the top edge (an offscreen layer masked by a gradient) instead of stopping at a hard line. Fully open
+                    // they sit well below that edge, so the mask (and its full-screen offscreen layer) is dropped.
                     Box(
                         Modifier
                             .fillMaxSize()
-                            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                            .graphicsLayer { compositingStrategy = if (upT < 1f) CompositingStrategy.Offscreen else CompositingStrategy.Auto }
                             .drawWithContent {
                                 drawContent()
-                                val edge = clipTop.dp.toPx()
-                                drawRect(
-                                    Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black, startY = edge * 0.15f, endY = edge * 1.25f),
-                                    blendMode = BlendMode.DstIn,
-                                )
+                                if (upT < 1f) {
+                                    val edge = clipTop.dp.toPx()
+                                    drawRect(
+                                        Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black, startY = edge * 0.15f, endY = edge * 1.25f),
+                                        blendMode = BlendMode.DstIn,
+                                    )
+                                }
                             },
                     ) {
                         Box(Modifier.fillMaxSize().padding(top = clipTop.dp)) {
                             XmbUpperBar(
-                                upperRow, upIdx, upPos, upT, peekT, m, homeK, clipTop, accent,
+                                upperRow, upIdx, upPos, { upT }, { peekT }, m, homeK, clipTop, accent,
                                 enabled = upperOpen || centered, metaSize = ss.sp(12f), onTap = onCard,
                             )
                         }
@@ -929,6 +938,9 @@ private fun XmbActionRow(action: XmbAction, selected: Boolean, accent: Color, ic
 /** Centred home: the peeking cards' middle sits this far (dp, on a 412 dp phone) from the top, just below the host's floating tab bar; above it they fade out. */
 private const val XMB_PEEK_CLIP = 50f
 
+/** Centred home: the most the cover row is drawn larger than its normal size. */
+private const val XMB_HOME_MAX_GROW = 1.3f
+
 /** How long (ms) a chosen card waits before its cut-off text starts scrolling. */
 private const val XMB_MARQUEE_DELAY = 700
 
@@ -936,14 +948,15 @@ private const val XMB_MARQUEE_DELAY = 700
 // icon), the chosen one enlarged at the cross with the earlier ones to its left, and its name and details beside it.
 // [open] is the open animation, 0..1; [peek] the resting state, where the cards sit small and dimmed with only their
 // lower half below [clipTop] (the caller fades out what's above it). Open, the bar takes the game row's larger size ([scale]).
+// Both are read where they're drawn, so the animation doesn't recompose the bar.
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun XmbUpperBar(
     cards: List<XmbAction>,
     sel: Int,
     pos: MutableFloatState,
-    open: Float,
-    peek: Float,
+    open: () -> Float,
+    peek: () -> Float,
     m: XmbMetrics,
     scale: Float,
     clipTop: Float,
@@ -956,15 +969,17 @@ private fun XmbUpperBar(
     // the bar is centred on the screen as the game row is when it's the one in use (the games peek below it then).
     val yPeek = -m.sH / 2f
     val yOpen = (m.h - m.fH) / 2f - clipTop
-    val y = yPeek + (yOpen - yPeek) * open
-    val s = 1f + (scale - 1f) * open
     val boxH = (m.h - clipTop).coerceAtLeast(1f)
+    // The chosen card is ringed once the bar is more than half open; derived, so only that crossing recomposes.
+    val halfOpen by remember { derivedStateOf { open() > 0.5f } }
     Box(
         Modifier
             .fillMaxSize()
             .graphicsLayer {
-                alpha = max(open, 0.5f * peek)
-                translationY = y.dp.toPx()
+                val o = open()
+                val s = 1f + (scale - 1f) * o
+                alpha = max(o, 0.5f * peek())
+                translationY = (yPeek + (yOpen - yPeek) * o).dp.toPx()
                 scaleX = s
                 scaleY = s
                 transformOrigin = TransformOrigin(m.cross / m.w, (m.fH / 2f) / boxH)
@@ -972,7 +987,7 @@ private fun XmbUpperBar(
     ) {
         cards.forEachIndexed { i, c ->
             key(c.label) {
-                XmbUpperCard(c, i, pos, m, accent, grow = open, focused = i == sel && open > 0.5f, enabled = enabled) { onTap(i) }
+                XmbUpperCard(c, i, pos, m, accent, grow = open, focused = i == sel && halfOpen, enabled = enabled) { onTap(i) }
             }
         }
     }
@@ -987,7 +1002,7 @@ private fun XmbUpperBar(
             .offset(m.titleX.dp, (yOpen + m.sH + 8f).dp)
             .width((m.titleW - (scale - 1f) * (m.fW + 16f)).coerceAtLeast(80f).dp)
             .graphicsLayer {
-                alpha = open
+                alpha = open()
                 val e = scale - 1f
                 translationX = (e * (m.titleX - m.cross)).dp.toPx()
                 translationY = (e * (m.sH + 8f - m.fH / 2f)).dp.toPx()
@@ -1009,8 +1024,8 @@ private fun XmbUpperBar(
     }
 }
 
-// One upper-row card, placed like a game cover: once the bar is open ([grow]) the chosen card grows to full size at the
-// cross and the later ones make room for it.
+// One upper-row card, placed like a game cover: once the bar is open ([grow], 0..1) the chosen card grows to full size at
+// the cross and the later ones make room for it.
 @Composable
 private fun XmbUpperCard(
     card: XmbAction,
@@ -1018,7 +1033,7 @@ private fun XmbUpperCard(
     pos: MutableFloatState,
     m: XmbMetrics,
     accent: Color,
-    grow: Float,
+    grow: () -> Float,
     focused: Boolean,
     enabled: Boolean,
     onClick: () -> Unit,
@@ -1031,10 +1046,11 @@ private fun XmbUpperCard(
             .zIndex(if (focused) 1f else 0f)
             .size(m.fW.dp, m.fH.dp)
             .graphicsLayer {
+                val g = grow()
                 val u = index - pos.floatValue
-                val t = (1f - abs(u)).coerceAtLeast(0f) * grow
+                val t = (1f - abs(u)).coerceAtLeast(0f) * g
                 val sc = (m.sH + (m.fH - m.sH) * t) / m.fH
-                translationX = (m.cross + u * m.pitch + m.grow * grow * u.coerceIn(0f, 1f)).dp.toPx()
+                translationX = (m.cross + u * m.pitch + m.grow * g * u.coerceIn(0f, 1f)).dp.toPx()
                 scaleX = sc
                 scaleY = sc
                 transformOrigin = TransformOrigin(0f, 0f)

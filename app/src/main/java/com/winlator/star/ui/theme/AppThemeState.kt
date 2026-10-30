@@ -49,7 +49,10 @@ object AppThemeState {
     private val _uiStyle = MutableStateFlow(UI_STYLE_CLASSIC)
     val uiStyle: StateFlow<String> = _uiStyle
 
-    /** Deck style only: Home is the XMB and the tabs run across a top bar in landscape too. Off by default. */
+    /**
+     * The XMB interface style is Deck style with this on (Appearance > Interface Style > XMB): Home is the XMB and the
+     * tabs float over every page. Only ever true together with [UI_STYLE_DECK]; off by default.
+     */
     private val _deckXmbHome = MutableStateFlow(false)
     val deckXmbHome: StateFlow<Boolean> = _deckXmbHome
 
@@ -107,10 +110,10 @@ object AppThemeState {
         _fontScale.value = themePrefs.getFloat("font_scale", 0.9f).coerceIn(0.5f, 1.5f)
         _uiStyle.value = if (themePrefs.getString("ui_style", UI_STYLE_CLASSIC) == UI_STYLE_DECK) UI_STYLE_DECK
                          else UI_STYLE_CLASSIC
-        _deckXmbHome.value = themePrefs.getBoolean("deck_xmb_home", false)
+        _deckXmbHome.value = _uiStyle.value == UI_STYLE_DECK && themePrefs.getBoolean("deck_xmb_home", false)
     }
 
-    /** Turn the Deck XMB home on or off. Takes effect immediately, no restart. */
+    /** Turn the XMB mode (Deck style with the XMB home) on or off. Takes effect immediately, no restart. */
     fun setDeckXmbHome(on: Boolean) {
         _deckXmbHome.value = on
         themePrefs.edit().putBoolean("deck_xmb_home", on).apply()

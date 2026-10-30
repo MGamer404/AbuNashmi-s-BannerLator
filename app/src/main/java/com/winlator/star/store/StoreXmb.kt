@@ -49,6 +49,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.snapshotFlow
@@ -56,9 +57,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -79,6 +82,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import kotlinx.coroutines.launch
 import com.winlator.star.ui.deck.ScreenScale
 import com.winlator.star.ui.deck.XmbEditTapCatcher
 import com.winlator.star.ui.deck.XmbScreenWindow
@@ -177,9 +181,13 @@ internal object StoreXmbInput {
     // A pad that sends both the button and the axis for one press steps only once.
     private fun fire(delta: Int) {
         val now = SystemClock.uptimeMillis()
-        if (delta < 0) { if (now - lastPrev < 200) return; lastPrev = now } else { if (now - lastNext < 200) return; lastNext = now }
+        val last = if (delta < 0) lastPrev else lastNext
+        if (now - last < STEP_DEBOUNCE_MS) return
+        if (delta < 0) lastPrev = now else lastNext = now
         onCycle?.invoke(delta)
     }
+
+    private const val STEP_DEBOUNCE_MS = 200L
 }
 
 /**
@@ -257,6 +265,33 @@ internal fun xmbRailCycle(delta: Int, tabCount: Int, selected: Int, stops: XmbRa
     val current = if (onAction >= 0) tabCount + onAction else selected
     val next = (current + delta + total) % total
     if (next < tabCount) selectTab(next) else runCatching { stops.requesters[next - tabCount].requestFocus() }
+}
+
+/**
+ * L2 / R2 for a store host in XMB home ([enabled]): the triggers step through its [tabCount] tabs (from [selected]) and
+ * then its rail's end actions, wrapping; the returned stops are for the host to provide around its rail. A tab is
+ * chosen through [onSelect], then focus moves into [contentFocus], since whatever held it went away with the old tab.
+ */
+@Composable
+internal fun rememberXmbRailCycle(
+    enabled: Boolean,
+    tabCount: Int,
+    selected: Int,
+    contentFocus: FocusRequester,
+    onSelect: (Int) -> Unit,
+): XmbRailStops {
+    val scope = rememberCoroutineScope()
+    val stops = remember { XmbRailStops() }
+    StoreTabCycle(enabled) { delta ->
+        xmbRailCycle(delta, tabCount, selected, stops) { index ->
+            onSelect(index)
+            scope.launch {
+                repeat(2) { withFrameNanos { } }
+                runCatching { contentFocus.requestFocus() }
+            }
+        }
+    }
+    return stops
 }
 
 /** The L2 / R2 glyphs at the top of the store rail: they show the bar moves with the triggers, and a tap steps it too. */
@@ -346,6 +381,9 @@ internal fun XmbRailItem(label: String, icon: ImageVector, selected: Boolean, co
     }
 }
 
+/** How long (ms) the header ignores scrolling after it hides or shows. */
+private const val HEADER_SETTLE_MS = 450L
+
 /**
  * The header above a store's list or grid (search field, filter chips, sort) in the XMB home: it slides away while you
  * scroll down and comes back as soon as you scroll up, or the list is back at its top, so moving up with a controller
@@ -354,7 +392,7 @@ internal fun XmbRailItem(label: String, icon: ImageVector, selected: Boolean, co
 @Stable
 internal class XmbHeaderState {
     var shown by mutableStateOf(true)
-    internal var lastToggle = 0L
+    var lastToggle = 0L
 }
 
 @Composable
@@ -385,7 +423,7 @@ internal fun XmbHeaderState.Track(firstIndex: () -> Int, firstOffset: () -> Int)
             lastO = o
             // Hiding or showing resizes the list, which can nudge its position for a moment: ignore that.
             val now = System.currentTimeMillis()
-            if (now - lastToggle < 450L) return@collect
+            if (now - lastToggle < HEADER_SETTLE_MS) return@collect
             val next = when {
                 i == 0 && o == 0 -> true
                 down && i > 0 -> false
@@ -405,6 +443,14 @@ internal fun XmbHeaderState.Track(list: LazyListState) = Track({ list.firstVisib
 
 @Composable
 internal fun XmbHeaderState.Track(grid: LazyGridState) = Track({ grid.firstVisibleItemIndex }, { grid.firstVisibleItemScrollOffset })
+
+/** A list state made where the list is composed (so it starts over with it, as an untracked list's does) that reports to this header. */
+@Composable
+internal fun XmbHeaderState.trackedListState(): LazyListState = rememberLazyListState().also { Track(it) }
+
+/** [trackedListState] for a grid. */
+@Composable
+internal fun XmbHeaderState.trackedGridState(): LazyGridState = rememberLazyGridState().also { Track(it) }
 
 /** The header's content: collapsible in the XMB home, plain (laid out as before) everywhere else. */
 @Composable

@@ -16,7 +16,6 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -146,8 +145,6 @@ fun GogLibraryTab(
             .background(MaterialTheme.colorScheme.background),
     ) {
         val header = rememberXmbHeader()
-        val gridState = rememberLazyGridState()
-        header.Track(gridState)
         header.Header {
             CatalogSearchField(
                 query = query,
@@ -195,7 +192,7 @@ fun GogLibraryTab(
             }
 
             else -> LazyVerticalGrid(
-                state = gridState,
+                state = header.trackedGridState(),
                 columns = GridCells.Adaptive(storeGridCell(wide)),
                 modifier = Modifier.fillMaxSize().focusGroup(),
                 contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 24.dp),

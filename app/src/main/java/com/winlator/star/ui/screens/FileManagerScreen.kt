@@ -65,8 +65,9 @@ import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.SportsEsports
-import androidx.compose.foundation.text.KeyboardActions
 import com.winlator.star.ui.deck.XmbTapToEdit
+import com.winlator.star.ui.deck.xmbDoneActions
+import com.winlator.star.ui.deck.rememberScreenScale
 import com.winlator.star.ui.deck.rememberXmbHome
 import com.winlator.star.ui.components.CollapsibleRail
 import com.winlator.star.ui.components.RailItem
@@ -380,8 +381,8 @@ fun FileManagerScreen(
     val mainActivity = context as? MainActivity
     val scope = rememberCoroutineScope()
     // Deck XMB home: a slimmer locations rail and smaller folder tiles, sized as a share of the screen.
-    val xmbHome = com.winlator.star.ui.deck.rememberXmbHome()
-    val screen = com.winlator.star.ui.deck.rememberScreenScale()
+    val xmbHome = rememberXmbHome()
+    val screen = rememberScreenScale()
 
     val containerManager = mainActivity?.containerManager
     val containers = remember { containerManager?.getContainers()?.toList() ?: emptyList<Container>() }
@@ -1312,7 +1313,6 @@ fun FileManagerScreen(
 
         // ── Search field ── filters the current folder only; it is not a recursive search.
         if (showSearch && !showFavorites) {
-            val xmbSearch = rememberXmbHome()
             XmbTapToEdit(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) { fieldModifier, stopEditing ->
                 OutlinedTextField(
                     value = searchQuery,
@@ -1320,7 +1320,7 @@ fun FileManagerScreen(
                     singleLine = true,
                     placeholder = { Text("Filter this folder", fontSize = 13.sp) },
                     modifier = fieldModifier,
-                    keyboardActions = if (xmbSearch) KeyboardActions(onDone = { stopEditing() }) else KeyboardActions.Default,
+                    keyboardActions = xmbDoneActions(stopEditing),
                 )
             }
         }

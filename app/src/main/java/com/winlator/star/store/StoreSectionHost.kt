@@ -32,8 +32,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -45,7 +43,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.winlator.star.ui.deck.rememberScreenScale
 import com.winlator.star.ui.theme.LocalAccentDim
-import kotlinx.coroutines.launch
 
 /**
  * The store-AGNOSTIC section shell: the Steam storefront's four-tab host
@@ -96,18 +93,7 @@ fun StoreSectionHost(
     }
 
     // XMB home: L2 / R2 step through the rail's tabs and then its end actions (wrapping) from anywhere on the screen.
-    // A tab switches at once and focus moves into its content, since whatever held it went away with the old tab.
-    val scope = rememberCoroutineScope()
-    val railStops = remember { XmbRailStops() }
-    StoreTabCycle(enabled = xmb && tabs.isNotEmpty()) { delta ->
-        xmbRailCycle(delta, tabs.size, selected, railStops) { i ->
-            onSelect(i)
-            scope.launch {
-                repeat(2) { withFrameNanos { } }
-                runCatching { contentFocus.requestFocus() }
-            }
-        }
-    }
+    val railStops = rememberXmbRailCycle(xmb && tabs.isNotEmpty(), tabs.size, selected, contentFocus, onSelect)
 
     Box(
         modifier = Modifier

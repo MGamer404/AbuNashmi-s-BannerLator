@@ -25,8 +25,6 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -629,10 +627,6 @@ fun SteamLibraryTab(
 
     Column(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         val header = rememberXmbHeader()
-        val gridState = rememberLazyGridState()
-        val listState = rememberLazyListState()
-        header.Track(gridState)
-        header.Track(listState)
         header.Header {
             // Search + sort + type chips. Landscape ("wide") has width to spare and height to save, so the
             // three share one row; portrait stacks the search row above the chips.
@@ -740,7 +734,7 @@ fun SteamLibraryTab(
                 )
 
                 viewMode == "list" -> LazyColumn(
-                    state = listState,
+                    state = header.trackedListState(),
                     modifier = Modifier.fillMaxSize().focusGroup(),
                     contentPadding = PaddingValues(vertical = 4.dp),
                 ) {
@@ -765,7 +759,7 @@ fun SteamLibraryTab(
                 }
 
                 else -> LazyVerticalGrid(
-                    state = gridState,
+                    state = header.trackedGridState(),
                     // Adaptive rather than a fixed count: 2 columns on a portrait phone, 4-6 across a
                     // handheld in landscape, from one declaration.
                     // XMB home: portrait covers, a bit smaller, with room for the focused one's pop.

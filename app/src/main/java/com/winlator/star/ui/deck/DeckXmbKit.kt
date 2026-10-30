@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -64,12 +65,13 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.min
 
-// Shared pieces of the Deck interface's XMB-home mode, for the Deck shell and for the store and download screens,
-// which are activities of their own.
+// Shared pieces of the XMB interface style (Deck with the XMB home), for the Deck shell and for the store and download
+// screens, which are activities of their own.
 
 /**
- * True while the Deck interface runs with the XMB home. Read from the theme prefs rather than AppThemeState, because a
- * store screen can be the first one in its process and AppThemeState is set up only by the main screens.
+ * True while the app runs in the XMB interface style (Deck style with the XMB home on). Read from the theme prefs rather
+ * than AppThemeState, because a store screen can be the first one in its process and AppThemeState is set up only by the
+ * main screens.
  */
 internal fun isXmbHome(context: Context): Boolean {
     val prefs = context.getSharedPreferences("winlator_theme", Context.MODE_PRIVATE)
@@ -88,6 +90,9 @@ internal fun rememberXmbHome(): Boolean {
 // with painterResource did that on the main thread each time Home opened.
 private val xmbLogoCache = ConcurrentHashMap<Int, ImageBitmap>()
 
+/** The longest side (px) a logo is decoded at: plenty for a card, well under the 960 px files. */
+private const val XMB_LOGO_EDGE = 512
+
 private fun decodeXmbLogo(resources: Resources, res: Int, maxEdge: Int): ImageBitmap? = xmbLogoCache[res] ?: run {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeResource(resources, res, bounds)
@@ -102,7 +107,7 @@ private fun decodeXmbLogo(resources: Resources, res: Int, maxEdge: Int): ImageBi
  * once on every later visit.
  */
 @Composable
-internal fun rememberXmbLogo(@DrawableRes res: Int, maxEdge: Int = 512): ImageBitmap? {
+internal fun rememberXmbLogo(@DrawableRes res: Int, maxEdge: Int = XMB_LOGO_EDGE): ImageBitmap? {
     val resources = LocalContext.current.resources
     return produceState<ImageBitmap?>(xmbLogoCache[res], res) {
         if (value == null) value = withContext(Dispatchers.IO) { decodeXmbLogo(resources, res, maxEdge) }
@@ -112,7 +117,7 @@ internal fun rememberXmbLogo(@DrawableRes res: Int, maxEdge: Int = 512): ImageBi
 /** Decodes [res] ahead of time so the XMB home's first frame finds its logos ready. */
 internal suspend fun warmXmbLogos(context: Context, res: List<Int>) {
     val resources = context.resources
-    withContext(Dispatchers.IO) { res.forEach { decodeXmbLogo(resources, it, 512) } }
+    withContext(Dispatchers.IO) { res.forEach { decodeXmbLogo(resources, it, XMB_LOGO_EDGE) } }
 }
 
 /**
@@ -278,31 +283,41 @@ internal fun BoxScope.XmbEditTapCatcher(e: XmbEditState) {
 }
 
 /**
+ * A tap-to-edit field's keyboard actions: the keyboard's Done ends typing in the XMB home, and everywhere else the field
+ * keeps its default action. Call it inside the [XmbTapToEdit] content, with the [stopEditing] it was handed.
+ */
+@Composable
+internal fun xmbDoneActions(stopEditing: () -> Unit): KeyboardActions =
+    if (rememberXmbHome()) KeyboardActions(onDone = { stopEditing() }) else KeyboardActions.Default
+
+/**
  * Wraps an ordinary text field so it is tap-to-edit while the XMB home is on, and passes it straight through otherwise.
  * Give [modifier] the field's whole modifier; [content] uses [fieldModifier] as the field's modifier (outside the XMB
  * home that is [modifier] itself, so the field is exactly as before) and calls [stopEditing] when the field's own action
  * (Search / Done) should end typing. The wrapper draws the accent ring when the field is focused or being typed into.
- * Pass an [edit] state of your own to start typing from code (see [XmbEditState.start]).
+ * Pass an [edit] state of your own to start typing from code (see [XmbEditState.start]); without one, a state is made
+ * only while the XMB home is on, so the other interfaces compose nothing extra.
  */
 @Composable
 internal fun XmbTapToEdit(
     modifier: Modifier = Modifier,
     shape: Shape = MaterialTheme.shapes.extraSmall,
-    edit: XmbEditState = rememberXmbEdit(),
+    edit: XmbEditState? = null,
     content: @Composable (fieldModifier: Modifier, stopEditing: () -> Unit) -> Unit,
 ) {
     if (!rememberXmbHome()) {
         content(modifier) {}
         return
     }
+    val state = edit ?: rememberXmbEdit()
     Box(
         modifier
-            .xmbEditStop(edit)
+            .xmbEditStop(state)
             .clip(shape)
-            .clickable { edit.start() }
-            .then(if (edit.active) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, shape) else Modifier),
+            .clickable { state.start() }
+            .then(if (state.active) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, shape) else Modifier),
     ) {
-        content(Modifier.fillMaxWidth().xmbEditField(edit)) { edit.stop() }
-        XmbEditTapCatcher(edit)
+        content(Modifier.fillMaxWidth().xmbEditField(state)) { state.stop() }
+        XmbEditTapCatcher(state)
     }
 }
