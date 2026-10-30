@@ -381,14 +381,19 @@ internal fun DeckHome(
             val details = if (signedIn[store] == true) "Signed in · $games" else "Not signed in · A to sign in"
             add(XmbAction(store.label, Icons.Filled.Storefront, details, art = storeCardArt(store)) { onLaunchStore(store.screen) })
         }
-        add(XmbAction("Downloads", Icons.Filled.Download, if (downloads > 0) "$downloads active" else "No downloads") {
+        // The icon cards get dark gradients of their own, each softly tinted, so they sit with the store cards.
+        add(XmbAction("Downloads", Icons.Filled.Download, if (downloads > 0) "$downloads active" else "No downloads",
+            art = XmbCardArt(null, listOf(Color(0xFF1E3A5F), Color(0xFF0F1F33)))) {
             runCatching { context.startActivity(Intent(context, DownloadManagerActivity::class.java)) }
         })
-        if (signedIn[DeckStore.STEAM] == true) add(XmbAction("Friends", Icons.Filled.People, "Steam friends and chat") {
+        if (signedIn[DeckStore.STEAM] == true) add(XmbAction("Friends", Icons.Filled.People, "Steam friends and chat",
+            art = XmbCardArt(null, listOf(Color(0xFF134E4A), Color(0xFF0A2B29)))) {
             runCatching { context.startActivity(Intent(context, SteamFriendsActivity::class.java)) }
         })
-        add(XmbAction("Community configs", Icons.Filled.Public, "Shared settings for your games") { actions.showCommunityBrowser = true })
-        add(XmbAction("Add game", Icons.Filled.Add, "Add games to your library") { onAddGame() })
+        add(XmbAction("Community configs", Icons.Filled.Public, "Shared settings for your games",
+            art = XmbCardArt(null, listOf(Color(0xFF2E2A6B), Color(0xFF17153A)))) { actions.showCommunityBrowser = true })
+        add(XmbAction("Add game", Icons.Filled.Add, "Add games to your library",
+            art = XmbCardArt(null, listOf(Color(0xFF2A2D33), Color(0xFF16181C)))) { onAddGame() })
     }
 
     val shelfScroll = rememberScrollState()

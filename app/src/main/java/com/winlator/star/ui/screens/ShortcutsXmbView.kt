@@ -157,8 +157,11 @@ internal data class XmbAction(
     val onClick: () -> Unit = {},
 )
 
-/** A logo on a brand background, drawn as an upper-row card and, frosted, as the home's backdrop. [tintWhite] = draw the logo white. */
-internal data class XmbCardArt(@DrawableRes val logo: Int, val colors: List<Color>, val tintWhite: Boolean = false)
+/**
+ * An upper-row card's background, drawn edge to edge on the card and, frosted, as the home's backdrop: a store's
+ * [logo] on its brand colours, or with no logo the card's own icon in white on [colors]. [tintWhite] = draw the logo white.
+ */
+internal data class XmbCardArt(@DrawableRes val logo: Int?, val colors: List<Color>, val tintWhite: Boolean = false)
 
 /**
  * Games-tab XMB layout (PS3 cross media bar). Games run along a horizontal bar and the focused
@@ -379,7 +382,7 @@ internal fun ShortcutsXmbView(
         val homeK = if (!centeredHome) 1f
             else min(1.3f, (m.h / 2f - clipTop - m.sH / 2f - 10f) * 2f / m.fH).coerceAtLeast(1f)
         // Read where it's used (draw / drag), so the animation doesn't recompose the view.
-        val rowScale = { 1f + (homeK - 1f) * cT }
+        val rowScale = { 1f + (homeK - 1f) * cT * (1f - upT) }
         val pitchPx = with(density) { m.pitch.dp.toPx() }
         val rowPx = with(density) { m.rowH.dp.toPx() }
         val wPx = with(density) { maxWidth.toPx() }
@@ -572,8 +575,9 @@ internal fun ShortcutsXmbView(
                 }
 
                 val rootAlpha by animateFloatAsState(if (nested) 0f else 1f, tween(260), label = "xmbRootAlpha")
-                // With the upper row open the games drop until only the top half of the row shows at the bottom edge.
-                val lower = (m.h - m.fH * 0.5f - m.top).coerceAtLeast(0f)
+                // With the upper row open the games shrink to the small, dimmed peek the cards have on the games row,
+                // and drop until only their top half shows at the bottom edge.
+                val lower = (m.h - m.sH * 0.5f - m.top).coerceAtLeast(0f)
                 // Centred home: the row rests in the middle of the screen until the options open under it.
                 val centreShift = (m.h - m.fH) / 2f - m.top
                 // Everything that belongs to the options layout fades out while centred or with the cards up.
@@ -593,13 +597,16 @@ internal fun ShortcutsXmbView(
                     scaleX = s
                     scaleY = s
                     transformOrigin = TransformOrigin(m.cross / m.w, (m.top + m.fH / 2f) / m.h)
+                    alpha = 1f - 0.5f * upT
                 }) {
                 for (i in (baseIdx - 3).coerceAtLeast(0)..(baseIdx + ahead + 1).coerceAtMost(n - 1)) {
                     val s = shortcuts[i]
                     key(s.file.path) {
+                        // With the cards up no game is chosen: none is enlarged or ringed.
                         XmbCover(
                             shortcut = s, index = i, pos = pos, m = m, accent = accent,
-                            focused = i == target, selectionMode = selectionMode, selected = s.file.path in selectedPaths,
+                            focused = i == target && !upperOpen, selectionMode = selectionMode, selected = s.file.path in selectedPaths,
+                            grow = { 1f - upT },
                             onClick = {
                                 if (nav.depth == 0) when {
                                     i != target -> settleTo(i)
@@ -762,6 +769,8 @@ private fun XmbCover(
     focused: Boolean,
     selectionMode: Boolean,
     selected: Boolean,
+    // 1 = the focused cover grows to full size (the usual row), 0 = every cover small (the home's lowered peek).
+    grow: () -> Float = { 1f },
     onClick: () -> Unit,
 ) {
     val shape = RoundedCornerShape(8.dp)
@@ -773,10 +782,11 @@ private fun XmbCover(
             .graphicsLayer {
                 // u = distance from the cross in covers; the focused one grows to full size and the
                 // ones after it are pushed right by the extra width, so spacing stays even mid-swipe.
+                val g = grow()
                 val u = index - pos.floatValue
-                val t = (1f - abs(u)).coerceAtLeast(0f)
+                val t = (1f - abs(u)).coerceAtLeast(0f) * g
                 val sc = (m.sH + (m.fH - m.sH) * t) / m.fH
-                val x = m.cross + u * m.pitch + m.grow * u.coerceIn(0f, 1f)
+                val x = m.cross + u * m.pitch + m.grow * g * u.coerceIn(0f, 1f)
                 translationX = x.dp.toPx()
                 translationY = m.top.dp.toPx()
                 scaleX = sc
@@ -905,9 +915,9 @@ private fun XmbUpperBar(
     onTap: (Int) -> Unit,
 ) {
     // In the caller's clipped box (its top at clipTop): peeking, the small cards' middle sits on the clip edge; open,
-    // the bar sits where the game row does, below the floating tab bar.
+    // the bar is centred on the screen as the game row is when it's the one in use (the games peek below it then).
     val yPeek = -m.sH / 2f
-    val yOpen = max(m.top, clipTop + 6f) - clipTop
+    val yOpen = (m.h - m.fH) / 2f - clipTop
     val y = yPeek + (yOpen - yPeek) * open
     val s = 1f + (scale - 1f) * open
     val boxH = (m.h - clipTop).coerceAtLeast(1f)
@@ -994,19 +1004,22 @@ private fun XmbUpperCard(
             }
             .then(if (focused) Modifier.shadow(14.dp, shape, ambientColor = accent, spotColor = accent) else Modifier)
             .clip(shape)
-            .background(if (art != null) Brush.linearGradient(art.colors) else Brush.linearGradient(listOf(Color.White.copy(alpha = 0.12f), Color.White.copy(alpha = 0.06f))))
+            // Opaque, edge to edge: a see-through fill would let the focus shadow show through as a dark inner box.
+            .background(Brush.linearGradient(art?.colors ?: listOf(Color(0xFF2A2D33), Color(0xFF16181C))))
             .border(if (focused) 2.dp else 1.dp, if (focused) accent else Color.White.copy(alpha = 0.14f), shape)
             .then(if (enabled) Modifier.xmbClick(src, onClick) else Modifier),
         contentAlignment = Alignment.Center,
     ) {
-        if (art != null) {
+        val logo = art?.logo
+        if (logo != null) {
             Image(
-                painterResource(art.logo), contentDescription = card.label, contentScale = ContentScale.Fit,
-                colorFilter = if (art.tintWhite) ColorFilter.tint(Color.White) else null,
+                painterResource(logo), contentDescription = card.label, contentScale = ContentScale.Fit,
+                colorFilter = if (art?.tintWhite == true) ColorFilter.tint(Color.White) else null,
                 modifier = Modifier.fillMaxSize(0.62f),
             )
         } else {
-            Icon(card.icon, contentDescription = card.label, tint = Color.White.copy(alpha = 0.9f), modifier = Modifier.size((m.fW * 0.36f).dp))
+            // Sized from the card, so the chosen (enlarged) card shows the same icon, just bigger.
+            Icon(card.icon, contentDescription = card.label, tint = Color.White, modifier = Modifier.size((m.fW * 0.44f).dp))
         }
     }
 }
@@ -1023,9 +1036,10 @@ private fun XmbFrostedBackdrop(cover: Bitmap?, art: XmbCardArt?, modifier: Modif
             when {
                 a != null -> {
                     Box(Modifier.fillMaxSize().background(Brush.linearGradient(a.colors)))
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    val logo = a.logo
+                    if (logo != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                         Image(
-                            painterResource(a.logo), contentDescription = null, contentScale = ContentScale.Fit,
+                            painterResource(logo), contentDescription = null, contentScale = ContentScale.Fit,
                             colorFilter = if (a.tintWhite) ColorFilter.tint(Color.White) else null,
                             modifier = Modifier.fillMaxSize(0.8f).align(Alignment.Center).blur(48.dp).alpha(0.45f),
                         )

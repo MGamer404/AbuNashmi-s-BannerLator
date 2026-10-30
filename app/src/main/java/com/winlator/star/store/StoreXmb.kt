@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -101,8 +102,8 @@ internal fun StoreXmbScreen(content: @Composable () -> Unit) {
     }
 }
 
-/** The slim rail's width: just room for an icon over a short label. */
-internal fun ScreenScale.xmbRailWidth(): Dp = w(0.07f, min = 60.dp, max = 88.dp)
+/** The slim rail's width: room for the icons, and the current tab's short label under its icon. */
+internal fun ScreenScale.xmbRailWidth(): Dp = w(0.055f, min = 52.dp, max = 76.dp)
 
 /** Width of one cover in the store rails and grids. */
 internal fun ScreenScale.xmbCoverWidth(): Dp = w(0.12f, min = 96.dp, max = 170.dp)
@@ -117,7 +118,10 @@ internal fun steamTallArt(appId: Int): String =
     SteamLibraryArt.libraryCapsule(appId)
         ?: "https://shared.steamstatic.com/store_item_assets/steam/apps/$appId/library_600x900.jpg"
 
-/** One rail entry: icon over a one-line label (the count, if any, on a second line). */
+/**
+ * One rail entry, packed tight: just the icon, and on the tab you're on its one-line label (the count, if any, on a
+ * second line) under it. At least 44 dp tall, so every tab stays easy to tap.
+ */
 @Composable
 internal fun XmbRailItem(label: String, icon: ImageVector, selected: Boolean, count: Int?, onClick: () -> Unit) {
     val s = rememberScreenScale()
@@ -127,21 +131,22 @@ internal fun XmbRailItem(label: String, icon: ImageVector, selected: Boolean, co
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 4.dp, vertical = 2.dp)
+            .padding(horizontal = 4.dp, vertical = 1.dp)
             .steamFocusRing(shape)
             .clip(shape)
             .background(if (selected) LocalAccentDim.current else Color.Transparent)
             .clickable(onClick = onClick)
-            .padding(vertical = s.dp(6f)),
+            .heightIn(min = 44.dp)
+            .padding(vertical = s.dp(4f)),
         horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
     ) {
         Icon(icon, contentDescription = label, tint = ink, modifier = Modifier.size(s.dp(20f)))
-        Spacer(Modifier.height(s.dp(3f)))
-        Text(
-            label, color = ink, fontSize = s.sp(10f), maxLines = 1, overflow = TextOverflow.Ellipsis,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-        )
-        if (count != null) Text("$count", color = cs.onSurfaceVariant, fontSize = s.sp(9f), maxLines = 1)
+        if (selected) {
+            Spacer(Modifier.height(s.dp(2f)))
+            Text(label, color = ink, fontSize = s.sp(10f), fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (count != null) Text("$count", color = cs.onSurfaceVariant, fontSize = s.sp(9f), maxLines = 1)
+        }
     }
 }
 
@@ -200,8 +205,9 @@ internal fun XmbStoreCover(
                 .padding(start = s.dp(7f), end = s.dp(7f), top = s.dp(18f), bottom = s.dp(6f)),
             verticalArrangement = Arrangement.spacedBy(1.dp),
         ) {
+            // Tight line height: a two-line name reads as one name, not two paragraphs.
             Text(
-                title, fontSize = s.sp(11f), fontWeight = FontWeight.Bold, color = Color.White,
+                title, fontSize = s.sp(11f), lineHeight = s.sp(12.5f), fontWeight = FontWeight.Bold, color = Color.White,
                 maxLines = 2, overflow = TextOverflow.Ellipsis,
             )
             if (status != null) {
@@ -212,7 +218,11 @@ internal fun XmbStoreCover(
             }
             footer?.invoke(this)
             if (focused && focusDetail != null) {
-                Text(focusDetail, fontSize = s.sp(9.5f), color = Color.White.copy(alpha = 0.9f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                // A long rating ("Overwhelmingly Positive · 97%") wraps to a second line rather than being cut off.
+                Text(
+                    focusDetail, fontSize = s.sp(9.5f), lineHeight = s.sp(10.8f), color = Color.White.copy(alpha = 0.9f),
+                    maxLines = 2, overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }
@@ -257,7 +267,8 @@ internal fun XmbFeatureCard(
                 Text(eyebrow, fontSize = s.sp(10f), fontWeight = FontWeight.Bold, color = cs.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Text(
-                title, fontSize = s.sp(if (compact) 12.5f else 16f), fontWeight = if (compact) FontWeight.Bold else FontWeight.ExtraBold,
+                title, fontSize = s.sp(if (compact) 12.5f else 16f), lineHeight = s.sp(if (compact) 14f else 18f),
+                fontWeight = if (compact) FontWeight.Bold else FontWeight.ExtraBold,
                 color = cs.onSurface, maxLines = 2, overflow = TextOverflow.Ellipsis,
             )
             footer()
