@@ -122,6 +122,15 @@ internal fun StoreXmbScreen(content: @Composable () -> Unit) {
 }
 
 /**
+ * The app theme around a store screen that is not a storefront (a game's details page): [WinlatorTheme] plus
+ * [StoreXmbScreen], so in XMB-home mode the page is full screen like the rest of the store; elsewhere it is just the theme.
+ */
+@Composable
+internal fun StoreXmbTheme(content: @Composable () -> Unit) {
+    com.winlator.star.ui.theme.WinlatorTheme { StoreXmbScreen(content) }
+}
+
+/**
  * L2 / R2 for the store screens in XMB home: they step through the rail's tabs from anywhere on the screen. Each store
  * activity feeds its key and motion events here; [StoreTabCycle] sets [onCycle] only while its screen is resumed in
  * XMB home, so in the other interfaces (and on a screen in the background) nothing is consumed.

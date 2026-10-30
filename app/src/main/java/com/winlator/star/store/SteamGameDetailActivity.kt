@@ -102,7 +102,6 @@ import com.winlator.star.store.download.Store
 import com.winlator.star.store.download.StoreMedia
 import com.winlator.star.store.download.formatDownloadSpeed
 import com.winlator.star.store.download.formatEta
-import com.winlator.star.ui.theme.WinlatorTheme
 import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -325,7 +324,7 @@ class SteamGameDetailActivity : ComponentActivity(), SteamRepository.SteamEventL
         if (SteamPrefs.isLoggedIn) SteamForegroundService.start(this)
 
         setContent {
-            WinlatorTheme {
+            StoreXmbTheme {
                 SteamGameDetailScreen(
                     appId = appId,
                     signedIn = SteamPrefs.isLoggedIn,
