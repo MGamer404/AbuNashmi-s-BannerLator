@@ -115,6 +115,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.winlator.star.R
+import com.winlator.star.ui.deck.rememberXmbHome
 import com.winlator.star.contents.AdrenotoolsManager
 import com.winlator.star.contents.WaylandGameDriverManager
 import com.winlator.star.contents.ContentProfile
@@ -338,9 +339,9 @@ private fun SourceListPane(
     onMenu: (HubSource) -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
+    val xmbHome = rememberXmbHome()
 
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp)) {
-        Spacer(Modifier.height(12.dp))
+    val searchField: @Composable () -> Unit = {
         OutlinedTextField(
             value = query,
             onValueChange = { vm.setQuery(it) },
@@ -356,19 +357,48 @@ private fun SourceListPane(
             },
             singleLine = true,
         )
+    }
+    val listHeader: @Composable () -> Unit = {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Text("Select Online Repository", style = MaterialTheme.typography.titleMedium,
+                color = cs.onSurface, modifier = Modifier.weight(1f))
+            IconButton(onClick = { vm.reloadSources(); vm.refreshSelected() }) {
+                Icon(Icons.Filled.Refresh, "Refresh", tint = cs.primary)
+            }
+            IconButton(onClick = onImport) { Icon(Icons.Filled.FileDownload, "Import list", tint = cs.primary) }
+            IconButton(onClick = onSettings) { Icon(Icons.Filled.Settings, "Settings", tint = cs.primary) }
+            IconButton(onClick = onAdd) { Icon(Icons.Filled.Add, "Add repository", tint = cs.primary) }
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp)) {
+        if (xmbHome && (query.isBlank() || !showInlineResults)) {
+            // XMB home: the search field and the header are the list's first items, so they scroll away with the
+            // repositories and come back when you scroll up.
+            LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                item(key = "search") {
+                    Spacer(Modifier.height(12.dp))
+                    searchField()
+                    Spacer(Modifier.height(12.dp))
+                }
+                item(key = "header") {
+                    listHeader()
+                    Spacer(Modifier.height(6.dp))
+                }
+                itemsIndexed(sources, key = { i, s -> "$i-${s.name}-${s.driverOnly}" }) { _, source ->
+                    RepoCard(source, isSelected = selected == source,
+                        onClick = { vm.selectSource(source) }, onMenu = { onMenu(source) })
+                    Spacer(Modifier.height(10.dp))
+                }
+            }
+            return@Column
+        }
+        Spacer(Modifier.height(12.dp))
+        searchField()
         Spacer(Modifier.height(12.dp))
 
         if (query.isBlank() || !showInlineResults) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Text("Select Online Repository", style = MaterialTheme.typography.titleMedium,
-                    color = cs.onSurface, modifier = Modifier.weight(1f))
-                IconButton(onClick = { vm.reloadSources(); vm.refreshSelected() }) {
-                    Icon(Icons.Filled.Refresh, "Refresh", tint = cs.primary)
-                }
-                IconButton(onClick = onImport) { Icon(Icons.Filled.FileDownload, "Import list", tint = cs.primary) }
-                IconButton(onClick = onSettings) { Icon(Icons.Filled.Settings, "Settings", tint = cs.primary) }
-                IconButton(onClick = onAdd) { Icon(Icons.Filled.Add, "Add repository", tint = cs.primary) }
-            }
+            listHeader()
             Spacer(Modifier.height(6.dp))
             LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 itemsIndexed(sources, key = { i, s -> "$i-${s.name}-${s.driverOnly}" }) { _, source ->

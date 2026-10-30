@@ -291,13 +291,17 @@ internal fun ShortcutsXmbView(
     BackHandler(enabled = nested) { nav.pop() }
 
     // The row above the games, a second bar that runs like the games: the chosen card sits enlarged at the cross with
-    // the earlier ones to its left. Leaving it always lands back on Play; opening a nested menu closes it.
-    var upOpen by remember { mutableStateOf(false) }
-    var upSel by remember { mutableIntStateOf(0) }
-    val upPos = remember { mutableFloatStateOf(0f) } // the cards' visual position, fractional mid-swipe
+    // the earlier ones to its left. Leaving it always lands back on Play; opening a nested menu closes it. Whether it's
+    // open and which card is chosen (by its label) are saved, so coming back from a card's own screen (a store,
+    // Downloads...) or a recreated activity finds the row as it was left.
+    var upOpen by rememberSaveable { mutableStateOf(false) }
+    var upLabel by rememberSaveable { mutableStateOf<String?>(null) }
+    var upSel by remember { mutableIntStateOf(upperRow.indexOfFirst { it.label == upLabel }.coerceAtLeast(0)) }
+    val upPos = remember { mutableFloatStateOf(upSel.toFloat()) } // the cards' visual position, fractional mid-swipe
     var upJob by remember { mutableStateOf<Job?>(null) }
     val upperOpen = upOpen && upperRow.isNotEmpty() && !nested
     val upIdx = upSel.coerceIn(0, (upperRow.size - 1).coerceAtLeast(0))
+    LaunchedEffect(upIdx, upperRow) { upLabel = upperRow.getOrNull(upIdx)?.label }
     val upT by animateFloatAsState(if (upperOpen) 1f else 0f, tween(300), label = "xmbUpper")
     fun upSettle(i: Int) {
         val t = i.coerceIn(0, (upperRow.size - 1).coerceAtLeast(0))
@@ -313,7 +317,8 @@ internal fun ShortcutsXmbView(
     fun openUpper() { upJob?.cancel(); upSel = 0; upPos.floatValue = 0f; upOpen = true }
     // Closed, the peeking row eases back to its start.
     fun closeUpper() { upOpen = false; act = 0; upSettle(0) }
-    fun runUpper(a: XmbAction) { closeUpper(); runAction(a) }
+    // Running a card leaves the row open on it, so Back from that card's screen returns to the same card.
+    fun runUpper(a: XmbAction) = runAction(a)
     LaunchedEffect(nested) { if (nested) upOpen = false }
     BackHandler(enabled = upperOpen) { closeUpper() }
     fun closeOpts() { optsOpen = false; act = 0 }
