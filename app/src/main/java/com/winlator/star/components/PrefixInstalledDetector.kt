@@ -3,6 +3,7 @@ package com.winlator.star.components
 import com.winlator.star.components.offline.WineRegistryFile
 import com.winlator.star.container.Container
 import java.io.File
+import java.io.RandomAccessFile
 
 /**
  * Detects which catalog components are *actually* present in a container's Wine prefix, for
@@ -32,6 +33,46 @@ object PrefixInstalledDetector {
         } catch (_: Throwable) {
             emptySet()
         }
+    }
+
+    // Visual C++ 2015-2022: the catalog's vcredist2015/2019/2022 (and their _dll copies) and GOG's
+    // MSVC20xx redists. Wine ships its own msvcp140/vcruntime140, so only Microsoft's vcruntime140.dll
+    // next to mfc140u.dll (which Wine does not have) shows the runtime is really there.
+    private val VC14 = Regex("""^(?:vcredist(?:2015|2019|2022)(?:_dll)?|GOG:MSVC20(?:15|17|19|22)(_x64)?)$""")
+    private val WINE_DLL_MARKS = listOf("Wine builtin DLL", "Wine placeholder DLL")
+
+    /**
+     * For a Visual C++ 2015-2022 record [name]: the file the prefix is missing (e.g.
+     * "system32/mfc140u.dll"), or null when the files are there or [name] is not one of those.
+     */
+    fun vcRuntimeMissing(container: Container, name: String): String? {
+        val m = VC14.matchEntire(name) ?: return null
+        val windows = File(container.rootDir, ".wine/drive_c/windows")
+        if (!windows.isDirectory) return null
+        val wow64 = File(windows, "syswow64").isDirectory
+        val dirs = when {
+            !name.startsWith("GOG:") -> listOfNotNull("system32", "syswow64".takeIf { wow64 })
+            m.groupValues[1].isNotEmpty() -> listOf("system32")
+            else -> listOf(if (wow64) "syswow64" else "system32")
+        }
+        for (d in dirs) {
+            if (!isVendorDll(File(windows, "$d/vcruntime140.dll"))) return "$d/vcruntime140.dll"
+            if (!File(windows, "$d/mfc140u.dll").isFile) return "$d/mfc140u.dll"
+        }
+        return null
+    }
+
+    /** A DLL that is not one of Wine's own (those carry a mark right after the DOS header). */
+    private fun isVendorDll(f: File): Boolean = try {
+        f.isFile && f.length() > 0x60 && RandomAccessFile(f, "r").use { raf ->
+            val b = ByteArray(0x20)
+            raf.seek(0x40)
+            raf.readFully(b)
+            val s = String(b, Charsets.ISO_8859_1)
+            WINE_DLL_MARKS.none { s.startsWith(it) }
+        }
+    } catch (_: Exception) {
+        false
     }
 
     // The Uninstall entries a detected component's own installer registers, by the start of their

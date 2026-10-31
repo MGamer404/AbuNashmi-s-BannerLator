@@ -89,6 +89,8 @@ internal object SettingsRegistry {
     const val TARGET_CHANGE_EXE = "change_exe"
     /** Copy a game to drive C, over the current Deck page. */
     const val TARGET_DRIVE_C = "drive_c"
+    /** Move a game to another container (or copy it there), over the current Deck page. */
+    const val TARGET_MOVE_CONTAINER = "move_container"
     /** Information only, nothing to open. */
     const val TARGET_NONE = "none"
     /** Another category of this editor (see [categoryTarget]). */
@@ -104,16 +106,17 @@ internal object SettingsRegistry {
      * names its worlds. None opens the classic editor any more ([TARGET_CLASSIC] stays handled by the
      * screens for a hand-off that may need it again).
      */
-    @Suppress("UNUSED_PARAMETER")
     fun handoffs(scope: EditorScope, env: SettingsEnv): Map<String, List<Handoff>> {
         val game = scope == EditorScope.GAME
         val m = linkedMapOf<String, List<Handoff>>()
         if (game) {
+            val containerName = env.shortcut?.container?.name.orEmpty()
             m["game"] = listOf(
                 Handoff("Name, cover art and details", "Cover art from your files, Steam or SteamGridDB, the Steam link, genres, year and description (Game Details).", TARGET_DETAILS, ALL_WORLDS),
                 // The icon is picked on this page now (DeckIconSection); the file operations stay with the Games screen.
                 Handoff("Change the program to run", "Pick another .exe in the game's folder for this entry.", TARGET_CHANGE_EXE, WINE_ONLY),
                 Handoff("Copy the game to drive C", "Copy the game's folder into the container's drive C and run it from there.", TARGET_DRIVE_C, WINE_ONLY),
+                Handoff("Move to another container", "Now in \"$containerName\". Move this game to another container, or copy it there.", TARGET_MOVE_CONTAINER, WINE_ONLY),
             )
             m["launch"] = listOf(Handoff("Offline Steam mode, file checks and updates", "Goldberg mode, Verify files and Check for updates live in the launch menu. Turn off \"Skip the launch menu\" to see it on the next start.", TARGET_NONE))
         }

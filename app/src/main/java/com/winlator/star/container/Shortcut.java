@@ -266,7 +266,9 @@ import java.nio.file.Files;
         public boolean cloneToContainer(Container newContainer) {
             try {
                 // Define the path for the new .desktop file in the new container
-                File newShortcutFile = new File(newContainer.getDesktopDir(), this.file.getName());
+                File desktopDir = newContainer.getDesktopDir();
+                if (!desktopDir.isDirectory() && !desktopDir.mkdirs()) return false;
+                File newShortcutFile = new File(desktopDir, this.file.getName());
 
                 // Read the existing .desktop file
                 ArrayList<String> lines = FileUtils.readLines(this.file);
@@ -290,8 +292,8 @@ import java.nio.file.Files;
                     updatedContent.append("container_id:").append(newContainer.id).append("\n");
                 }
 
-                // Write the updated content to the new .desktop file
-                FileUtils.writeString(newShortcutFile, updatedContent.toString());
+                // Write the updated content to the new .desktop file; callers delete the original on true
+                if (!FileUtils.writeString(newShortcutFile, updatedContent.toString())) return false;
 
                 // Optionally copy the icon if it exists
                 if (this.iconFile != null && this.iconFile.isFile()) {

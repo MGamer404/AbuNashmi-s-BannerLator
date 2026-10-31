@@ -65,6 +65,13 @@ public final class GogDownloadManager {
         void onError(String msg);
         default void onCancelled() {}
         /**
+         * Byte progress of the running download, sent just before the matching {@link #onProgress}:
+         * {@code done}/{@code total} = decompressed bytes on disk, {@code speedBps} = network speed
+         * (0 = unknown), {@code etaSeconds} = time left (-1 = unknown). About twice a second from the
+         * Rust engine, once per finished file from the Java loop.
+         */
+        default void onBytes(long done, long total, long speedBps, long etaSeconds) {}
+        /**
          * Called when multiple executable candidates are found and the user must
          * choose.  {@code candidates} is a list of absolute paths.  Call
          * {@code onSelected.accept(path)} with the chosen path to continue.
@@ -438,9 +445,8 @@ public final class GogDownloadManager {
             final int total = files.size();
             final AtomicInteger doneCount    = new AtomicInteger(0);
             final AtomicLong    totalBytes   = new AtomicLong(0);
-            final AtomicLong    lastSpeedMs  = new AtomicLong(System.currentTimeMillis());
-            final AtomicLong    lastSpeedB   = new AtomicLong(0);
             final AtomicLong    speedBps     = new AtomicLong(0);
+            final long          plannedTotal = plannedBytes;
             final AtomicBoolean anyFailed    = new AtomicBoolean(false);
             final AtomicReference<String> cdnBaseRef = new AtomicReference<>(cdnBase);
             final AtomicInteger cdnRefreshCount = new AtomicInteger(0);
@@ -453,7 +459,7 @@ public final class GogDownloadManager {
 
             // Engine switch (docs/RUST_GOG_PARITY.md): the Rust engine replaces ONLY this
             // fetch/inflate/verify/assemble loop. Same resume/skip rule, same .bhtmp staging +
-            // atomic rename, same progress strings + pct math, same secure-link refresh cap,
+            // atomic rename, same progress strings + byte-based pct, same secure-link refresh cap,
             // same anyFailed / cancelled semantics — everything before and after is shared.
             final boolean useRustEngine = useRustEngine(ctx);
             dbg.append("engine=").append(useRustEngine ? "rust" : "java").append("\n");
@@ -463,8 +469,10 @@ public final class GogDownloadManager {
                         cdnBaseRef, fSecureLinkUrl, token, cdnRefreshCount, MAX_CDN_REFRESH,
                         downloadThreads, downloadThreads, true, "gog base=" + baseProductId,
                         cancelled, anyFailed, doneCount, total, totalBytes,
-                        lastSpeedMs, lastSpeedB, speedBps, cb, true, null, fileLog2);
+                        speedBps, cb, true, null, fileLog2);
             } else {
+            final ByteProgress progress = new ByteProgress();
+            final AtomicLong doneBytes = new AtomicLong(0);
             ExecutorService pool = Executors.newFixedThreadPool(downloadThreads);
             List<Future<Void>> futures = new ArrayList<>();
             for (DepotFile df : files) {
@@ -476,8 +484,11 @@ public final class GogDownloadManager {
                     // Resume / repair: skip only if the existing file passes size+MD5.
                     // A corrupt or truncated partial fails this and is re-downloaded.
                     if (fileVerified(outFile, df.totalSize, df.md5)) {
-                        int done = doneCount.incrementAndGet();
-                        int pct  = 15 + (int) ((done / (float) total) * 80);
+                        doneCount.incrementAndGet();
+                        progress.skip(df.totalSize);
+                        long done = doneBytes.addAndGet(df.totalSize);
+                        int pct = progress.pctFor(done, plannedTotal);
+                        cb.onBytes(done, plannedTotal, 0, -1);
                         cb.onProgress("Verified…", pct);
                         return null;
                     }
@@ -495,17 +506,14 @@ public final class GogDownloadManager {
                         return null;
                     }
                     long fileBytes = df.totalSize;
-                    int done = doneCount.incrementAndGet();
-                    long tb  = totalBytes.addAndGet(fileBytes);
-                    int pct  = 15 + (int) ((done / (float) total) * 80);
-                    long nowMs  = System.currentTimeMillis();
-                    long prevMs = lastSpeedMs.get();
-                    if (nowMs - prevMs >= 500 && lastSpeedMs.compareAndSet(prevMs, nowMs)) {
-                        long prevB = lastSpeedB.getAndSet(tb);
-                        long dt = nowMs - prevMs;
-                        if (dt > 0) speedBps.set((tb - prevB) * 1000L / dt);
-                    }
-                    String speedStr = formatSpeed(speedBps.get());
+                    doneCount.incrementAndGet();
+                    long tb   = totalBytes.addAndGet(fileBytes);
+                    long done = doneBytes.addAndGet(fileBytes);
+                    long[] rate = progress.sample(done, plannedTotal, tb);
+                    int pct  = progress.pctFor(done, plannedTotal);
+                    speedBps.set(rate[0]);
+                    cb.onBytes(done, plannedTotal, rate[0], rate[1]);
+                    String speedStr = formatSpeed(rate[0]);
                     String name = df.relativePath.contains("/")
                             ? df.relativePath.substring(df.relativePath.lastIndexOf('/') + 1)
                             : df.relativePath;
@@ -794,10 +802,12 @@ public final class GogDownloadManager {
                         "Verified…", depotJsons, fInstallPath,
                         cdnBaseRef, fSecureLinkUrl, fToken, cdnRefreshCount, MAX_CDN_REFRESH,
                         8, 8, false, "gog dlc=" + dlcProductId + " base=" + baseId,
-                        cancelled, anyFailed, doneCount, total, new AtomicLong(0),
-                        new AtomicLong(System.currentTimeMillis()), new AtomicLong(0), new AtomicLong(0),
+                        cancelled, anyFailed, doneCount, total, new AtomicLong(0), new AtomicLong(0),
                         cb, false, written, fileLog);
             } else {
+            final ByteProgress progress = new ByteProgress();
+            final AtomicLong doneBytes = new AtomicLong(0);
+            final long plannedTotal = plannedBytes;
             ExecutorService pool = Executors.newFixedThreadPool(8);
             List<Future<Void>> futures = new ArrayList<>();
             for (DepotFile df : files) {
@@ -809,8 +819,9 @@ public final class GogDownloadManager {
                     // Idempotent resume: skip if the existing file already passes size+MD5.
                     if (fileVerified(outFile, df.totalSize, df.md5)) {
                         written.add(df.relativePath);
-                        int done = doneCount.incrementAndGet();
-                        cb.onProgress("Verified…", 15 + (int) ((done / (float) total) * 80));
+                        doneCount.incrementAndGet();
+                        cb.onProgress("Verified…",
+                                progress.pctFor(doneBytes.addAndGet(df.totalSize), plannedTotal));
                         return null;
                     }
                     boolean ok = assembleDepotFile(df, outFile, cdnBaseRef, fSecureLinkUrl, fToken,
@@ -822,8 +833,8 @@ public final class GogDownloadManager {
                         return null;
                     }
                     written.add(df.relativePath);
-                    int done = doneCount.incrementAndGet();
-                    int pct = 15 + (int) ((done / (float) total) * 80);
+                    doneCount.incrementAndGet();
+                    int pct = progress.pctFor(doneBytes.addAndGet(df.totalSize), plannedTotal);
                     String name = df.relativePath.contains("/")
                             ? df.relativePath.substring(df.relativePath.lastIndexOf('/') + 1)
                             : df.relativePath;
@@ -945,8 +956,6 @@ public final class GogDownloadManager {
             final int totalG1                   = files.size();
             final AtomicInteger doneG1          = new AtomicInteger(0);
             final AtomicLong    totalBytesG1    = new AtomicLong(0);
-            final AtomicLong    lastSpeedMsG1   = new AtomicLong(System.currentTimeMillis());
-            final AtomicLong    lastSpeedBG1    = new AtomicLong(0);
             final AtomicLong    speedBpsG1      = new AtomicLong(0);
             final AtomicBoolean anyFailedG1     = new AtomicBoolean(false);
             final java.util.concurrent.ConcurrentLinkedQueue<String> fileLog1 =
@@ -965,8 +974,13 @@ public final class GogDownloadManager {
                         new AtomicReference<>(""), null, null, new AtomicInteger(0), 0,
                         downloadThreadsG1, downloadThreadsG1, false, "gog gen1=" + game.gameId,
                         cancelled, anyFailedG1, doneG1, totalG1, totalBytesG1,
-                        lastSpeedMsG1, lastSpeedBG1, speedBpsG1, cb, true, null, fileLog1);
+                        speedBpsG1, cb, true, null, fileLog1);
             } else {
+            long plannedG1 = 0;
+            for (Gen1File gf : files) plannedG1 += gf.size;
+            final long plannedTotalG1 = plannedG1;
+            final ByteProgress progressG1 = new ByteProgress();
+            final AtomicLong doneBytesG1 = new AtomicLong(0);
             ExecutorService poolG1 = Executors.newFixedThreadPool(downloadThreadsG1);
             List<Future<Void>> futuresG1 = new ArrayList<>();
             for (Gen1File gf : files) {
@@ -977,8 +991,11 @@ public final class GogDownloadManager {
 
                     // Resume: skip if size already matches
                     if (outFile.exists() && outFile.length() == gf.size) {
-                        int done = doneG1.incrementAndGet();
-                        int pct  = 15 + (int) ((done / (float) totalG1) * 80);
+                        doneG1.incrementAndGet();
+                        progressG1.skip(gf.size);
+                        long done = doneBytesG1.addAndGet(gf.size);
+                        int pct = progressG1.pctFor(done, plannedTotalG1);
+                        cb.onBytes(done, plannedTotalG1, 0, -1);
                         cb.onProgress("Resuming…", pct);
                         return null;
                     }
@@ -988,17 +1005,14 @@ public final class GogDownloadManager {
                         outFile.delete();
                         boolean ok = downloadRange(gf.url, gf.offset, gf.size, outFile);
                         if (ok) {
-                            int done   = doneG1.incrementAndGet();
+                            doneG1.incrementAndGet();
                             long tb    = totalBytesG1.addAndGet(gf.size);
-                            int pct    = 15 + (int) ((done / (float) totalG1) * 80);
-                            long nowMs  = System.currentTimeMillis();
-                            long prevMs = lastSpeedMsG1.get();
-                            if (nowMs - prevMs >= 500 && lastSpeedMsG1.compareAndSet(prevMs, nowMs)) {
-                                long prevB = lastSpeedBG1.getAndSet(tb);
-                                long dt = nowMs - prevMs;
-                                if (dt > 0) speedBpsG1.set((tb - prevB) * 1000L / dt);
-                            }
-                            String speedStr = formatSpeed(speedBpsG1.get());
+                            long done  = doneBytesG1.addAndGet(gf.size);
+                            long[] rate = progressG1.sample(done, plannedTotalG1, tb);
+                            int pct    = progressG1.pctFor(done, plannedTotalG1);
+                            speedBpsG1.set(rate[0]);
+                            cb.onBytes(done, plannedTotalG1, rate[0], rate[1]);
+                            String speedStr = formatSpeed(rate[0]);
                             String name = gf.path.contains("/")
                                     ? gf.path.substring(gf.path.lastIndexOf('/') + 1) : gf.path;
                             cb.onProgress("Downloading: " + name
@@ -1226,6 +1240,8 @@ public final class GogDownloadManager {
                     }
                     if (total > 0) {
                         int pct = 15 + (int) ((downloaded / (float) total) * 80);
+                        cb.onBytes(downloaded, total, speedBps,
+                                speedBps > 0 ? (total - downloaded) / speedBps : -1);
                         String speed = formatSpeed(speedBps);
                         cb.onProgress("Downloading: " + out.getName()
                                 + (speed.isEmpty() ? "" : "  " + speed), pct);
@@ -1409,8 +1425,7 @@ public final class GogDownloadManager {
                         baseRef, null, null, refresh, 0,
                         1, 1, false, "gog dep=" + (wantTail == null ? "?" : wantTail),
                         cancelled, anyFailed, new AtomicInteger(0), files.size(), new AtomicLong(0),
-                        new AtomicLong(System.currentTimeMillis()), new AtomicLong(0), new AtomicLong(0),
-                        null, false, null, log);
+                        new AtomicLong(0), null, false, null, log);
                 if (cancelled.get() || anyFailed.get()) {
                     log.add("dep chunk assembly failed (rust engine)");
                     return null;
@@ -1792,14 +1807,72 @@ public final class GogDownloadManager {
     }
 
     /**
+     * Percentage, speed and time left for one download, from its byte counts. The bar used to count
+     * finished files, and with the biggest files first it sat near 15 % for most of a large game.
+     * Percentage = 15 + done/total × 80 (the same 15..95 band) and never moves back; speed and time
+     * left are smoothed over the samples.
+     */
+    static final class ByteProgress {
+        private static final double SMOOTHING = 0.25;
+        private final AtomicInteger pct = new AtomicInteger(15);
+        private long lastMs;
+        private long lastDone = -1;
+        private long lastFetched;
+        private double doneRate;
+        private double fetchRate;
+        private long speedBps;
+
+        int pctFor(long done, long total) {
+            int p = total > 0 ? 15 + (int) (Math.min(done, total) * 80 / total) : 15;
+            return pct.accumulateAndGet(p, Math::max);
+        }
+
+        int pct() { return pct.get(); }
+
+        synchronized long speedBps() { return speedBps; }
+
+        /** Bytes found already complete on disk (resume check): counted as done, not as speed. */
+        synchronized void skip(long bytes) {
+            if (lastDone >= 0) lastDone += bytes;
+        }
+
+        /**
+         * One sample. {@code fetched} = bytes pulled over the network by the current engine run (it
+         * restarts at 0 when a run is repeated). Returns {speed bytes/s, seconds left (-1 = unknown)}.
+         */
+        synchronized long[] sample(long done, long total, long fetched) {
+            long now = System.currentTimeMillis();
+            if (lastDone < 0 || fetched < lastFetched) {
+                lastMs = now;
+                lastDone = done;
+                lastFetched = fetched;
+            } else if (now - lastMs >= 250) {
+                long dt = now - lastMs;
+                double doneNow  = Math.max(0, done - lastDone) * 1000.0 / dt;
+                double fetchNow = Math.max(0, fetched - lastFetched) * 1000.0 / dt;
+                doneRate  = doneRate  <= 0 ? doneNow  : doneRate  + SMOOTHING * (doneNow  - doneRate);
+                fetchRate = fetchRate <= 0 ? fetchNow : fetchRate + SMOOTHING * (fetchNow - fetchRate);
+                lastMs = now;
+                lastDone = done;
+                lastFetched = fetched;
+            }
+            speedBps = (long) (fetchRate > 0 ? fetchRate : doneRate);
+            long eta = doneRate > 0 && total > done ? (long) Math.ceil((total - done) / doneRate) : -1;
+            return new long[] {speedBps, eta};
+        }
+    }
+
+    /**
      * Drives the Rust engine for ONE fetch loop ({@code kind} = gen2 chunk loop for base install /
-     * DLC install / dependency redist assembly, or the gen1 range loop), producing exactly what
-     * the Java pool loop produced:
+     * DLC install / dependency redist assembly, or the gen1 range loop):
      * <ul>
+     *   <li>percentage from bytes ({@link ByteProgress}): the engine's byte ticks (about every
+     *       500 ms, inside big files too) also go to {@link Callback#onBytes} with speed and time
+     *       left;</li>
      *   <li>per verified (resume-skipped) file: {@code doneCount++}, {@code verifiedMsg}
-     *       ({@code "Verified…"} gen2 / {@code "Resuming…"} gen1) at {@code 15 + done/total*80};</li>
-     *   <li>per assembled file: {@code doneCount++}, {@code totalBytes += size}, the same 500 ms
-     *       speed window and {@code "Downloading: <name>  <speed>"} string;</li>
+     *       ({@code "Verified…"} gen2 / {@code "Resuming…"} gen1);</li>
+     *   <li>per assembled file: {@code doneCount++}, {@code totalBytes += size},
+     *       {@code "Downloading: <name>  <speed>"};</li>
      *   <li>the DLC written-file list gets both kinds, like the Java tasks;</li>
      *   <li>engine log lines go to the same debug buffer as the Java {@code fileLog};</li>
      *   <li>secure-link expiry (a run dying on HTTP 401/403/404/500) → {@link #tryRefreshCdn} with
@@ -1818,7 +1891,7 @@ public final class GogDownloadManager {
             int maxWorkers, int processWorkers, boolean sortLargestFirst, String label,
             AtomicBoolean cancelled, AtomicBoolean anyFailed,
             AtomicInteger doneCount, int total, AtomicLong totalBytes,
-            AtomicLong lastSpeedMs, AtomicLong lastSpeedB, AtomicLong speedBps,
+            AtomicLong speedBps,
             Callback cb, boolean showSpeed,
             java.util.Collection<String> written,
             java.util.concurrent.ConcurrentLinkedQueue<String> log) {
@@ -1848,6 +1921,8 @@ public final class GogDownloadManager {
         final String[] manifests = depotJsons.toArray(new String[0]);
         // Files completed by earlier runs of THIS download (refresh re-runs skip them silently).
         final java.util.Set<String> donePaths = java.util.concurrent.ConcurrentHashMap.newKeySet();
+        final ByteProgress progress = new ByteProgress();
+        final AtomicLong verifiedBytes = new AtomicLong(0);
         int run = 0;
         while (!cancelled.get()) {
             run++;
@@ -1863,28 +1938,33 @@ public final class GogDownloadManager {
                                        String file, long fileBytes, boolean verified) {
                     donePaths.add(file);
                     if (written != null) written.add(file);
-                    int done = doneCount.incrementAndGet();
-                    int pct  = 15 + (int) ((done / (float) total) * 80);
+                    doneCount.incrementAndGet();
                     if (verified) {
-                        if (cb != null) cb.onProgress(verifiedMsg, pct);
+                        long vb = verifiedBytes.addAndGet(fileBytes);
+                        int pct = progress.pctFor(vb, bytesTotal);
+                        if (cb != null) {
+                            cb.onBytes(vb, bytesTotal, 0, -1);
+                            cb.onProgress(verifiedMsg, pct);
+                        }
                         return;
                     }
-                    long tb = totalBytes.addAndGet(fileBytes);
-                    String speedStr = "";
-                    if (showSpeed) {
-                        long nowMs  = System.currentTimeMillis();
-                        long prevMs = lastSpeedMs.get();
-                        if (nowMs - prevMs >= 500 && lastSpeedMs.compareAndSet(prevMs, nowMs)) {
-                            long prevB = lastSpeedB.getAndSet(tb);
-                            long dt = nowMs - prevMs;
-                            if (dt > 0) speedBps.set((tb - prevB) * 1000L / dt);
-                        }
-                        speedStr = formatSpeed(speedBps.get());
-                    }
+                    totalBytes.addAndGet(fileBytes);
+                    int pct = progress.pct();
+                    String speedStr = showSpeed ? formatSpeed(progress.speedBps()) : "";
                     String name = file.contains("/")
                             ? file.substring(file.lastIndexOf('/') + 1) : file;
                     if (cb != null) cb.onProgress("Downloading: " + name
                             + (speedStr.isEmpty() ? "" : "  " + speedStr), pct);
+                }
+                @Override
+                public void onBytes(long bytesDone, long bytesTotal, long fetched) {
+                    long[] rate = progress.sample(bytesDone, bytesTotal, fetched);
+                    speedBps.set(rate[0]);
+                    int pct = progress.pctFor(bytesDone, bytesTotal);
+                    if (cb == null) return;
+                    cb.onBytes(bytesDone, bytesTotal, rate[0], rate[1]);
+                    String speedStr = showSpeed ? formatSpeed(rate[0]) : "";
+                    cb.onProgress("Downloading…" + (speedStr.isEmpty() ? "" : "  " + speedStr), pct);
                 }
                 @Override
                 public void onLog(String line) { log.add(line); }

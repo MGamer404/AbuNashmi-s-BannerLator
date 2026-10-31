@@ -1,5 +1,5 @@
 diff --git a/crates/xodus-cli/src/commands/streaming.rs b/crates/xodus-cli/src/commands/streaming.rs
-index 79978f7..1ec684d 100644
+index 314f346..ee914c6 100644
 --- a/crates/xodus-cli/src/commands/streaming.rs
 +++ b/crates/xodus-cli/src/commands/streaming.rs
 @@ -14,6 +14,73 @@ use tokio::sync::mpsc::{Receiver, Sender};
@@ -76,9 +76,9 @@ index 79978f7..1ec684d 100644
  use crate::license::get_license;
  use crate::package::get_packages;
  
-@@ -134,6 +201,14 @@ pub async fn run(
-                 eprintln!("NEXUS_PACKAGE_FILES_V1 {} {}", package.package_files.len(), if kinds.is_empty() { "none".into() } else { kinds.join(",") });
-                 return ExitCode::FAILURE;
+@@ -171,6 +238,14 @@ pub async fn run(
+             let Some(root) = file.cdn_root_paths.first() else {
+                 eprintln!("Microsoft returned no package download location."); return ExitCode::FAILURE;
              };
 +            let mut mirrors: Vec<String> = Vec::new();
 +            for root in &file.cdn_root_paths {
@@ -90,11 +90,11 @@ index 79978f7..1ec684d 100644
 +            let _ = CDN_MIRRORS.set(mirrors);
              format!(
                  "{}{}",
-                 file.cdn_root_paths.first().unwrap(),
-@@ -458,6 +533,13 @@ where
-     .ok();
+                 root,
+@@ -509,6 +584,13 @@ where
  
      let remote_xvd_ref = &remote_xvd;
+     let (failed, failure_signal) = tokio::sync::watch::channel(false);
 +    let ceiling = parallel.unwrap_or(4).clamp(1, 128);
 +    let mirrors = if url.starts_with("http") { usable_mirrors(client, url).await } else { vec![url.to_owned()] };
 +    let mirrors_ref = &mirrors;
@@ -103,24 +103,24 @@ index 79978f7..1ec684d 100644
 +    adapt_window(window.clone(), ceiling, window_done.clone());
 +    let window_ref = &window;
      stream::iter(
-         rfiles
-             .iter()
-@@ -479,7 +561,7 @@ where
+         pending
+             .into_iter()
+@@ -523,7 +605,7 @@ where
              })
              .enumerate(),
      )
--    .for_each_concurrent(parallel.unwrap_or(4), |(id, job)| {
+-    .for_each_concurrent(parallel.unwrap_or(4).max(1), |(id, job)| {
 +    .for_each_concurrent(ceiling, |(id, job)| {
          let tx = tx.clone();
          let client = client.clone();
          let mut pause = pause.clone();
-@@ -567,15 +649,23 @@ where
-                     .checkpoint(&job.name, job.content.length)
-                     .expect("checkpoint extracted file");
-                 tx.send(ProgressEvent::Finished { id }).await.ok();
+@@ -599,20 +681,99 @@ where
+                 remote_xvd_ref
+                     .extract_file(&mut i, &mut fout, &job.content, *full_key, progress)
+                     .await?;
 -            } else {
 +            } else if job.content.length - offset <= CHUNK_BYTES * 2 {
-+                let _permit = window_ref.acquire().await.expect("download window");
++                let _permit = window_ref.acquire().await?;
 +                let mut counted_from = offset;
 +                let mut progress = progress;
 +                let counted = move |pos: u64, total: u64| {
@@ -141,70 +141,67 @@ index 79978f7..1ec684d 100644
                          Some(pause),
                          offset,
                          |position| journal.lock().unwrap().checkpoint(&job.name, position),
-@@ -583,10 +673,83 @@ where
-                     .await
-                     .expect("msg");
-                 tx.send(ProgressEvent::Finished { id }).await.ok();
+                     )
+                     .await?;
 +            } else {
 +                // Page-aligned chunks from the durable checkpoint on, fetched in parallel within the
 +                // window; the checkpoint only advances over the finished prefix, so a resume is exact.
-+                drop(fout);
++                use futures_util::TryStreamExt;
++                use tokio::io::{AsyncSeekExt, AsyncWriteExt};
++                let target_file = resume::target(out, &job.name)?;
 +                let length = job.content.length;
 +                let starts: Vec<u64> = (offset..length).step_by(CHUNK_BYTES as usize).collect();
 +                let finished = std::sync::Mutex::new(std::collections::BTreeSet::<u64>::new());
 +                let prefix = std::sync::Mutex::new(offset);
-+                stream::iter(starts.into_iter())
-+                    .for_each_concurrent(None, |start| {
++                stream::iter(starts.into_iter().map(Ok::<u64, failure::Error>))
++                    .try_for_each_concurrent(None, |start| {
 +                        let client = client.clone();
 +                        let pause = pause.clone();
-+                        let target_file = target_file.clone();
++                        let target_file = &target_file;
 +                        let finished = &finished;
 +                        let prefix = &prefix;
-+                        let journal = journal.clone();
++                        let journal = &journal;
 +                        let tx = tx.clone();
-+                        let name = job.name.clone();
-+                        let base = job.content.offset;
-+                        let keep_encrypted = job.content.keep_encrypted;
++                        let job = &job;
 +                        async move {
 +                            let end = (start + CHUNK_BYTES).min(length);
-+                            let mut attempt = 0;
-+                            // Bytes of this chunk already counted, so a retry doesn't count them twice.
++                            let _permit = window_ref.acquire().await?;
++                            let mut out = OpenOptions::new().write(true).open(target_file).await?;
++                            out.seek(std::io::SeekFrom::Start(start)).await?;
++                            let part = SegmentFile {
++                                offset: job.content.offset + start,
++                                length: end - start,
++                                data_hashs: vec![],
++                                keep_encrypted: job.content.keep_encrypted,
++                            };
++                            // Bytes of this chunk counted for the window and reported to the progress bar.
 +                            let mut seen = 0u64;
-+                            loop {
-+                                let _permit = window_ref.acquire().await.expect("download window");
-+                                let mut out = OpenOptions::new().write(true).open(&target_file).await.expect("open chunk");
-+                                out.seek(std::io::SeekFrom::Start(start)).await.expect("seek chunk");
-+                                let part = SegmentFile { offset: base + start, length: end - start, data_hashs: vec![], keep_encrypted };
-+                                let result = remote_xvd_ref
-+                                    .download_file_http(
-+                                        &client,
-+                                        pick_mirror(mirrors_ref),
-+                                        &mut out,
-+                                        &part,
-+                                        *full_key,
-+                                        |pos: u64, _| {
-+                                            if pos > seen {
-+                                                let delta = pos - seen;
-+                                                seen = pos;
-+                                                DOWNLOADED.fetch_add(delta, std::sync::atomic::Ordering::Relaxed);
-+                                                tx.try_send(ProgressEvent::Advanced { id, delta }).ok();
-+                                            }
-+                                        },
-+                                        Some(pause.clone()),
-+                                        0,
-+                                        |_| Ok(()),
-+                                    )
-+                                    .await;
-+                                if result.is_ok() {
-+                                    use tokio::io::AsyncWriteExt;
-+                                    out.flush().await.expect("flush chunk");
-+                                    out.sync_data().await.ok();
-+                                    break;
-+                                }
-+                                attempt += 1;
-+                                if attempt >= 4 {
-+                                    result.expect("chunk download");
-+                                }
++                            let mut sent = 0u64;
++                            remote_xvd_ref
++                                .download_file_http(
++                                    &client,
++                                    pick_mirror(mirrors_ref),
++                                    &mut out,
++                                    &part,
++                                    *full_key,
++                                    |pos: u64, _| {
++                                        if pos > seen {
++                                            DOWNLOADED.fetch_add(pos - seen, std::sync::atomic::Ordering::Relaxed);
++                                            seen = pos;
++                                        }
++                                        if pos > sent && tx.try_send(ProgressEvent::Advanced { id, delta: pos - sent }).is_ok() {
++                                            sent = pos;
++                                        }
++                                    },
++                                    Some(pause),
++                                    0,
++                                    |_| Ok(()),
++                                )
++                                .await?;
++                            out.flush().await?;
++                            out.sync_data().await?;
++                            if seen > sent {
++                                tx.send(ProgressEvent::Advanced { id, delta: seen - sent }).await.ok();
 +                            }
 +                            let mut done = finished.lock().unwrap();
 +                            done.insert(start);
@@ -212,16 +209,19 @@ index 79978f7..1ec684d 100644
 +                            while done.remove(&*p) {
 +                                *p = (*p + CHUNK_BYTES).min(length);
 +                            }
-+                            journal.lock().unwrap().checkpoint(&name, *p).expect("chunk checkpoint");
++                            journal.lock().unwrap().checkpoint(&job.name, *p)?;
++                            Ok::<(), failure::Error>(())
 +                        }
 +                    })
-+                    .await;
-+                tx.send(ProgressEvent::Finished { id }).await.ok();
++                    .await?;
              }
+             Ok(())
+             };
+@@ -625,6 +786,7 @@ where
          }
      })
      .await;
 +    window_done.store(true, std::sync::atomic::Ordering::Relaxed);
  
+     if *failed.borrow() { return ExitCode::FAILURE; }
      tx.send(ProgressEvent::UpdateStatus {
-         name: "Finalizing".to_owned(),

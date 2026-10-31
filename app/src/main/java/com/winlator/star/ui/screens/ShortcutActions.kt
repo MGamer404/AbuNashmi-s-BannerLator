@@ -40,6 +40,9 @@ class ShortcutActions internal constructor(
 ) {
     internal var confirmRemove by mutableStateOf<Shortcut?>(null)
     internal var cloneTarget by mutableStateOf<Shortcut?>(null)
+    // The game being moved to another container (the settings' Container row and the Deck hand-off);
+    // MoveToContainerCoordinator owns the pick → move flow.
+    internal var moveTarget by mutableStateOf<Shortcut?>(null)
     // Save Backup (custom-import games): a picked .zip awaiting a target-container choice, plus the
     // label of the game the restore was launched from (shown in the container picker title).
     internal var restoreZipUri by mutableStateOf<Uri?>(null)
@@ -123,6 +126,7 @@ class ShortcutActions internal constructor(
             GameMenuAction.SETTINGS -> settingsShortcut = shortcut
             GameMenuAction.REMOVE -> confirmRemove = shortcut
             GameMenuAction.CLONE -> cloneTarget = shortcut
+            GameMenuAction.MOVE_TO_CONTAINER -> moveTarget = shortcut
             GameMenuAction.COPY_TO_DRIVE_C -> copyToDriveCTarget = shortcut
             GameMenuAction.CHANGE_EXE -> changeExeTarget = shortcut
             GameMenuAction.ADD_TO_HOME -> addToHomeScreen(context, shortcut)
@@ -208,7 +212,7 @@ internal fun gameMenuOffers(action: GameMenuAction, shortcut: Shortcut): Boolean
     val wine = isWineEntry(shortcut)
     return when (action) {
         GameMenuAction.SETTINGS -> hasSettings
-        GameMenuAction.CLONE, GameMenuAction.COPY_TO_DRIVE_C, GameMenuAction.CHANGE_EXE,
+        GameMenuAction.CLONE, GameMenuAction.MOVE_TO_CONTAINER, GameMenuAction.COPY_TO_DRIVE_C, GameMenuAction.CHANGE_EXE,
         GameMenuAction.EXPORT, GameMenuAction.COMMUNITY_CONFIGS, GameMenuAction.VIEW_LOGS -> wine
         GameMenuAction.CLOUD_SAVES -> wine && isSteamOriginShortcut(shortcut)
         GameMenuAction.BACKUP_SAVES, GameMenuAction.RESTORE_SAVES -> wine && isCustomShortcut(shortcut)

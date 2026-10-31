@@ -268,6 +268,69 @@ object ComponentUndo {
         }
     }
 
+    // ---- copying it to another container ----------------------------------------------------------
+
+    /**
+     * Copies what [name]'s journal in the container at [fromRoot] put in place into the container at
+     * [toRoot]: the files it placed or changed (as they are in the source prefix now) and the registry
+     * keys and values it set. The target gets a journal of the same name, so the copy comes out again
+     * like any install. Both prefixes must be the same architecture (system32 holds that arch's DLLs).
+     * Returns how many files were copied, or null when the source has no such journal.
+     */
+    @Synchronized
+    fun copyInto(fromRoot: File, toRoot: File, name: String): Int? {
+        val json = read(dirOf(fromRoot, name)) ?: return null
+        val fromWine = File(fromRoot, ".wine")
+        val toWine = File(toRoot, ".wine")
+        val journal = Journal(toRoot, name, snapshot = true)
+        var copied = 0
+        try {
+            val files = json.optJSONObject("files") ?: JSONObject()
+            val kept = json.optJSONArray("kept") ?: JSONArray()
+            val rels = files.keys().asSequence().toList() + (0 until kept.length()).map { kept.getString(it) }
+            for (rel in rels.distinct()) {
+                val src = File(fromWine, rel)
+                val dst = File(toWine, rel)
+                val srcPath = src.toPath()
+                val link = Files.isSymbolicLink(srcPath)
+                if (!link && !src.isFile) continue
+                journal.beforeWrite(dst)
+                dst.parentFile?.mkdirs()
+                if (link) {
+                    Files.deleteIfExists(dst.toPath())
+                    Files.createSymbolicLink(dst.toPath(), Files.readSymbolicLink(srcPath))
+                } else {
+                    Files.copy(srcPath, dst.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                }
+                copied++
+            }
+
+            val regs = HashMap<String, WineRegistryFile>()
+            fun reg(hive: String): WineRegistryFile? {
+                regs[hive]?.let { return it }
+                val file = File(toWine, if (hive == "HKLM") "system.reg" else "user.reg")
+                if (!file.isFile) return null
+                return WineRegistryFile(file).also { regs[hive] = it }
+            }
+            val keys = json.optJSONArray("keys") ?: JSONArray()
+            for (i in 0 until keys.length()) {
+                val k = keys.getJSONObject(i)
+                reg(k.optString("hive"))?.ensureKey(k.optString("key"))
+            }
+            val registry = json.optJSONObject("registry") ?: JSONObject()
+            for (id in registry.keys().asSequence().toList()) {
+                val e = registry.getJSONObject(id)
+                val r = reg(e.optString("hive")) ?: continue
+                r.put(e.optString("key"), e.optString("name"), if (e.isNull("set")) null else e.optString("set"))
+            }
+            regs.values.forEach { it.save() }
+        } finally {
+            journal.close()
+        }
+        Log.i(TAG, "copied $name: $copied file(s), registry from ${fromRoot.name} to ${toRoot.name}")
+        return copied
+    }
+
     // ---- taking it out ----------------------------------------------------------------------------
 
     /**

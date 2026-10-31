@@ -210,6 +210,14 @@ object ComponentExecInstaller {
             journal?.close()
             ComponentUndo.finishSession(root, name)
             clearPlan(context)
+            // The session can end without the installer having done its job (closed early, failed),
+            // so a Visual C++ component, and the GOG redist markers recorded above, count only once
+            // their files are in the prefix.
+            ComponentInstallRecords.verified(context, container)
+            PrefixInstalledDetector.vcRuntimeMissing(container, name)?.let { missing ->
+                onProgress(1f)
+                return Result.Error("$name: the installer ended, but $missing is not in the container")
+            }
             // Record the install at the SOURCE so it sticks even though completion happens after the
             // container session restarts the app (the resume path lands here too). Same store/key the
             // ComponentsSheet + recommendation chips read, so installed-state is finally accurate.

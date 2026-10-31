@@ -108,6 +108,13 @@ pub trait GogEvents: Sync {
         bytes_done: u64,
         bytes_total: u64,
     );
+    /// Whole-download byte progress, at most once per [`BYTES_EVENT_INTERVAL_MS`] (plus once when
+    /// the plan is known). `done` = decompressed bytes of files already complete before the fetch
+    /// (verified / skip-listed) + verified chunks written so far; `total` = every planned file;
+    /// `fetched` = bytes this run pulled over the network (for the speed).
+    fn on_bytes(&self, done: u64, total: u64, fetched: u64) {
+        let _ = (done, total, fetched);
+    }
     fn on_log(&self, line: &str);
 }
 
@@ -182,6 +189,35 @@ struct FileState {
     failed: bool,
     tmp_path: PathBuf,
     out_path: PathBuf,
+}
+
+/// Upper bound on how often [`GogEvents::on_bytes`] fires during a fetch.
+pub const BYTES_EVENT_INTERVAL_MS: u64 = 500;
+
+/// Lets one `on_bytes` through per [`BYTES_EVENT_INTERVAL_MS`]; called from the process-pool
+/// threads, so the slot is claimed with a compare-exchange.
+struct BytesGate {
+    started: Instant,
+    last_ms: AtomicU64,
+}
+
+impl BytesGate {
+    fn new() -> Self {
+        Self {
+            started: Instant::now(),
+            last_ms: AtomicU64::new(0),
+        }
+    }
+
+    fn due(&self) -> bool {
+        let now = self.started.elapsed().as_millis() as u64;
+        let last = self.last_ms.load(Ordering::Relaxed);
+        now >= last.saturating_add(BYTES_EVENT_INTERVAL_MS)
+            && self
+                .last_ms
+                .compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed)
+                .is_ok()
+    }
 }
 
 struct SpeedSampler {
@@ -320,6 +356,8 @@ struct GogSink<'a> {
     bytes_total: u64,
     files_done: &'a AtomicU32,
     bytes_done: &'a AtomicU64,
+    /// Decompressed bytes of every verified chunk this run wrote (byte progress inside big files).
+    chunk_bytes: AtomicU64,
     events: &'a dyn GogEvents,
     speed: Mutex<SpeedSampler>,
 }
@@ -374,7 +412,7 @@ impl<'a> GogSink<'a> {
     /// One verified chunk landed: count it; on the file's last chunk run the whole-file verify +
     /// rename and fire the per-file progress event (Java: doneCount++, totalBytes += df.totalSize,
     /// "Downloading: <name>  <speed>").
-    fn chunk_done(&self, file_idx: usize) -> Result<(), SinkError> {
+    fn chunk_done(&self, file_idx: usize, chunk_idx: usize) -> Result<(), SinkError> {
         let file = &self.files[file_idx];
         let mut st = self
             .states
@@ -388,6 +426,9 @@ impl<'a> GogSink<'a> {
             )));
         }
         st.chunks_done += 1;
+        if let Some(chunk) = file.chunks.get(chunk_idx) {
+            self.chunk_bytes.fetch_add(chunk.size, Ordering::Relaxed);
+        }
         if st.chunks_done < file.chunks.len() {
             return Ok(());
         }
@@ -541,7 +582,7 @@ impl<'a> FetchSink for GogSink<'a> {
         }
         drop(handle);
         let credited = inflated.len() as u64;
-        self.chunk_done(file_idx)?;
+        self.chunk_done(file_idx, chunk_idx)?;
         Ok(credited)
     }
 
@@ -694,7 +735,7 @@ impl<'a> FetchSink for GogSink<'a> {
             return Err(SinkError::Retry(msg));
         }
         drop(writer.file);
-        self.chunk_done(file_idx)?;
+        self.chunk_done(file_idx, chunk_idx)?;
         Ok(0)
     }
 }
@@ -841,6 +882,8 @@ fn run_gen2(req: &GogRequest, cancel: &AtomicBool, events: &dyn GogEvents) -> Go
         items.len(),
         pending_bytes
     ));
+    let base_done = planned_bytes.saturating_sub(pending_bytes);
+    events.on_bytes(base_done, planned_bytes, 0);
 
     if items.is_empty() {
         events.on_log("summary bytes=0 elapsed=0.000 avg_mbps=0.00 peak_mbps=0.00 (nothing to fetch)");
@@ -864,6 +907,7 @@ fn run_gen2(req: &GogRequest, cancel: &AtomicBool, events: &dyn GogEvents) -> Go
         bytes_total: planned_bytes,
         files_done: &files_done,
         bytes_done: &bytes_done,
+        chunk_bytes: AtomicU64::new(0),
         events,
         speed: Mutex::new(SpeedSampler::new()),
     };
@@ -882,7 +926,13 @@ fn run_gen2(req: &GogRequest, cancel: &AtomicBool, events: &dyn GogEvents) -> Go
         stream: true,
     };
     let log = |line: &str| events.on_log(line);
-    let progress = |_bytes: u64, _items_ok: u64| {};
+    let gate = BytesGate::new();
+    let progress = |fetched: u64, _items_ok: u64| {
+        if gate.due() {
+            let done = base_done.saturating_add(sink.chunk_bytes.load(Ordering::Relaxed));
+            events.on_bytes(done.min(planned_bytes), planned_bytes, fetched);
+        }
+    };
     let outcome = run_fetch(items, &hosts, &opts, &sink, cancel, &progress, &log);
 
     let cancelled = outcome.cancelled || cancel.load(Ordering::Relaxed);
@@ -1144,6 +1194,8 @@ fn run_gen1(req: &GogRequest, cancel: &AtomicBool, events: &dyn GogEvents) -> Go
         items.len(),
         pending_bytes
     ));
+    let base_done = planned_bytes.saturating_sub(pending_bytes);
+    events.on_bytes(base_done, planned_bytes, 0);
     if items.is_empty() {
         events.on_log("summary bytes=0 elapsed=0.000 avg_mbps=0.00 peak_mbps=0.00 (nothing to fetch)");
         return GogRunResult {
@@ -1177,7 +1229,14 @@ fn run_gen1(req: &GogRequest, cancel: &AtomicBool, events: &dyn GogEvents) -> Go
         stream: true,
     };
     let log = |line: &str| events.on_log(line);
-    let progress = |_bytes: u64, _items_ok: u64| {};
+    let gate = BytesGate::new();
+    // gen1 bodies are the file bytes themselves; a retried attempt is counted again, hence the cap.
+    let progress = |fetched: u64, _items_ok: u64| {
+        if gate.due() {
+            let done = base_done.saturating_add(fetched.min(pending_bytes));
+            events.on_bytes(done, planned_bytes, fetched);
+        }
+    };
     let outcome = run_fetch(items, &hosts, &opts, &sink, cancel, &progress, &log);
 
     let cancelled = outcome.cancelled || cancel.load(Ordering::Relaxed);
@@ -1290,6 +1349,16 @@ mod tests {
     }
 
     #[test]
+    fn bytes_gate_lets_one_event_through_per_interval() {
+        let gate = BytesGate::new();
+        assert!(!gate.due(), "nothing before the first interval");
+        gate.last_ms.store(0, Ordering::Relaxed);
+        std::thread::sleep(Duration::from_millis(BYTES_EVENT_INTERVAL_MS + 20));
+        assert!(gate.due());
+        assert!(!gate.due(), "second call in the same interval is held back");
+    }
+
+    #[test]
     fn speed_sampler_reports_totals() {
         let mut s = SpeedSampler::new();
         s.record(1_000_000);
@@ -1350,6 +1419,7 @@ mod tests {
             bytes_total: whole.len() as u64,
             files_done: &files_done,
             bytes_done: &bytes_done,
+            chunk_bytes: AtomicU64::new(0),
             events: &rec,
             speed: Mutex::new(SpeedSampler::new()),
         };
@@ -1358,13 +1428,17 @@ mod tests {
         // Second chunk first: positioned write must still produce the right bytes.
         assert_eq!(sink.process(&item(1), cb.clone()).unwrap(), part_b.len() as u64);
         assert!(tmp_path.exists() && !out_path.exists(), "still staging after 1 of 2 chunks");
+        // Byte progress moves per verified chunk, before the file is complete.
+        assert_eq!(sink.chunk_bytes.load(Ordering::Relaxed), part_b.len() as u64);
         // A corrupt body is a retryable failure, not fatal.
         match sink.process(&item(0), b"\x78garbage".to_vec()) {
             Err(SinkError::Retry(msg)) => assert!(msg.contains("mismatch"), "{msg}"),
             Err(SinkError::Fatal(msg)) => panic!("expected Retry, got Fatal({msg})"),
             Ok(_) => panic!("expected Retry, got Ok"),
         }
+        assert_eq!(sink.chunk_bytes.load(Ordering::Relaxed), part_b.len() as u64, "failed chunk not counted");
         assert_eq!(sink.process(&item(0), ca.clone()).unwrap(), part_a.len() as u64);
+        assert_eq!(sink.chunk_bytes.load(Ordering::Relaxed), whole.len() as u64);
         assert!(out_path.exists() && !tmp_path.exists(), "renamed after the last chunk");
         assert_eq!(fs::read(&out_path).unwrap(), whole);
         assert_eq!(files_done.load(Ordering::Relaxed), 1);
@@ -1406,6 +1480,7 @@ mod tests {
             bytes_total: raw.len() as u64,
             files_done: &files_done,
             bytes_done: &bytes_done,
+            chunk_bytes: AtomicU64::new(0),
             events: &rec,
             speed: Mutex::new(SpeedSampler::new()),
         };
@@ -1510,6 +1585,7 @@ mod tests {
             bytes_total: whole.len() as u64,
             files_done: &files_done,
             bytes_done: &bytes_done,
+            chunk_bytes: AtomicU64::new(0),
             events: &rec,
             speed: Mutex::new(SpeedSampler::new()),
         };

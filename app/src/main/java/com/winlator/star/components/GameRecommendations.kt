@@ -94,6 +94,7 @@ object GameRecommendations {
     private const val XLIVE = "XLiveRedist"
     private const val MAX_EXES = 2
     private const val MAX_OWN_DLLS = 8
+    private const val MAX_BESIDE_DLLS = 16
 
     /** What the files say, kept per game while they are unchanged. */
     private class FileEvidence(
@@ -176,12 +177,16 @@ object GameRecommendations {
 
     /**
      * The components [exes] (and the DLLs of their own they load, one level) import and do not
-     * ship beside themselves, plus a .NET finding when one is a .NET program.
+     * ship beside themselves, plus a .NET finding when one is a .NET program. The other DLLs beside
+     * an exe count too: a game can load one at run time without importing it (DOOM (2016)'s
+     * CChromaEditorLibrary.dll, which needs MFC).
      */
     private fun importEvidence(exes: List<File>): Pair<List<Recommendation>, Recommendation?> {
         val out = LinkedHashMap<String, Recommendation>()
         var dotnet: Recommendation? = null
         var scannedOwn = 0
+        var scannedBeside = 0
+        val besideRead = HashSet<String>()
         for (exe in exes) {
             val info = PeImports.read(exe) ?: continue
             val beside = exe.parentFile?.list()?.associateBy { it.lowercase(Locale.US) }.orEmpty()
@@ -199,6 +204,16 @@ object GameRecommendations {
                 if (scannedOwn >= MAX_OWN_DLLS || importComponents(dll, info.is64).isNotEmpty()) continue
                 scannedOwn++
                 val own = PeImports.read(File(exe.parentFile, shipped)) ?: continue
+                own.imports.filter { it !in beside }.forEach { add(shipped, it, own.is64) }
+            }
+            // Runtime DLLs the game ships beside itself (msvcp140.dll…) are skipped like imported ones.
+            for ((lower, shipped) in beside.toSortedMap()) {
+                if (scannedBeside >= MAX_BESIDE_DLLS) break
+                if (!lower.endsWith(".dll") || lower in info.imports || importComponents(lower, info.is64).isNotEmpty()) continue
+                val file = File(exe.parentFile, shipped)
+                if (!besideRead.add(file.path)) continue
+                scannedBeside++
+                val own = PeImports.read(file) ?: continue
                 own.imports.filter { it !in beside }.forEach { add(shipped, it, own.is64) }
             }
             if (dotnet == null && ("mscoree.dll" in info.imports || info.clrVersion != null)) {

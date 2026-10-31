@@ -13,7 +13,8 @@ import java.io.File
  * RLD-style steam_api.ini ("[Steam] AppId=", "[Settings] UserName=") keeps the whole career in
  * C:\ProgramData\Steam\<UserName>\<AppId>\; CODEX and RUNE use C:\Users\Public\Documents\Steam\<group>\<AppId>\,
  * OnlineFix and EMPRESS their own folder under Public\Documents. DiRT Showdown lost its career this
- * way: every backup on the device held the profile and not one ProgramData file.
+ * way: every backup on the device held the profile and not one ProgramData file. Older CODEX releases
+ * write under the profile instead, %APPDATA%\Steam\CODEX\<AppId>\ (DiRT 3 Complete Edition's codex.ini).
  *
  * Two kinds of root, both '/'-separated like [EmuAccountIdentity]:
  *  - drive_c-relative ones outside the profile ([allDriveCRoots], [driveCRootsFor]), which a backup
@@ -51,6 +52,11 @@ object EmuSaveRoots {
         "AppData/Roaming/EMPRESS",
     )
 
+    /** Profile-relative parents laid out <parent>/<group>/<appid>. */
+    private val GROUPED_PROFILE = listOf(
+        "AppData/Roaming/Steam",        // older CODEX: CODEX/<appid>
+    )
+
     /** Every emulator save folder outside the profile under [driveC], any app id (whole-container backup). */
     fun allDriveCRoots(driveC: File): List<String> = driveCRoots(driveC) { true }
 
@@ -59,7 +65,8 @@ object EmuSaveRoots {
 
     /** [appId]'s emulator save folders under the Wine user [profile], profile-relative. */
     fun profileRootsFor(profile: File, appId: Int): List<String> =
-        FLAT_PROFILE.flatMap { parent -> appIdDirs(profile, parent) { it == appId } }
+        FLAT_PROFILE.flatMap { parent -> appIdDirs(profile, parent) { it == appId } } +
+            groupedAppIdDirs(profile, GROUPED_PROFILE) { it == appId }
 
     /**
      * Every folder a per-game backup adds for [appId] on its own, drive_c-relative (the profile's as
@@ -99,16 +106,18 @@ object EmuSaveRoots {
 
     // ---------------------------------------------------------------- helpers
 
-    private fun driveCRoots(driveC: File, match: (Int) -> Boolean): List<String> {
-        val grouped = GROUPED_DRIVE_C.mapNotNull { resolve(driveC, it) }.flatMap { parentRel ->
-            File(driveC, parentRel).listFiles()
+    private fun driveCRoots(driveC: File, match: (Int) -> Boolean): List<String> =
+        groupedAppIdDirs(driveC, GROUPED_DRIVE_C, match) + FLAT_DRIVE_C.flatMap { appIdDirs(driveC, it, match) }
+
+    /** "<parent>/<group>/<child>" for each of [parents] (under [base]) whose child's app id [match] accepts. */
+    private fun groupedAppIdDirs(base: File, parents: List<String>, match: (Int) -> Boolean): List<String> =
+        parents.mapNotNull { resolve(base, it) }.flatMap { parentRel ->
+            File(base, parentRel).listFiles()
                 ?.filter { it.isDirectory }
                 ?.sortedBy { it.name }
-                ?.flatMap { group -> appIdDirs(driveC, "$parentRel/${group.name}", match) }
+                ?.flatMap { group -> appIdDirs(base, "$parentRel/${group.name}", match) }
                 .orEmpty()
         }
-        return grouped + FLAT_DRIVE_C.flatMap { appIdDirs(driveC, it, match) }
-    }
 
     /** "<parent>/<child>" for each child folder of [parent] (under [base]) whose app id [match] accepts. */
     private fun appIdDirs(base: File, parent: String, match: (Int) -> Boolean): List<String> {

@@ -9,6 +9,7 @@ enum class GameMenuAction(val label: String) {
     SETTINGS("Settings"),
     REMOVE("Remove"),
     CLONE("Clone to container"),
+    MOVE_TO_CONTAINER("Move to another container"),
     COPY_TO_DRIVE_C("Copy to Drive C…"),
     CHANGE_EXE("Change executable…"),
     ADD_TO_HOME("Add to home screen"),

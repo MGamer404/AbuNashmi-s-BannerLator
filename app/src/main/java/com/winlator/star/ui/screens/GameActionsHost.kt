@@ -245,7 +245,7 @@ fun GameActionsHost(vm: ShortcutsViewModel, actions: ShortcutActions) {
     }
 
     // One-shot requests (see GamesScreenRequests): the + button, the Deck's "Add games", and the game
-    // actions the Deck settings pages hand over (Game details, Copy to Drive C, Change executable).
+    // actions the Deck settings pages hand over (Game details, Copy to Drive C, Change executable, Move).
     LaunchedEffect(GamesScreenRequests.pending) {
         val req = GamesScreenRequests.pending ?: return@LaunchedEffect
         GamesScreenRequests.pending = null

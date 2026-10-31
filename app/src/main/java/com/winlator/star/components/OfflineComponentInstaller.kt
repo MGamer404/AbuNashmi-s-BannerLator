@@ -150,6 +150,10 @@ object OfflineComponentInstaller {
         val notes = ArrayList<String>()
     }
 
+    /** One install at a time per container: every install starts by clearing the container's shared
+     *  work folder, so a second one running beside it would delete the first one's downloads. */
+    private val containerLocks = java.util.concurrent.ConcurrentHashMap<String, Any>()
+
     /**
      * Installs [c] and the components it bundles that this container does not have yet into
      * [container]'s prefix. [onProgress] gets 0..1, [onStage] a line for what is happening.
@@ -159,6 +163,13 @@ object OfflineComponentInstaller {
         context: Context, container: Container, c: Component,
         all: Map<String, Component> = ComponentCatalog.byName,
         onProgress: (Float) -> Unit = {}, onStage: (String) -> Unit = {},
+    ): String? = synchronized(containerLocks.getOrPut(container.rootDir.absolutePath) { Any() }) {
+        installLocked(context, container, c, all, onProgress, onStage)
+    }
+
+    private fun installLocked(
+        context: Context, container: Container, c: Component, all: Map<String, Component>,
+        onProgress: (Float) -> Unit, onStage: (String) -> Unit,
     ): String? {
         val wine = File(container.rootDir, ".wine")
         if (!wine.isDirectory) return "Container has no Wine prefix yet — launch it once first."
@@ -166,7 +177,7 @@ object OfflineComponentInstaller {
         if (!SevenZip.isAvailable(context)) return "The bundled 7-Zip is missing"
         val prefs = context.getSharedPreferences(INSTALLS_PREFS, Context.MODE_PRIVATE)
         val key = "c${container.id}"
-        val have = prefs.getStringSet(key, emptySet()).orEmpty()
+        val have = ComponentInstallRecords.verified(context, container)
         val order = ArrayList<Component>()
         fun visit(x: Component, depth: Int) {
             if (depth > 8 || order.any { it.name == x.name }) return

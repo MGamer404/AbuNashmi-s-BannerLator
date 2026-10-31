@@ -1003,7 +1003,7 @@ private fun xmbRestoreContainerMenu(xmb: XmbScope, zip: File, parent: XmbOpen): 
  * EmuAccountConflictDialog as columns, one per conflict: use the backup's emulator account or keep
  * the container's. Backing out keeps the current one (the dialog's dismiss), then the next is asked.
  */
-private fun xmbEmuConflicts(xmb: XmbScope, conflicts: List<GameSaveBackup.EmuIdConflict>) {
+internal fun xmbEmuConflicts(xmb: XmbScope, conflicts: List<GameSaveBackup.EmuIdConflict>) {
     val ctx = xmb.context
     var applied = 0
 

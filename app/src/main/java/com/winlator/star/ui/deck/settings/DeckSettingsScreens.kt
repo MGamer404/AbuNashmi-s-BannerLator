@@ -268,6 +268,11 @@ private fun DeckGameSettings(path: String, navController: NavHostController) {
                     navController.popBackStack()
                     GamesScreenRequests.pending = GamesScreenRequests.Request(GameMenuAction.COPY_TO_DRIVE_C, shortcut.file.path)
                 }
+                // A move takes the entry out of this container, so this page closes the same way.
+                SettingsRegistry.TARGET_MOVE_CONTAINER -> {
+                    navController.popBackStack()
+                    GamesScreenRequests.pending = GamesScreenRequests.Request(GameMenuAction.MOVE_TO_CONTAINER, shortcut.file.path)
+                }
                 else -> {}
             }
         },
@@ -297,6 +302,11 @@ private fun DeckGameSettings(path: String, navController: NavHostController) {
                 showClassic = false
                 navController.popBackStack()
                 GamesScreenRequests.pending = GamesScreenRequests.Request(GameMenuAction.CHANGE_EXE, s.file.path)
+            },
+            onChangeContainer = {
+                showClassic = false
+                navController.popBackStack()
+                GamesScreenRequests.pending = GamesScreenRequests.Request(GameMenuAction.MOVE_TO_CONTAINER, s.file.path)
             },
         )
     }

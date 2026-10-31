@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import com.winlator.star.components.Component
 import com.winlator.star.components.ComponentCatalog
 import com.winlator.star.components.ComponentExecInstaller
+import com.winlator.star.components.ComponentInstallRecords
 import com.winlator.star.components.ComponentInstallReturn
 import com.winlator.star.components.ComponentInstaller
 import com.winlator.star.components.ComponentUninstaller
@@ -123,7 +124,7 @@ fun RecommendedComponentsSection(
             runCatching { ComponentCatalog.load() }.getOrDefault(emptyList())
         }.associateBy { it.name }
         catalog = cat
-        val recorded = installsPrefs.getStringSet(installKey, emptySet())?.toSet() ?: emptySet()
+        val recorded = withContext(Dispatchers.IO) { ComponentInstallRecords.verified(context, container) }
         val detected = withContext(Dispatchers.IO) { PrefixInstalledDetector.detect(container) }
         installed = recorded + detected
         // Keep only recommendations whose component exists in the catalog (else we can't install it).
