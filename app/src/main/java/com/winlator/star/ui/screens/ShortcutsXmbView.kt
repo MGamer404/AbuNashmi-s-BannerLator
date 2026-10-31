@@ -423,6 +423,31 @@ internal fun ShortcutsXmbView(
             while (vAcc >= step) { vAcc -= step; act = (act - 1).coerceAtLeast(0) }
         }
 
+        // Centred home, touch: a short swipe moves between the levels the D-pad moves between. Down from the games lifts the
+        // cards, down from the options goes back to the games, and up from the cards goes back to the games. The options'
+        // own column scrolls with its vertical drag (vDrag), which takes a swipe that starts on it first, so only a swipe
+        // away from them gets here.
+        var swipeAcc by remember { mutableFloatStateOf(0f) }
+        var swipeDone by remember { mutableStateOf(false) }
+        val swipePx = with(density) { XMB_SWIPE_DP.dp.toPx() }
+        val swipeDrag = rememberDraggableState { d ->
+            if (swipeDone || !centeredHome || nav.depth > 0) return@rememberDraggableState
+            swipeAcc += d
+            when {
+                swipeAcc >= swipePx -> {
+                    swipeDone = true
+                    when {
+                        optsOpen -> closeOpts()
+                        !upperOpen && upperRow.isNotEmpty() && !selectionMode -> openUpper()
+                    }
+                }
+                swipeAcc <= -swipePx -> {
+                    swipeDone = true
+                    if (upperOpen) closeUpper()
+                }
+            }
+        }
+
         Box(
             Modifier
                 .fillMaxSize()
@@ -506,7 +531,8 @@ internal fun ShortcutsXmbView(
                         else if (upperOpen) upSettle((upPos.floatValue - velocity / (pitchPx * homeK) * 0.14f).roundToInt())
                         else settleTo((pos.floatValue - velocity / (pitchPx * rowScale()) * 0.14f).roundToInt())
                     },
-                ),
+                )
+                .draggable(swipeDrag, Orientation.Vertical, onDragStarted = { swipeAcc = 0f; swipeDone = false }),
         ) {
             // Background: accent glow → the focused cover (with the cards up, the chosen card's art), blurred → shade → the moving waves.
             Box(
@@ -687,7 +713,8 @@ internal fun ShortcutsXmbView(
                         .width((m.iconBox + 12f + m.labelW).dp)
                         .height((m.nVis * m.rowH + m.extra).dp)
                         .graphicsLayer { alpha = optsA() }
-                        .draggable(vDrag, Orientation.Vertical, onDragStarted = { vAcc = 0f }),
+                        // Only while the options show: otherwise this (invisible) column would swallow a swipe down that starts on it.
+                        .draggable(vDrag, Orientation.Vertical, enabled = !centered && !upperOpen && !nested, onDragStarted = { vAcc = 0f }),
                 ) {
                     actions.forEachIndexed { i, a ->
                         key(a.label) {
@@ -940,6 +967,9 @@ private const val XMB_PEEK_CLIP = 50f
 
 /** Centred home: the most the cover row is drawn larger than its normal size. */
 private const val XMB_HOME_MAX_GROW = 1.3f
+
+/** Centred home: how far (dp) a vertical swipe has to travel to lift the cards or go back to the games. Short, so a flick is enough. */
+private const val XMB_SWIPE_DP = 28f
 
 /** How long (ms) a chosen card waits before its cut-off text starts scrolling. */
 private const val XMB_MARQUEE_DELAY = 700
