@@ -25,6 +25,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import com.winlator.star.store.compose.AddResultDialog
+import com.winlator.star.store.compose.AddShortcutResult
+import com.winlator.star.store.compose.AddToShortcutsRequest
+import com.winlator.star.store.compose.ContainerPickerDialog
+import com.winlator.star.store.compose.GogPrereqDialogs
+import com.winlator.star.store.compose.openShortcutsScreen
 import com.winlator.star.ui.screens.OutlinedAlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -81,6 +87,9 @@ class GogGameDetailActivity : ComponentActivity(), GogRedistInstaller.Host {
     /** Redist install feedback → the shared themed bar (system Toasts are an unreadable black box
      *  on this ROM). Posted on the main thread; GogRedistInstaller already calls on main. */
     override fun onRedistMessage(msg: String) { runOnUiThread { resultBarMsg = msg } }
+    override val prereqUi = GogRedistInstaller.PrereqUi()
+    private var addToShortcuts by mutableStateOf<AddToShortcutsRequest?>(null)
+    private var addResult by mutableStateOf<AddShortcutResult?>(null)
 
 
     companion object {
@@ -279,10 +288,11 @@ class GogGameDetailActivity : ComponentActivity(), GogRedistInstaller.Host {
                     onBack = { finish() },
                     onLaunch = {
                         val exe = prefs.getString("gog_exe_$gameId", null)
-                        // Add to the chosen container; the prereqs-aware path then offers to install the
-                        // game's required GOG redistributables (gap#3) into that same prefix.
-                        if (exe != null) GogLaunchHelper.addToLauncherWithPrereqs(
-                            this@GogGameDetailActivity, title, exe, imageUrl, gameId)
+                        // Add to the chosen container (Compose picker below); the add then offers to install
+                        // the game's required GOG redistributables (gap#3) into that same prefix.
+                        if (exe != null) StarLaunchBridge.loadContainers(this@GogGameDetailActivity) { containers ->
+                            addToShortcuts = AddToShortcutsRequest(title, exe, imageUrl, containers)
+                        }
                     },
                     prereqsVisible = prereqsVisible,
                     onInstallPrereqs = {
@@ -351,6 +361,38 @@ class GogGameDetailActivity : ComponentActivity(), GogRedistInstaller.Host {
                         onDismiss = { showExePicker = null },
                     )
                 }
+                addToShortcuts?.let { req ->
+                    ContainerPickerDialog(
+                        gameName = req.gameName,
+                        containers = req.containers,
+                        onDismiss = { addToShortcuts = null },
+                        onSelected = { container ->
+                            addToShortcuts = null
+                            StarLaunchBridge.writeShortcutAsync(this@GogGameDetailActivity, container, req.gameName,
+                                req.exePath, req.coverUrl) { success, message ->
+                                // With prerequisites to offer, a short note instead of the result dialog,
+                                // so the prompt does not stack on it.
+                                if (success && GogRedistInstaller.hasPrereqs(this@GogGameDetailActivity, gameId)) {
+                                    resultBarMsg = "\"${req.gameName}\" added to Shortcuts"
+                                    GogRedistInstaller.promptAndInstall(this@GogGameDetailActivity, container, gameId)
+                                } else {
+                                    addResult = AddShortcutResult(req.gameName, success, message)
+                                }
+                            }
+                        },
+                    )
+                }
+                addResult?.let { result ->
+                    AddResultDialog(
+                        result = result,
+                        onOpenShortcuts = {
+                            addResult = null
+                            openShortcutsScreen(this@GogGameDetailActivity)
+                        },
+                        onDismiss = { addResult = null },
+                    )
+                }
+                GogPrereqDialogs(prereqUi)
                 resultBarMsg?.let { UninstallResultBar(it) { resultBarMsg = null } }
             }
         }
@@ -440,8 +482,8 @@ class GogGameDetailActivity : ComponentActivity(), GogRedistInstaller.Host {
 
         // Publish this download into the cross-store Download Manager registry. This also starts
         // the shared DownloadForegroundService (shade notification + process kept alive across
-        // backgrounding). GOG reports pct only → single honest bar (byte pairs left at 0). Cancel
-        // routes to the same Runnable the detail page's Cancel uses.
+        // backgrounding). GOG reports bytes on disk (install pair), speed and time left; one bar.
+        // Cancel routes to the same Runnable the detail page's Cancel uses.
         StoreDownloadHooks.registerDownload(
             store = Store.GOG,
             id = gameId,
@@ -457,16 +499,19 @@ class GogGameDetailActivity : ComponentActivity(), GogRedistInstaller.Host {
         // being destroyed / the app backgrounded without leaking the Activity. Registry hooks below
         // run on the engine's callback thread and are Activity-independent; only the mutableState UI
         // writes are guarded with !isDestroyed && !isFinishing.
+        val ticker = GogDownloadTicker(gameId)
         val cb: GogDownloadManager.Callback = object : GogDownloadManager.Callback {
+            override fun onBytes(done: Long, total: Long, speedBps: Long, etaSeconds: Long) {
+                ticker.onBytes(done, total, speedBps, etaSeconds)
+            }
             override fun onProgress(msg: String, pct: Int) {
-                StoreDownloadHooks.tick(Store.GOG, gameId, pct)
+                ticker.tick()
                 if (!isDestroyed && !isFinishing) runOnUiThread {
                     if (isDestroyed || isFinishing) return@runOnUiThread
-                    progressValue = pct
-                    // Same live-% label the registry collector shows, so a locally-started
-                    // download reads identically to a list-started one (no flicker between the
-                    // engine status string and the "$pct%" the Manager/notification show).
-                    progressLabel = "Downloading… $pct%"
+                    progressValue = ticker.percent
+                    // Same label the registry collector shows, so a locally-started download
+                    // reads identically to a list-started one (no flicker between formats).
+                    progressLabel = ticker.label()
                 }
             }
             override fun onComplete(exePath: String) {
@@ -588,10 +633,10 @@ class GogGameDetailActivity : ComponentActivity(), GogRedistInstaller.Host {
                 if (e != null && (e.state == DownloadState.DOWNLOADING || e.state == DownloadState.PAUSED)) {
                     progressVisible = true
                     progressValue = e.pct
-                    // Live percentage on the detail page, matching the Download Manager card and
-                    // the notification (GOG is pct-only). Registry-driven so it stays live for a
-                    // list-started / reopened download, not just the one this Activity launched.
-                    progressLabel = "Downloading… ${e.pct}%"
+                    // Live percentage, bytes left, speed and time left, matching the Download
+                    // Manager card. Registry-driven so it stays live for a list-started / reopened
+                    // download, not just the one this Activity launched.
+                    progressLabel = gogProgressLabel(e)
                     progressLabelVisible = true
                     installVisible = true
                     installBtnText = "Cancel"

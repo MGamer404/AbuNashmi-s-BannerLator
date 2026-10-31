@@ -19,6 +19,7 @@ import androidx.compose.runtime.setValue
 import com.winlator.star.components.Component
 import com.winlator.star.components.ComponentCatalog
 import com.winlator.star.components.ComponentExecInstaller
+import com.winlator.star.components.ComponentInstallRecords
 import com.winlator.star.components.ComponentInstallReturn
 import com.winlator.star.components.ComponentInstaller
 import com.winlator.star.components.DependencyDetector
@@ -94,7 +95,7 @@ internal fun xmbWinComponentsMenu(xmb: XmbScope, shortcut: Shortcut): XmbMenu {
             runCatching { ComponentCatalog.load() }.getOrDefault(emptyList())
         }.associateBy { it.name }
         catalog = cat
-        val recorded = installsPrefs.getStringSet(installKey, emptySet())?.toSet() ?: emptySet()
+        val recorded = withContext(Dispatchers.IO) { ComponentInstallRecords.verified(ctx, container) }
         val detected = withContext(Dispatchers.IO) {
             runCatching { PrefixInstalledDetector.detect(container) }.getOrDefault(emptySet())
         }

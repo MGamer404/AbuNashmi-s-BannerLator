@@ -28,6 +28,14 @@ interface BlGogDownloadListener {
         verified: Boolean,
     )
 
+    /**
+     * Whole-download byte progress, at most every 500 ms during the fetch plus once when the plan
+     * is known. [bytesDone] = decompressed bytes of files already complete before the fetch +
+     * verified chunks written since (moves inside big files); [bytesTotal] = every planned file;
+     * [fetched] = bytes this run pulled over the network (restarts at 0 on a re-run).
+     */
+    fun onBytes(bytesDone: Long, bytesTotal: Long, fetched: Long)
+
     /** Engine diagnostics (already written to logcat under `BL_GOG_DL`). */
     fun onLog(line: String)
 

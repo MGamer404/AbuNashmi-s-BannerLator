@@ -252,6 +252,7 @@ import com.winlator.star.core.GameXInputDlls
 import com.winlator.star.core.RumbleMotors
 import com.winlator.star.core.StickPacing
 import com.winlator.star.core.CopyGameToDriveC
+import com.winlator.star.core.MoveGameToContainer
 import com.winlator.star.core.DefaultVersion
 import com.winlator.star.core.MediaDecoder
 import com.winlator.star.core.FileUtils
@@ -700,6 +701,7 @@ internal fun ShortcutActionDialogs(actions: ShortcutActions) {
     val scope = actions.scope
     var confirmRemove by actions::confirmRemove
     var cloneTarget by actions::cloneTarget
+    var moveTarget by actions::moveTarget
     var restoreZipUri by actions::restoreZipUri
     var restoreForName by actions::restoreForName
     var emuConflicts by actions::emuConflicts
@@ -965,9 +967,10 @@ internal fun ShortcutActionDialogs(actions: ShortcutActions) {
         )
     }
 
-    // Clone-to-container dialog
+    // Clone-to-container dialog. The copy is MoveGameToContainer with keepCopy: no overwrite of a same-name
+    // game, the cover and exe drive follow, and the copy gets its own home-screen id.
     cloneTarget?.let { s ->
-        val containers = vm.containers()
+        val containers = vm.containers().filter { it.id != s.container.id }
         OutlinedAlertDialog(
             onDismissRequest = { cloneTarget = null },
             title = { Text("Select container") },
@@ -978,20 +981,23 @@ internal fun ShortcutActionDialogs(actions: ShortcutActions) {
                         .heightIn(max = 420.dp)
                         .verticalScroll(rememberScrollState()),
                 ) {
+                    if (containers.isEmpty()) Text(NO_OTHER_CONTAINER, color = OnSurfaceVariant)
                     containers.forEach { c ->
                         Text(
                             text = c.name,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    val ok = s.cloneToContainer(c)
                                     cloneTarget = null
-                                    Toast.makeText(
-                                        context,
-                                        if (ok) "Shortcut cloned." else "Failed to clone shortcut.",
-                                        Toast.LENGTH_SHORT,
-                                    ).show()
-                                    if (ok) vm.refresh()
+                                    scope.launch {
+                                        val r = withContext(Dispatchers.IO) { MoveGameToContainer.run(context, s, c, keepCopy = true) }
+                                        Toast.makeText(
+                                            context,
+                                            MoveGameToContainer.message(r, s.name, c.name, keepCopy = true),
+                                            Toast.LENGTH_LONG,
+                                        ).show()
+                                        if (r is MoveGameToContainer.Result.Done) vm.refresh()
+                                    }
                                 }
                                 .padding(vertical = 12.dp),
                             color = OnSurface,
@@ -1016,6 +1022,16 @@ internal fun ShortcutActionDialogs(actions: ShortcutActions) {
     ChangeExecutableCoordinator(
         target = changeExeTarget,
         onFinished = { changeExeTarget = null; vm.refresh() },
+    )
+
+    // "Container" — move this game to another container (or copy it there). Fed by the editor's Container
+    // row and the Deck settings hand-off; clears the target and refreshes on finish.
+    MoveToContainerCoordinator(
+        target = moveTarget,
+        containers = { vm.containers() },
+        // Copied saves can carry an emulator account id the target already has a different one of.
+        onEmuConflicts = { emuConflicts = it },
+        onFinished = { moveTarget = null; vm.refresh() },
     )
 
     // Save Restore: a backup .zip has been picked — choose the TARGET container to restore it into,
@@ -2119,6 +2135,8 @@ internal fun ShortcutActionDialogs(actions: ShortcutActions) {
             onMoveToDriveC = { settingsShortcut = null; copyToDriveCTarget = s },
             // "Change executable…" (Executable row): close the editor and hand off to the coordinator.
             onChangeExe = { settingsShortcut = null; changeExeTarget = s },
+            // Container row: the editor has stored its edits (a rename re-points s.file), so re-read the entry.
+            onChangeContainer = { settingsShortcut = null; moveTarget = Shortcut(s.container, s.file) },
         )
     }
 
@@ -5310,6 +5328,9 @@ internal fun ShortcutSettingsDialogScreen(
     // Non-null when the host can run the "Change executable" flow (the Games list). The Executable
     // row's "Change…" button calls this.
     onChangeExe: (() -> Unit)? = null,
+    // Non-null when the host can run the move-to-container flow. The Container row's "Change…" button
+    // stores pending edits, then calls this.
+    onChangeContainer: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val res = context.resources
@@ -6347,6 +6368,12 @@ internal fun ShortcutSettingsDialogScreen(
         val dirty = clean != null && runCatching { formSignature() != clean }.getOrDefault(false)
         if (dirty) showUnsavedPrompt = true else onDismiss()
     }
+    // The Container row's hand-off. The move works on the stored file, so pending edits are stored first.
+    val changeContainer: (() -> Unit)? = if (onChangeContainer == null || isLinuxEntry || xboxNotInstalled) null else fun() {
+        val clean = cleanSignature
+        if (clean != null && runCatching { formSignature() != clean }.getOrDefault(false)) save()
+        onChangeContainer()
+    }
 
     // Panel refresh rates (drives whether the "In-game refresh rate" row exists) — hoisted so the D-pad
     // order list below can account for that conditional row.
@@ -6371,6 +6398,7 @@ internal fun ShortcutSettingsDialogScreen(
             0 -> { // General
                 add("name")
                 if (!isLinuxEntry) add("execArgs")
+                if (changeContainer != null) add("container")
                 add("screenSize")
                 if (selectedScreenSize == "Custom") { add("customW"); add("customH") }
                 add("screenAlignment")
@@ -6563,35 +6591,7 @@ internal fun ShortcutSettingsDialogScreen(
                         // Games that stream assets over FUSE-backed shared storage stall; from C: they run.
                         // Both this and Executable below describe a Windows install under a drive letter;
                         // a Linux entry has neither, and the client owns where its games live.
-                        if (!isLinuxEntry) {
-                        val storageLabel = remember(shortcut) { CopyGameToDriveC.storageLabel(shortcut) }
-                        val alreadyOnC = remember(shortcut) { CopyGameToDriveC.parse(shortcut).onDriveC }
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Storage", fontSize = 14.sp)
-                                Text(
-                                    storageLabel,
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            if (onMoveToDriveC != null && !alreadyOnC) {
-                                Spacer(Modifier.width(8.dp))
-                                OutlinedButton(onClick = onMoveToDriveC) {
-                                    Icon(
-                                        Icons.Filled.DriveFileMove,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(18.dp),
-                                    )
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Move to Drive C")
-                                }
-                            }
-                        }
-                        }
+                        if (!isLinuxEntry) StorageRow(shortcut, onMoveToDriveC)
 
                         // Executable — the .exe this shortcut launches, with a one-tap repoint to a
                         // different exe in the same game (launcher → real exe, dx11 ↔ dx9, a config tool).
@@ -6625,6 +6625,9 @@ internal fun ShortcutSettingsDialogScreen(
                                 }
                             }
                         }
+
+                        // Container — which container this game runs in, with a hand-off to move it to another.
+                        if (changeContainer != null) ContainerRow(dp, shortcut.container.name, changeContainer)
 
                         StoreOptionRows(
                             isEpicShortcut, epicEosEnabled, { epicEosEnabled = it }, epicOvtForce, { epicOvtForce = it },
@@ -9872,11 +9875,7 @@ internal fun addToHomeScreen(context: Context, shortcut: Shortcut) {
                     Toast.makeText(context, "${shortcut.name} isn't installed anymore", Toast.LENGTH_SHORT).show()
                     return
                 }
-            } else Intent(context, XServerDisplayActivity::class.java).apply {
-                action = Intent.ACTION_VIEW
-                putExtra("container_id", shortcut.container.id)
-                putExtra("shortcut_path", shortcut.file.path)
-            }
+            } else MoveGameToContainer.pinIntent(context, shortcut) // shared with the move, which re-points pins
             val bmp: Bitmap = shortcut.icon
                 ?: BitmapFactory.decodeResource(context.resources, com.winlator.star.R.drawable.icon_wine)
             val info = ShortcutInfo.Builder(context, shortcut.getExtra("uuid"))
@@ -10181,6 +10180,188 @@ private val AMAZON_ROOT_RE = Regex("""(^|[\\/])Amazon[\\/]""")
 // destination collision, run the background copy, then offer to delete the original.
 // The two "+" imports that run in a Wine container, and so ask for one after being picked.
 internal enum class ImportKind { EXE, FOLDER }
+
+/** Shown when the game's container is the only one. */
+private const val NO_OTHER_CONTAINER = "There's no other container. Create one in Containers first."
+
+/**
+ * Shared coordinator for the editor's Container row and the Deck "Move to another container" hand-off.
+ * Picks the target container and whether to keep a copy in this one (off: a move), then offers what
+ * can come along to that target ([MoveGameToContainer.plan]: saves, the game's C: folder, the extras
+ * the target lacks), shows why a choice can't be used, and runs [MoveGameToContainer] off the main
+ * thread. [onEmuConflicts] gets emulator account ids from the copied saves that differ from the
+ * target's. [onFinished] clears [target] and refreshes the list.
+ */
+@Composable
+private fun MoveToContainerCoordinator(
+    target: Shortcut?,
+    containers: () -> List<Container>,
+    onEmuConflicts: (List<GameSaveBackup.EmuIdConflict>) -> Unit,
+    onFinished: () -> Unit,
+) {
+    if (target == null) return
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val others = remember(target) { containers().filter { it.id != target.container.id } }
+    var chosen by remember(target) { mutableStateOf(others.singleOrNull()) }
+    var keepCopy by remember(target) { mutableStateOf(false) }
+    // What can come along to the chosen container (null while it is worked out), and what is ticked.
+    var plan by remember(target) { mutableStateOf<MoveGameToContainer.Plan?>(null) }
+    var bringSaves by remember(target) { mutableStateOf(false) }
+    var bringFolder by remember(target) { mutableStateOf(false) }
+    var bringExtras by remember(target) { mutableStateOf(emptySet<String>()) }
+    // Why the current choice can't be used (null = it can), checked off the main thread.
+    var problem by remember(target) { mutableStateOf<String?>(null) }
+    var checking by remember(target) { mutableStateOf(false) }
+    // The step running now; non-null while the move runs.
+    var stage by remember(target) { mutableStateOf<String?>(null) }
+    val busy = stage != null
+
+    LaunchedEffect(chosen) {
+        val c = chosen ?: return@LaunchedEffect
+        plan = null
+        val p = withContext(Dispatchers.IO) { MoveGameToContainer.plan(context, target, c) }
+        bringSaves = p.saves != null
+        bringFolder = p.gameFolder != null && p.gameFolder.problem == null
+        bringExtras = p.extras.filter { it.suggested && it.source != MoveGameToContainer.ExtraSource.UNAVAILABLE }.map { it.name }.toSet()
+        plan = p
+    }
+    val options = MoveGameToContainer.Options(
+        saves = bringSaves && plan?.saves != null,
+        gameFolder = bringFolder && plan?.gameFolder != null,
+        extras = bringExtras,
+    )
+    LaunchedEffect(chosen, keepCopy, plan, bringSaves, bringFolder, bringExtras) {
+        val c = chosen ?: return@LaunchedEffect
+        if (plan == null) return@LaunchedEffect
+        checking = true
+        problem = withContext(Dispatchers.IO) { MoveGameToContainer.problem(context, target, c, keepCopy, options, plan) }
+        checking = false
+    }
+    val from = target.container.name
+
+    OutlinedAlertDialog(
+        onDismissRequest = { if (!busy) onFinished() },
+        title = { Text("Move \"${target.name}\"") },
+        text = {
+            Column(
+                modifier = Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("Now in \"$from\".", style = MaterialTheme.typography.bodySmall, color = OnSurfaceVariant)
+                if (others.isEmpty()) {
+                    Text(NO_OTHER_CONTAINER, color = OnSurfaceVariant)
+                    return@Column
+                }
+                Text("Move to", style = MaterialTheme.typography.labelMedium, color = OnSurface)
+                others.forEach { c ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth().clickable(enabled = !busy) { chosen = c },
+                    ) {
+                        RadioButton(selected = chosen?.id == c.id, onClick = { chosen = c }, enabled = !busy)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(c.name, color = OnSurface)
+                            Text(c.wineVersion.orEmpty(), style = MaterialTheme.typography.bodySmall, color = OnSurfaceVariant)
+                        }
+                    }
+                }
+                MoveBringRow(keepCopy, !busy, "Keep a copy in \"$from\"", null) { keepCopy = it }
+                val p = plan
+                if (chosen != null) {
+                    Text("Bring along", style = MaterialTheme.typography.labelMedium, color = OnSurface)
+                    if (p == null) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Checking what this game uses…", style = MaterialTheme.typography.bodySmall, color = OnSurfaceVariant)
+                        }
+                    } else {
+                        MoveBringRow(
+                            bringSaves && p.saves != null, p.saves != null && !busy, "Saves",
+                            p.saves?.label ?: "No save folders found for this game",
+                        ) { bringSaves = it }
+                        p.gameFolder?.let { gf ->
+                            val size = android.text.format.Formatter.formatShortFileSize(context, gf.sizeBytes)
+                            MoveBringRow(
+                                bringFolder && gf.problem == null, gf.problem == null && !busy,
+                                "Game files (C:\\${gf.relPath.replace('/', '\\')})",
+                                gf.problem ?: if (keepCopy) "$size, copied" else "$size, moved (no copying)",
+                            ) { bringFolder = it }
+                        }
+                        if (p.extras.isEmpty()) {
+                            Text(
+                                "Extras: nothing this game needs is missing in \"${chosen?.name}\".",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = OnSurfaceVariant,
+                            )
+                        }
+                        p.extras.forEach { e ->
+                            MoveBringRow(
+                                e.name in bringExtras, e.source != MoveGameToContainer.ExtraSource.UNAVAILABLE && !busy, e.label, e.note,
+                            ) { on -> bringExtras = if (on) bringExtras + e.name else bringExtras - e.name }
+                        }
+                    }
+                }
+                Text(
+                    "The game's settings, icon and cover art always come along.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = OnSurfaceVariant,
+                )
+                problem?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+                stage?.let { s ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text(s, color = OnSurface)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            val c = chosen
+            val p = plan
+            if (c != null) TextButton(
+                enabled = !busy && !checking && p != null && problem == null,
+                onClick = {
+                    val copy = keepCopy
+                    val opts = options
+                    stage = if (copy) "Copying…" else "Moving…"
+                    scope.launch {
+                        val r = withContext(Dispatchers.IO) {
+                            MoveGameToContainer.run(context, target, c, copy, opts, p) { s -> stage = s }
+                        }
+                        stage = null
+                        when (r) {
+                            is MoveGameToContainer.Result.Done -> {
+                                Toast.makeText(context, MoveGameToContainer.message(r, target.name, c.name, copy), Toast.LENGTH_LONG).show()
+                                if (r.emuConflicts.isNotEmpty()) onEmuConflicts(r.emuConflicts)
+                                onFinished()
+                            }
+                            is MoveGameToContainer.Result.Refused -> { problem = r.reason }
+                        }
+                    }
+                },
+            ) { Text(if (keepCopy) "Copy" else "Move") }
+        },
+        dismissButton = { TextButton(enabled = !busy, onClick = onFinished) { Text("Cancel") } },
+    )
+}
+
+/** One tick box of the move dialog, with a line under it saying what it means. */
+@Composable
+private fun MoveBringRow(checked: Boolean, enabled: Boolean, title: String, subtitle: String?, onChange: (Boolean) -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().clickable(enabled = enabled) { onChange(!checked) },
+    ) {
+        Checkbox(checked = checked, onCheckedChange = onChange, enabled = enabled)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, color = if (enabled) OnSurface else OnSurfaceVariant)
+            subtitle?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = OnSurfaceVariant) }
+        }
+    }
+}
 
 private enum class CopyToCPhase { CONFIRM, OVERWRITE, COPYING, DELETE_ORIGINAL }
 
@@ -10876,6 +11057,70 @@ private fun XboxRuntimeRow(checked: Boolean, onChange: (Boolean) -> Unit) {
         }
         Spacer(Modifier.width(8.dp))
         Switch(checked = checked, onCheckedChange = onChange)
+    }
+}
+
+/** The classic editor's Storage row (its own function: the editor's body is at the JVM method size limit). */
+@Composable
+private fun StorageRow(shortcut: Shortcut, onMoveToDriveC: (() -> Unit)?) {
+    val storageLabel = remember(shortcut) { CopyGameToDriveC.storageLabel(shortcut) }
+    val alreadyOnC = remember(shortcut) { CopyGameToDriveC.parse(shortcut).onDriveC }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text("Storage", fontSize = 14.sp)
+            Text(
+                storageLabel,
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (onMoveToDriveC != null && !alreadyOnC) {
+            Spacer(Modifier.width(8.dp))
+            OutlinedButton(onClick = onMoveToDriveC) {
+                Icon(
+                    Icons.Filled.DriveFileMove,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+                Text("Move to Drive C")
+            }
+        }
+    }
+}
+
+/** The classic editor's Container row (its own function: the editor's body is at the JVM method size limit). */
+@Composable
+private fun ContainerRow(dp: SettingsDpad, containerName: String, onChange: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(stringResource(R.string.container), fontSize = 14.sp)
+            Text(
+                containerName,
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Spacer(Modifier.width(8.dp))
+        DpButton(dp, "container", onActivate = onChange) {
+            OutlinedButton(onClick = onChange) {
+                Icon(
+                    Icons.Filled.Widgets,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+                Text("Change…")
+            }
+        }
     }
 }
 

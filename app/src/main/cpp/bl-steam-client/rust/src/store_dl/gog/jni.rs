@@ -136,6 +136,22 @@ impl GogEvents for JniEvents {
         });
     }
 
+    fn on_bytes(&self, done: u64, total: u64, fetched: u64) {
+        self.with_env(|env| {
+            let _ = env.call_method(
+                self.listener.as_obj(),
+                "onBytes",
+                "(JJJ)V",
+                &[
+                    JValue::Long(done as jlong),
+                    JValue::Long(total as jlong),
+                    JValue::Long(fetched as jlong),
+                ],
+            );
+            Self::clear_exception(env);
+        });
+    }
+
     fn on_log(&self, line: &str) {
         android_log(line);
         self.with_env(|env| {

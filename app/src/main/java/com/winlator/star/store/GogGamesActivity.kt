@@ -689,7 +689,7 @@ class GogGamesActivity : ComponentActivity() {
         downloadStates[game.gameId] = dlState
 
         // Publish into the cross-store Download Manager (shade notification + background survival).
-        // Single honest bar (pct only). Cancel routes to the Runnable stored in downloadStates
+        // One bar from the bytes on disk, with speed and time left. Cancel routes to the Runnable stored in downloadStates
         // (read lazily so it resolves once startDownload has returned it below).
         StoreDownloadHooks.registerDownload(
             store = Store.GOG,
@@ -703,14 +703,18 @@ class GogGamesActivity : ComponentActivity() {
 
         // applicationContext: the GOG engine keeps the Context for its whole background run; the
         // list Activity must not be pinned/leaked. Registry hooks run on the engine callback thread.
+        val ticker = GogDownloadTicker(game.gameId)
         val cancelRunnable = GogDownloadManager.startDownload(applicationContext, game, object : GogDownloadManager.Callback {
+            override fun onBytes(done: Long, total: Long, speedBps: Long, etaSeconds: Long) {
+                ticker.onBytes(done, total, speedBps, etaSeconds)
+            }
             override fun onProgress(msg: String, pct: Int) {
-                StoreDownloadHooks.tick(Store.GOG, game.gameId, pct)
+                ticker.tick()
                 runOnUiThread {
                     val existing = downloadStates[game.gameId] ?: return@runOnUiThread
                     downloadStates[game.gameId] = existing.copy(
-                        progress = pct,
-                        status = msg,
+                        progress = ticker.percent,
+                        status = if (ticker.total > 0) ticker.label() else msg,
                     )
                 }
             }

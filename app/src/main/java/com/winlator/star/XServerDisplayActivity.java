@@ -551,15 +551,25 @@ public class XServerDisplayActivity extends AppCompatActivity {
     /** True between onCreate and onDestroy, so the open game screen is counted exactly once. */
     private boolean accountGameSessionCounted = false;
     private String autoCloseExeName;          // lowercased basename of the launched game exe
+    private int autoClosePid = 0;             // Windows pid of that exe when last seen
     private boolean gameProcSeen = false;
     private int gameGoneTicks = 0;
     private final java.util.ArrayList<String> gameTickNames = new java.util.ArrayList<>();
+    private final java.util.ArrayList<Integer> gameTickPids = new java.util.ArrayList<>();
+    /** Wine's own programs; never taken for a game that relaunched itself (see findRelaunchedGame). */
+    private static final java.util.Set<String> WINE_HELPER_EXES = new java.util.HashSet<>(java.util.Arrays.asList(
+            "explorer.exe", "services.exe", "rpcss.exe", "svchost.exe", "plugplay.exe", "winedevice.exe",
+            "wineboot.exe", "conhost.exe", "start.exe", "cmd.exe", "tabtip.exe", "winhandler.exe", "wfm.exe",
+            "rundll32.exe", "regsvr32.exe", "reg.exe", "msiexec.exe", "mscorsvw.exe", "taskmgr.exe"));
     private final Handler gameExitWatchHandler = new Handler(Looper.getMainLooper());
     private final OnGetProcessInfoListener gameExitProcListener = new OnGetProcessInfoListener() {
         @Override
         public void onGetProcessInfo(int index, int count, ProcessInfo info) {
-            if (index == 0) gameTickNames.clear();
-            if (info != null && info.name != null) gameTickNames.add(info.name.toLowerCase());
+            if (index == 0) { gameTickNames.clear(); gameTickPids.clear(); }
+            if (info != null && info.name != null) {
+                gameTickNames.add(info.name.toLowerCase());
+                gameTickPids.add(info.pid);
+            }
             if (count == 0 || index == count - 1) evaluateGameExitTick();
         }
     };
@@ -2735,6 +2745,14 @@ public class XServerDisplayActivity extends AppCompatActivity {
         // Construct the shortcut (if any) up front so per-game overrides (frame-gen engine, fps
         // limiter, renderer) can be resolved against it below; each falls back to the container value.
         if (shortcutPath != null && !shortcutPath.isEmpty()) {
+            // A home-screen icon can outlive its entry (game moved to another container or removed);
+            // an empty file would throw in the Shortcut constructor.
+            if (!new File(shortcutPath).isFile()) {
+                Log.e("XServerDisplayActivity", "Shortcut file missing: " + shortcutPath);
+                Toast.makeText(this, "This game isn't here anymore. It was moved to another container or removed.", Toast.LENGTH_LONG).show();
+                finish();
+                return;
+            }
             shortcut = new Shortcut(container, new File(shortcutPath));
         }
         // Fix the Goldberg cloud-sync decision now, for the whole session (see skipCloudForGoldberg()).
@@ -17748,6 +17766,7 @@ return true;
 
     private void startGameExitWatch() {
         autoCloseExeName = getExecutable().toLowerCase();
+        autoClosePid = 0;
         gameProcSeen = false;
         gameGoneTicks = 0;
         gameExitWatchHandler.removeCallbacks(gameExitWatchRunnable);
@@ -17759,13 +17778,28 @@ return true;
     private void evaluateGameExitTick() {
         if (!autoCloseOnExitEnabled || autoCloseExeName == null) return;
         boolean present = false;
-        for (String n : gameTickNames) {
-            if (n.equals(autoCloseExeName)) { present = true; break; }
+        for (int i = 0; i < gameTickNames.size(); i++) {
+            if (gameTickNames.get(i).equals(autoCloseExeName)) {
+                present = true;
+                autoClosePid = Math.max(autoClosePid, gameTickPids.get(i));
+            }
         }
         if (present) {
             gameProcSeen = true;
             gameGoneTicks = 0;
         } else if (gameProcSeen) {
+            // A launcher exe that restarts the game as another exe and then quits (DOOM 2016:
+            // DOOMx64.exe → DOOMx64vk.exe for Vulkan) is not an exit: follow the program that started
+            // after it. Closing here killed the real game on its first black frame.
+            int next = findRelaunchedGame();
+            if (next >= 0) {
+                Log.i("XServerDisplayActivity", "auto-close: " + autoCloseExeName + " handed off to "
+                        + gameTickNames.get(next) + " (pid " + gameTickPids.get(next) + "), watching that");
+                autoCloseExeName = gameTickNames.get(next);
+                autoClosePid = gameTickPids.get(next);
+                gameGoneTicks = 0;
+                return;
+            }
             // EA launcher-chain titles hand the game exe off more than once (stub exe → EA Desktop
             // relaunch, and again after a first-ever activation), with gaps longer than three ticks.
             // The SteamLite agent (steam.exe) holds the Steam session through those gaps and bounds
@@ -17786,6 +17820,21 @@ return true;
                 runOnUiThread(XServerDisplayActivity.this::exit);
             }
         }
+    }
+
+    /**
+     * Index in the current tick of a program that started after the watched game exe (higher Windows
+     * pid: wineserver hands out new ids in rising order) and is not one of Wine's own helpers, or -1.
+     * The lowest such pid wins, i.e. the first program started after the game.
+     */
+    private int findRelaunchedGame() {
+        int best = -1;
+        for (int i = 0; i < gameTickNames.size(); i++) {
+            int pid = gameTickPids.get(i);
+            if (pid <= autoClosePid || WINE_HELPER_EXES.contains(gameTickNames.get(i))) continue;
+            if (best < 0 || pid < gameTickPids.get(best)) best = i;
+        }
+        return best;
     }
 
     private void setupTmCallbacks() {

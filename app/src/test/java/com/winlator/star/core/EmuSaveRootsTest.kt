@@ -127,6 +127,26 @@ class EmuSaveRootsTest {
     }
 
     @Test
+    fun profileRootsFor_findsOlderCodexUnderRoamingSteam() {
+        // DiRT 3 Complete Edition's codex.ini: %APPDATA%\Steam\CODEX\321040\remote
+        val c = driveC()
+        val profile = File(c, "users/${ImageFs.USER}")
+        file(profile, "AppData/Roaming/Steam/CODEX/321040/remote/savegame@profile0#ngsqmyy")
+        file(profile, "AppData/Roaming/Steam/CODEX/321040/achievements.ini")
+        dir(profile, "AppData/Roaming/Steam/CODEX/480")
+        file(profile, "AppData/Roaming/Steam/settings/321040.ini")
+        dir(profile, "AppData/Roaming/GSE Saves/321040")
+
+        assertEquals(
+            listOf(
+                "AppData/Roaming/GSE Saves/321040",
+                "AppData/Roaming/Steam/CODEX/321040",
+            ),
+            EmuSaveRoots.profileRootsFor(profile, 321040),
+        )
+    }
+
+    @Test
     fun includedFor_givesBothKinds_drivecRelative() {
         val c = driveC()
         dir(c, "users/${ImageFs.USER}/AppData/Roaming/GSE Saves/201700")

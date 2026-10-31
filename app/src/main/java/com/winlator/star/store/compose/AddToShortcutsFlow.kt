@@ -67,10 +67,12 @@ fun ContainerPickerDialog(
     onSelected: (Container) -> Unit,
     /** An optional per-container note under its subtitle (e.g. the Xbox store's Proton advice); null = none. */
     note: (Container) -> String? = { null },
+    /** The dialog title; null = "Add <game> to container". */
+    title: String? = null,
 ) {
     OutlinedAlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add \"$gameName\" to container") },
+        title = { Text(title ?: "Add \"$gameName\" to container") },
         text = {
             if (containers.isEmpty()) {
                 Text(

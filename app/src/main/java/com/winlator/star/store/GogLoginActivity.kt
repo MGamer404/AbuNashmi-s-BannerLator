@@ -18,6 +18,7 @@ import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
@@ -44,18 +45,20 @@ class GogLoginActivity : ComponentActivity() {
 
     companion object {
         private const val TAG = "BH_GOG"
-        // This config mirrors the proven-working star-compose store-integration
-        // GogLoginActivity (the version that rendered the GOG login fine). Keep it
-        // exactly: layout=client2 + the GOG Galaxy UA + a plain full-screen WebView
-        // (setContentView). The white screen was a regression from the marcescence
-        // Compose rewrite that hosted the WebView in a Compose AndroidView and then
-        // mutated these params (drop layout / change UA / third-party cookies) — all
-        // dead ends. Do NOT reintroduce those changes ON THE MAIN WEBVIEW.
+        // layout=client2 + a plain full-screen WebView (setContentView). The white
+        // screen of 2026-06 came from hosting the WebView in a Compose AndroidView.
         //
-        // The social-login (Google/Facebook/Apple) leg is a SEPARATE popup WebView
-        // created by onCreateWindow; it is not covered by the rule above and
-        // deliberately runs a real Chrome UA + third-party cookies, because that leg
-        // talks to the identity provider, not to auth.gog.com.
+        // User agent: every page in this flow (auth.gog.com, the Cloudflare check on
+        // it, and the Google/Facebook/Apple popup) gets the WebView's own user agent
+        // without its WebView markers ([browserUserAgent]). The old Windows
+        // "GOG Galaxy/2.0" UA disagreed with the Android client hints and scripts, and
+        // Cloudflare's "I'm human" check on the GOG login failed on that mismatch.
+        // Same fix as DroidDeck PR #1500 (diegodru), device-proven there 2026-10-25.
+        // Cloudflare also rejects a UA that changes mid-session, so the UA is never
+        // swapped during the flow.
+        //
+        // The social-login popup and in-place IdP hops also get third-party cookies,
+        // because that leg talks to the identity provider, not to auth.gog.com.
         const val AUTH_URL =
             "https://auth.gog.com/auth" +
             "?client_id=46899977096215655" +
@@ -64,15 +67,24 @@ class GogLoginActivity : ComponentActivity() {
 
         private const val KEY_STATE = "bh_gog_oauth_state"
 
-        private const val GALAXY_UA =
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) GOG Galaxy/2.0"
-
-        // Real Chrome-on-Android UA. Must NOT contain the "; wv" token — that token is
-        // one of the two signals Google uses to reject sign-in from an embedded WebView
-        // (the other is the X-Requested-With header, suppressed in applyIdpHardening()).
+        // Fallback only, for a WebView that cannot report its own UA.
         private const val CHROME_UA =
             "Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) " +
             "Chrome/127.0.6533.103 Mobile Safari/537.36"
+
+        /**
+         * The WebView's own UA as plain Chrome for Android: drops " Build/…", the "; wv"
+         * token and " Version/4.0". "; wv" is one of the two signals Google uses to
+         * reject sign-in from an embedded WebView (the other is the X-Requested-With
+         * header, suppressed in applyIdpHardening()).
+         */
+        @JvmStatic
+        fun browserUserAgent(webViewUa: String?): String =
+            webViewUa?.replace(Regex(" Build/[^;)]*"), "")
+                ?.replace("; wv)", ")")
+                ?.replace(" Version/4.0", "")
+                ?.takeIf { it.isNotBlank() }
+                ?: CHROME_UA
 
         private const val REDIRECT_PREFIX = "https://embed.gog.com/on_login_success"
 
@@ -104,16 +116,9 @@ class GogLoginActivity : ComponentActivity() {
         }
 
         /**
-         * Hosts that serve a third-party identity provider's sign-in UI. These are the
-         * pages that must NOT look like an embedded WebView, and the only ones we swap
-         * the UA for.
+         * Hosts that serve a third-party identity provider's sign-in UI. These pages
+         * must NOT look like an embedded WebView and need third-party cookies.
          */
-        @JvmStatic
-        fun isGogHost(host: String?): Boolean {
-            val h = host?.lowercase() ?: return false
-            return h == "gog.com" || h.endsWith(".gog.com")
-        }
-
         @JvmStatic
         fun isIdentityProviderHost(host: String?): Boolean {
             val h = host?.lowercase() ?: return false
@@ -137,6 +142,10 @@ class GogLoginActivity : ComponentActivity() {
     // CSRF state we sent on AUTH_URL; must survive WebView/Activity recreation.
     private var oauthState: String? = null
 
+    private val browserUa by lazy {
+        browserUserAgent(runCatching { WebSettings.getDefaultUserAgent(this) }.getOrNull())
+    }
+
     private fun dp(value: Int): Int = TypedValue.applyDimension(
         TypedValue.COMPLEX_UNIT_DIP, value.toFloat(), resources.displayMetrics,
     ).toInt()
@@ -147,7 +156,7 @@ class GogLoginActivity : ComponentActivity() {
 
         setContentView(buildChrome())
 
-        val webView = newWebView(GALAXY_UA, isPopup = false)
+        val webView = newWebView(browserUa, isPopup = false)
         webViewRef = webView
         // Index 0: buildChrome() already put popupHost and errorPanel in contentHost, and
         // they must stay ABOVE the page, not behind it.
@@ -288,10 +297,7 @@ class GogLoginActivity : ComponentActivity() {
         clearError()
         val fresh = generateState()
         oauthState = fresh
-        webViewRef?.let {
-            it.settings.userAgentString = GALAXY_UA   // undo any IdP-leg UA swap
-            it.loadUrl(buildAuthUrl(fresh))
-        }
+        webViewRef?.loadUrl(buildAuthUrl(fresh))
     }
 
     // -------------------------------------------------------------- webviews
@@ -300,7 +306,7 @@ class GogLoginActivity : ComponentActivity() {
      * Removes the two signals Google uses to reject sign-in from an embedded WebView:
      * the X-Requested-With header (suppressed by allow-listing zero origins — needs
      * androidx.webkit + a recent WebView provider, so it is feature-gated) and the
-     * "; wv" UA token (absent from [CHROME_UA]).
+     * "; wv" UA token (removed by [browserUserAgent]).
      */
     private fun applyIdpHardening(webView: WebView) {
         if (WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST)) {
@@ -353,7 +359,7 @@ class GogLoginActivity : ComponentActivity() {
             if (resultMsg == null) return false
             Log.d(TAG, "onCreateWindow dialog=$isDialog gesture=$isUserGesture")
             dismissPopup()
-            val child = newWebView(CHROME_UA, isPopup = true)
+            val child = newWebView(browserUa, isPopup = true)
             popupWebView = child
             popupHost.addView(
                 child,
@@ -454,27 +460,13 @@ class GogLoginActivity : ComponentActivity() {
                 handleImplicitRedirect(uri)
                 return true
             }
-            // Back on GOG after an in-place IdP hop: restore the Galaxy UA. A plain
-            // Chrome UA makes auth.gog.com serve a login form that never renders here
-            // (commit 70ddcaab), so the Chrome UA must not outlive the IdP leg.
-            if (!isPopup && isGogHost(uri.host) &&
-                view.settings.userAgentString != GALAXY_UA
-            ) {
-                Log.d(TAG, "back on GOG → restoring Galaxy UA")
-                view.settings.userAgentString = GALAXY_UA
-                return false
-            }
             // A main-frame hop to the IdP (GOG sometimes navigates in place instead of
-            // opening a popup). Swap to the Chrome UA before the request goes out —
-            // these hops are always GETs, so re-issuing via loadUrl loses nothing.
+            // opening a popup). The UA already fits the IdP; only cookies change.
             if (!isPopup && isIdentityProviderHost(uri.host) &&
-                view.settings.userAgentString != CHROME_UA
+                !CookieManager.getInstance().acceptThirdPartyCookies(view)
             ) {
-                Log.d(TAG, "main-frame IdP hop → switching to Chrome UA")
-                view.settings.userAgentString = CHROME_UA
+                Log.d(TAG, "main-frame IdP hop → allowing third-party cookies")
                 CookieManager.getInstance().setAcceptThirdPartyCookies(view, true)
-                view.loadUrl(uri.toString())
-                return true
             }
             return false
         }

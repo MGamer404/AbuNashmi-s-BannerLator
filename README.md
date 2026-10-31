@@ -79,7 +79,7 @@ Before any **stable release** is published, all changes are **manually debugged 
 |---|---|
 | **App label** | `Bannerlator Bionic` (standard) · `Bannerlator Bionic PuBG` (pubg) · `Bannerlator Bionic Ludashi` (ludashi) · `Bannerlator Bionic AnTuTu` (antutu) |
 | **Packages** | `com.winlator.banner` (standard) · `com.tencent.ig` (pubg) · `com.ludashi.benchmark` (ludashi) · `com.antutu.ABenchMark` (antutu) |
-| **Version** | Bannerlator **V 3.1.7** — built from Star **marcescence** (`versionName 3.1.7`, `versionCode 103`) |
+| **Version** | Bannerlator **V 3.1.8** — built from Star **marcescence** (`versionName 3.1.8`, `versionCode 104`) |
 | **Android SDK** | `compileSdk 34` · `targetSdk 28` · `minSdk 26` (Android 8.0+) |
 | **Lineage** | Winlator → cmod → Bionic Nightly → Star Bionic → **marcescence** → **Bannerlator** |
 
@@ -111,6 +111,7 @@ Every report gets its own **public discussion thread**. You can reply as the ori
 - [🤖 AI Disclaimer](#-ai-disclaimer)
 - [ℹ️ Information](#ℹ️-information)
 - [🐛 Report a Mali GPU Issue](#-report-a-mali-gpu-game-issue)
+- [🧰 GOG prerequisites without the container, Visual C++ fixes & moving games (3.1.8)](#-gog-prerequisites-without-the-container-visual-c-fixes--moving-games-318)
 - [☁️ Xbox Cloud Gaming, v15 layers & Wine Mono (3.1.7)](#️-xbox-cloud-gaming-v15-layers--wine-mono-317)
 - [🟩 Xbox / PC Game Pass store, Steam accounts & Wayland adapter by default (3.1.7)](#-xbox--pc-game-pass-store-steam-accounts--wayland-adapter-by-default-317)
 - [🎮 BANNERIN controllers, in-game controller settings & DirectInput vibration (3.1.7)](#-bannerin-controllers-in-game-controller-settings--directinput-vibration-317)
@@ -135,6 +136,17 @@ Every report gets its own **public discussion thread**. You can reply as the ori
 - [📄 License](#-license)
 
 ---
+
+## 🧰 GOG prerequisites without the container, Visual C++ fixes & moving games (3.1.8)
+
+**[3.1.8](https://github.com/The412Banner/Bannerlator/releases/tag/3.1.8) adds:**
+
+- **Move a game to another container** — from the game's settings, with its saves (only folders that match the game), its files on C: and the Windows components the new container is missing; older CODEX saves come along too.
+- **GOG prerequisites without opening the container** — Visual C++, .NET, DirectX, PhysX, XNA and OpenAL install straight from Windows components, with a progress window; GOG's own installer only when you choose it.
+- **Visual C++ that really installs** — MFC included, and a container only counts Visual C++ as installed when Microsoft's files are there; each container keeps its own list of installed components.
+- **GOG** — games that restart themselves (*DOOM (2016)*) stay open, sign-in gets past the "I'm human" check (DroidDeck's fix by **Diego Ramos**), and the download bar shows real progress.
+- **Xbox** — libraries that stayed empty for some accounts load again (Xodus Nexus 0.2.12, from **devSharaku**'s DroidDeck change).
+- **v16 layers** in the catalog ([release notes](https://github.com/The412Banner/proton-wine/releases/tag/build-bionic-layers-20261030-v16)) fix GOG Galaxy games crashing at start.
 
 ## ☁️ Xbox Cloud Gaming, v15 layers & Wine Mono (3.1.7)
 

@@ -1,0 +1,50 @@
+{
+  "id": "2026-10-27T14-52-46-713a77",
+  "created": "2026-10-27T14:52:46.388Z",
+  "ip_hash": "SeqR5dmyEA",
+  "fields": {
+    "reporter_name": "Igor franco",
+    "device_model": "Samsung Galaxy A05",
+    "soc": "Mediatek g85",
+    "gpu": "Mali g52 mc2",
+    "android": "Android 15/ one ui 7.0",
+    "ram": "4 gb + 4gb plus",
+    "app_version": "3.1.7",
+    "install_source": "Atualizador no aplicativo",
+    "game_name": "PES 2013",
+    "steam_appid": "",
+    "store": "Outro",
+    "exe": "Pes2013.exe",
+    "symptom": "Tela preta (sem imagem)",
+    "when": "Nunca inicia de jeito nenhum",
+    "graphics_driver": "Panvk 7.0.2 alpha",
+    "dx_wrapper": "DXVK",
+    "dxvk": "1.11.",
+    "proton": "Proton 9.arme64",
+    "box64": "Desempenho mali",
+    "resolution": "1280x720",
+    "framegen": "Nao",
+    "repro": "Abro o jogo ele inicia mas fica com tela preta, mas sem driver ele funciona so q em varios aparelhos ta funcionando esse driver em específico mtt bom... Queria saber uma solução",
+    "tried": "Eu troquei o wrapper, tentei mexer em outras coisas de compatibilidade, mais o driver só reconhece e o pes 2013 fica com tela preta"
+  },
+  "logs": [
+    {
+      "name": "Screenshot_20261027_115108_Bannerlator_Bionic_Ludashi.jpg"
+    },
+    {
+      "name": "Screenshot_20261027_115113_Bannerlator_Bionic_Ludashi.jpg"
+    },
+    {
+      "name": "Screenshot_20261027_115122_Bannerlator_Bionic_Ludashi.jpg"
+    },
+    {
+      "name": "Screenshot_20261027_115131_Bannerlator_Bionic_Ludashi.jpg"
+    },
+    {
+      "name": "Screenshot_20261027_115138_Bannerlator_Bionic_Ludashi.jpg"
+    },
+    {
+      "name": "Screenshot_20261027_115142_Bannerlator_Bionic_Ludashi.jpg"
+    }
+  ]
+}

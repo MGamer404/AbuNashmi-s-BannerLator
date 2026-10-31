@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import com.winlator.star.components.Component
 import com.winlator.star.components.ComponentCatalog
 import com.winlator.star.components.ComponentExecInstaller
+import com.winlator.star.components.ComponentInstallRecords
 import com.winlator.star.components.ComponentInstallReturn
 import com.winlator.star.components.ComponentInstaller
 import com.winlator.star.components.ComponentUninstaller
@@ -138,7 +139,7 @@ fun ComponentsSheet(container: Container, onDismiss: () -> Unit, exeFile: File? 
     }
 
     LaunchedEffect(Unit) {
-        val recorded = installsPrefs.getStringSet(installKey, emptySet())?.toSet() ?: emptySet()
+        val recorded = withContext(Dispatchers.IO) { ComponentInstallRecords.verified(context, container) }
         // Backfill: components installed before we recorded installs (or by hand) that leave a
         // non-baseline prefix footprint (OpenAL/mono/PhysX/GFWL) — so they show as installed too.
         val detected = withContext(Dispatchers.IO) { PrefixInstalledDetector.detect(container) }

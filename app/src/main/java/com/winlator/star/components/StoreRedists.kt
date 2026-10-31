@@ -34,6 +34,9 @@ object StoreRedists {
         "472" to "dotnet472", "48" to "dotnet48", "481" to "dotnet48",
     )
     private val UE_PREREQ = Regex("""(?i)ue\d?prereqsetup""")
+    /** What DirectX's June 2010 redistributable (DXSETUP) installs that we have components for: no
+     *  d3dx10 component exists, and XInput is the app's own. */
+    private val DIRECTX_JUNE2010 = listOf("d3dx9", "d3dx11", "d3dcompiler_43", "xact", "xact_x64", "xaudio2.7")
 
     /** A GOG dependency id to its components; empty for one that is none of ours (ISI scripts, GOG's own helpers). */
     fun gog(id: String): List<String> {
@@ -41,7 +44,8 @@ object StoreRedists {
         Regex("""^(?:MSVC|VCREDIST|VC)(\d{4})""").find(key)?.let { m -> return listOfNotNull(VC_YEAR[m.groupValues[1]]) }
         Regex("""^(?:DOTNET|NETFRAMEWORK|DOTNETFRAMEWORK)(\d{2,3})""").find(key)?.let { m -> return listOfNotNull(DOTNET[m.groupValues[1]]) }
         return when {
-            key.startsWith("DIRECTX") || key.startsWith("DX9") || key == "DXSETUP" || key.startsWith("D3DX") -> listOf("d3dx9")
+            key.startsWith("DIRECTX") || key == "DXSETUP" -> DIRECTX_JUNE2010
+            key.startsWith("DX9") || key.startsWith("D3DX") -> listOf("d3dx9")
             key.startsWith("PHYSX") -> listOf("physx")
             key.startsWith("OPENAL") -> listOf("oalinst")
             key == "XNA31" || key == "XNA3" -> listOf("xna31")

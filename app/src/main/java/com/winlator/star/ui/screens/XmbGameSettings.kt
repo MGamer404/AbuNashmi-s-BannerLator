@@ -23,7 +23,9 @@ import androidx.compose.material.icons.filled.Gamepad
 import androidx.compose.material.icons.filled.HdrOn
 import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.LinkOff
@@ -61,6 +63,7 @@ import com.winlator.star.core.DInputVisibility
 import com.winlator.star.core.RumbleMotors
 import com.winlator.star.core.StickPacing
 import com.winlator.star.core.DirectAudioSupport
+import com.winlator.star.core.MoveGameToContainer
 import com.winlator.star.core.SyncMode
 import com.winlator.star.core.SyncSupport
 import com.winlator.star.core.StringUtils
@@ -185,6 +188,8 @@ private fun generalRows(xmb: XmbScope, p: XmbPrefs, host: XmbGameHost): List<Xmb
         value = if (onC) "SD card / USB storage" else "Current drive", subtitle = "Move to Drive C") { xmbCopyToDriveCMenu(xmb, s) }
     rows += XmbRow.Link("exe", "Executable", Icons.Filled.SwapHoriz,
         value = File(s.path ?: "").name.ifEmpty { "Unknown" }, subtitle = "Pick another .exe") { xmbChangeExeMenu(xmb, s) }
+    rows += XmbRow.Link("container", p.str(R.string.container), Icons.Filled.Widgets,
+        value = c.name, subtitle = "Move this game to another container") { xmbMoveToContainerMenu(xmb, s, host) }
     rows += XmbRow.Link("icon", "Icon", Icons.Filled.Image, subtitle = "Pick an image for this game") { iconPickerMenu(xmb, s) }
 
     if (s.getExtra("storeSource") == "epic") {
@@ -1063,12 +1068,79 @@ internal fun xmbPropertiesMenu(xmb: XmbScope, s: Shortcut): XmbMenu = XmbMenu("P
 // ── Clone / Remove ──────────────────────────────────────────────────────────────────────────────────
 
 internal fun xmbCloneMenu(xmb: XmbScope, s: Shortcut, host: XmbGameHost): XmbMenu = XmbMenu("Select container", Icons.Filled.ContentCopy) {
-    host.containers().mapIndexed { i, c ->
-        XmbRow.Action("c${c.id}_$i", c.name, Icons.Filled.Folder, subtitle = if (c.id == s.container.id) "Current container" else null) {
-            val ok = runCatching { s.cloneToContainer(c) }.getOrDefault(false)
-            xmb.toast(if (ok) "Shortcut cloned." else "Failed to clone shortcut.")
+    val others = host.containers().filter { it.id != s.container.id }
+    if (others.isEmpty()) XmbTools.para("none", NO_OTHER_CONTAINER_XMB, Icons.Filled.Info, context)
+    else others.mapIndexed { i, c ->
+        XmbRow.Action("c${c.id}_$i", c.name, Icons.Filled.Folder) { xmbMoveGame(xmb, s, c, keepCopy = true) }
+    }
+}
+
+private const val NO_OTHER_CONTAINER_XMB = "There's no other container. Create one in the Containers screen first."
+
+/** "Container": pick another container, then Move (default) or Copy. MoveGameToContainer does the work. */
+internal fun xmbMoveToContainerMenu(xmb: XmbScope, s: Shortcut, host: XmbGameHost): XmbMenu =
+    XmbMenu("Move to container", Icons.Filled.Widgets) {
+        val others = host.containers().filter { it.id != s.container.id }
+        if (others.isEmpty()) XmbTools.para("none", NO_OTHER_CONTAINER_XMB, Icons.Filled.Info, context)
+        else others.map { c ->
+            XmbRow.Link("c${c.id}", c.name, Icons.Filled.Widgets, subtitle = c.wineVersion) { xmbMoveChoiceMenu(xmb, s, c) }
+        }
+    }
+
+/** Move here / Copy here, with what comes along ([MoveGameToContainer.plan]) as toggles below. */
+private fun xmbMoveChoiceMenu(xmb: XmbScope, s: Shortcut, c: Container): XmbMenu {
+    var plan by mutableStateOf<MoveGameToContainer.Plan?>(null)
+    var saves by mutableStateOf(false)
+    var folder by mutableStateOf(false)
+    var extras by mutableStateOf(emptySet<String>())
+    val job = xmb.scope.launch {
+        val p = withContext(Dispatchers.IO) { MoveGameToContainer.plan(xmb.context, s, c) }
+        saves = p.saves != null
+        folder = p.gameFolder != null && p.gameFolder.problem == null
+        extras = p.extras.filter { it.suggested && it.source != MoveGameToContainer.ExtraSource.UNAVAILABLE }.map { it.name }.toSet()
+        plan = p
+    }
+    fun options(p: MoveGameToContainer.Plan) =
+        MoveGameToContainer.Options(saves && p.saves != null, folder && p.gameFolder != null, extras)
+
+    return XmbMenu("Move to \"${c.name}\"", Icons.Filled.Widgets, initialKey = "move", onClose = { job.cancel() }) {
+        val p = plan
+        if (p == null) return@XmbMenu listOf(XmbRow.Info("loading", "Checking what this game uses…", Icons.Filled.HourglassEmpty))
+        buildList<XmbRow> {
+            add(XmbRow.Action("move", "Move here", Icons.Filled.DriveFileMove) { xmbMoveGame(xmb, s, c, keepCopy = false, options(p), p) })
+            add(XmbRow.Action("copy", "Copy here, keep it in \"${s.container.name}\"", Icons.Filled.ContentCopy) {
+                xmbMoveGame(xmb, s, c, keepCopy = true, options(p), p)
+            })
+            add(XmbRow.Header("hBring", "Bring along"))
+            add(XmbRow.Toggle("saves", "Saves", Icons.Filled.Save, saves && p.saves != null, subtitle = p.saves?.label,
+                disabledReason = if (p.saves == null) "No save folders found for this game" else null) { saves = it })
+            p.gameFolder?.let { gf ->
+                add(XmbRow.Toggle("folder", "Game files", Icons.Filled.Folder, folder && gf.problem == null,
+                    subtitle = "C:\\" + gf.relPath.replace('/', '\\'), disabledReason = gf.problem) { folder = it })
+            }
+            if (p.extras.isEmpty()) add(XmbRow.Info("noExtras", "Extras: nothing missing in \"${c.name}\"", Icons.Filled.Info))
+            p.extras.forEach { e ->
+                add(XmbRow.Toggle("x:${e.name}", e.label, Icons.Filled.Widgets, e.name in extras, subtitle = e.note,
+                    disabledReason = if (e.source == MoveGameToContainer.ExtraSource.UNAVAILABLE) e.note else null) { on ->
+                    extras = if (on) extras + e.name else extras - e.name
+                })
+            }
+        }
+    }
+}
+
+private fun xmbMoveGame(
+    xmb: XmbScope, s: Shortcut, c: Container, keepCopy: Boolean,
+    options: MoveGameToContainer.Options = MoveGameToContainer.Options(), plan: MoveGameToContainer.Plan? = null,
+) {
+    xmb.toast(if (keepCopy) "Copying \"${s.name}\"…" else "Moving \"${s.name}\"…")
+    xmb.scope.launch {
+        val r = withContext(Dispatchers.IO) { MoveGameToContainer.run(xmb.context, s, c, keepCopy, options, plan) }
+        xmb.toast(MoveGameToContainer.message(r, s.name, c.name, keepCopy))
+        if (r is MoveGameToContainer.Result.Done) {
             xmb.popToRoot()
-            if (ok) xmb.reloadGames()
+            xmb.reloadGames()
+            if (r.emuConflicts.isNotEmpty()) xmbEmuConflicts(xmb, r.emuConflicts)
         }
     }
 }

@@ -48,9 +48,19 @@ object ComponentInstaller {
         install(context, container, c, onProgress) {}
 
     fun install(context: Context, container: Container, c: Component, onProgress: (Float) -> Unit, onStage: (String) -> Unit): String? {
-        if (OfflineComponentInstaller.canInstall(c)) {
-            return OfflineComponentInstaller.install(context, container, c, onProgress = onProgress, onStage = onStage)
+        val error = if (OfflineComponentInstaller.canInstall(c)) {
+            OfflineComponentInstaller.install(context, container, c, onProgress = onProgress, onStage = onStage)
+        } else {
+            installSteps(context, container, c, onProgress)
         }
+        if (error != null) return error
+        // A Visual C++ component that left its files out does not count as installed.
+        val missing = PrefixInstalledDetector.vcRuntimeMissing(container, c.name) ?: return null
+        ComponentInstallRecords.verified(context, container)
+        return "${c.name} finished, but $missing is not in the container"
+    }
+
+    private fun installSteps(context: Context, container: Container, c: Component, onProgress: (Float) -> Unit): String? {
         val root = container.rootDir
         val system32 = File(root, ".wine/drive_c/windows/system32")
         val syswow64 = File(root, ".wine/drive_c/windows/syswow64")

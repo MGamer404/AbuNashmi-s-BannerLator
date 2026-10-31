@@ -2,6 +2,7 @@ package com.winlator.star.store.xbox
 
 import android.content.Context
 import com.winlator.star.components.ComponentCatalog
+import com.winlator.star.components.ComponentInstallRecords
 import com.winlator.star.components.ComponentInstaller
 import com.winlator.star.container.Container
 import java.io.File
@@ -42,7 +43,8 @@ object XboxDependencies {
         if (wanted.isEmpty()) return
         val prefs = context.getSharedPreferences(INSTALLS_PREFS, Context.MODE_PRIVATE)
         val key = "c${container.id}"
-        val missing = wanted.filter { (_, name) -> name !in prefs.getStringSet(key, emptySet()).orEmpty() }
+        val have = ComponentInstallRecords.verified(context, container)
+        val missing = wanted.filter { (_, name) -> name !in have }
         if (missing.isEmpty()) return
         try {
             if (ComponentCatalog.byName.isEmpty()) ComponentCatalog.load()

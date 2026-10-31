@@ -10,6 +10,7 @@ import android.util.Log;
 import androidx.preference.PreferenceManager;
 
 import com.winlator.star.R;
+import com.winlator.star.components.ComponentInstallRecords;
 import com.winlator.star.contents.ContentsManager;
 import com.winlator.star.core.Callback;
 import com.winlator.star.core.FileUtils;
@@ -299,6 +300,8 @@ public class ContainerManager {
 //            }
 
             container.saveData();
+            // Ids are reused: a record left by a deleted container with this id is not this one's.
+            ComponentInstallRecords.reset(context, id);
             synchronized (containers) {
                 maxContainerId++;
                 containers.add(container);
@@ -350,6 +353,7 @@ public class ContainerManager {
         }
         dstContainer.setName(srcContainer.getName() + " (" + context.getString(R.string._copy) + ")");
         dstContainer.saveData();
+        ComponentInstallRecords.copy(context, srcContainer.id, id);
 
         synchronized (containers) {
             maxContainerId++;
@@ -362,6 +366,7 @@ public class ContainerManager {
     private void removeContainer(Container container) {
         if (FileUtils.delete(container.getRootDir())) {
             synchronized (containers) { containers.remove(container); }
+            ComponentInstallRecords.reset(context, container.id);
         }
     }
 

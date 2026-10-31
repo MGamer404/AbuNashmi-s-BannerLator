@@ -1,5 +1,15 @@
 [
   {
+    "id": "2026-10-27T14-52-46-713a77",
+    "created": "2026-10-27T14:52:46.388Z",
+    "reporter": "Igor franco",
+    "device": "Samsung Galaxy A05",
+    "gpu": "Mali g52 mc2",
+    "game": "PES 2013",
+    "symptom": "Tela preta (sem imagem)",
+    "logs": 6
+  },
+  {
     "id": "2026-10-18T00-53-57-7623d1",
     "created": "2026-10-18T00:53:57.954Z",
     "reporter": "",

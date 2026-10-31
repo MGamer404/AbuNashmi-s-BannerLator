@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.sp
 import com.winlator.star.components.Component
 import com.winlator.star.components.ComponentCatalog
 import com.winlator.star.components.ComponentExecInstaller
+import com.winlator.star.components.ComponentInstallRecords
 import com.winlator.star.components.ComponentInstallReturn
 import com.winlator.star.components.ComponentInstaller
 import com.winlator.star.components.ComponentUninstaller
@@ -140,7 +141,7 @@ internal class DeckComponentsState(
 
     /** What the prefix has: recorded installs plus what [PrefixInstalledDetector] finds there. */
     private suspend fun readInstalled(): Set<String> {
-        val recorded = installsPrefs.getStringSet(installKey, emptySet())?.toSet() ?: emptySet()
+        val recorded = withContext(Dispatchers.IO) { ComponentInstallRecords.verified(context, container) }
         val detected = withContext(Dispatchers.IO) { runCatching { PrefixInstalledDetector.detect(container) }.getOrDefault(emptySet()) }
         return recorded + detected
     }
