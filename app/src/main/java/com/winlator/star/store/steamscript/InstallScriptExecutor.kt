@@ -8,6 +8,7 @@ import com.winlator.star.container.Container
 import com.winlator.star.container.ContainerManager
 import com.winlator.star.store.EaSupport
 import com.winlator.star.store.SteamInstallPaths
+import com.winlator.star.store.UbisoftSupport
 import com.winlator.star.core.FileUtils
 import com.winlator.star.core.WinePath
 import com.winlator.star.core.WineRegistryEditor
@@ -78,7 +79,8 @@ object InstallScriptExecutor {
         if (steamAppId <= 0) return
         try {
             val installDir = locateInstallDir(File(exePath)) ?: return
-            if (retryRunProcess && !clientInstalled(context, container, installDir)) {
+            // (EA's clean-up is EA-only; a Ubisoft title decides on the launcher files in execute().)
+            if (retryRunProcess && !UbisoftSupport.detect(installDir) && !clientInstalled(context, container, installDir)) {
                 unmark(container, "runproc", steamAppId)
                 // A previous attempt may have died mid-install (wizard abort, killed session): burn then
                 // "resumes" the half-registered bundle and fails. Start the retry from a clean slate.
@@ -125,12 +127,15 @@ object InstallScriptExecutor {
         context: Context, container: Container, appId: Int, installDir: File, allowRunProcess: Boolean,
         forceLocal: Boolean = false,
     ): Result {
-        val scriptFile = locateScript(installDir) ?: return Result.NoScript
+        val scriptFile = locateScript(installDir)
+        // A Ubisoft depot that bundles its launcher installer still gets it run when it has no script at all.
+        if (scriptFile == null && UbisoftSupport.bundledInstaller(installDir) == null) return Result.NoScript
         val model = try {
-            InstallScriptModel.parse(scriptFile.readText())
+            InstallScriptModel.parse(scriptFile?.readText() ?: "")
         } catch (e: Exception) {
             return Result.Error("parse failed: ${e.message}")
         }
+        val runProcesses = model.runProcesses.ifEmpty { UbisoftSupport.fallbackRunProcesses(installDir) }
 
         val imageFsRoot = File(context.filesDir, "imagefs")
         val tokens = InstallScriptTokens(container, installDir, imageFsRoot)
@@ -147,7 +152,12 @@ object InstallScriptExecutor {
 
         if (!allowRunProcess) return Result.LocalApplied
 
-        if (model.hasRunProcess && !runProcDone(container, appId) && !runGuardSatisfied(model, tokens)) {
+        // Ubisoft's launcher installer is judged by the launcher files in the prefix, never by the "already ran" mark or
+        // the script's registry guard: a session that was killed mid-install leaves both behind with nothing installed.
+        val ubisoftRun = runProcesses.any { UbisoftSupport.isInstaller(it.process) }
+        val needRun = if (ubisoftRun) !UbisoftSupport.launcherInstalled(container)
+            else runProcesses.isNotEmpty() && !runProcDone(container, appId) && !runGuardSatisfied(model, tokens)
+        if (needRun) {
             // Prerequisite: EA's bundled installer (EAappInstaller.exe -> EA Desktop MSI) runs MANAGED
             // .NET custom actions, which need wine-mono in the prefix — without it the MSI dies with
             // 0x8007065b (device-proven, Aug 2026). Install the mono component first (its own
@@ -157,7 +167,7 @@ object InstallScriptExecutor {
             // setup session that runs the bundled installer — one session, no app restart in between,
             // no second dialog (device test #2 showed the two-session chain confusing: a silent MSI
             // means a black desktop with nothing telling the user it is working).
-            val firstRun = model.runProcesses.firstOrNull { it.process.isNotBlank() }
+            val firstRun = runProcesses.firstOrNull { it.process.isNotBlank() }
             val preMsis = ArrayList<String>()   // Windows paths, installed silently before the bundled installer
             if (firstRun != null && EaSupport.runProcessNeedsMono(firstRun.process)) {
                 val staging = "C:\\windows\\temp\\bannerlator_components\\"
@@ -180,7 +190,7 @@ object InstallScriptExecutor {
             // Mark optimistically before we hand off — the session restarts the app, mirroring
             // ComponentExecInstaller's fire-and-forget cursor advance.
             markRunProcDone(container, appId)
-            val launched = runProcessStage.run(context, container, model.runProcesses, tokens, preMsis)
+            val launched = runProcessStage.run(context, container, runProcesses, tokens, preMsis)
             return if (launched) Result.RunLaunched else Result.LocalApplied
         }
         return if (localComplete) Result.LocalApplied else Result.AlreadyDone
@@ -298,11 +308,16 @@ object InstallScriptExecutor {
         }
         if (direct != null) return direct
         // Shallow fallback: a *installscript.vdf that isn't an uninstall companion.
-        return installDir.listFiles()?.firstOrNull {
+        val named = installDir.listFiles()?.firstOrNull {
             it.isFile && it.name.lowercase().endsWith("installscript.vdf") &&
                 !it.name.lowercase().contains("_installscript")
         }
+        if (named != null) return named
+        // Some depots (Ubisoft's, e.g. Assassin's Creed IV Black Flag) name it after the app: `<appId>_install.vdf`.
+        return installDir.listFiles()?.firstOrNull { it.isFile && INSTALL_VDF_BY_APP.matches(it.name) }
     }
+
+    private val INSTALL_VDF_BY_APP = Regex("""\d+_install\.vdf""", RegexOption.IGNORE_CASE)
 
     // ---- Pending resume (prerequisite chain) -----------------------------------------------------
 
@@ -476,7 +491,7 @@ object InstallScriptExecutor {
             // findstr: ONLY the first bare quoted string is a pattern (the rest are FILE names) — every
             // pattern must be its own /c:"…" (device test #10: the loop never matched, gave up after
             // 30 s and the session closed mid-install).
-            val procPattern = listOf(exeBase, "EAappOfflineInstaller", "EAappInstaller", "msiexec", "UbisoftConnectInstaller")
+            val procPattern = listOf(exeBase, "EAappOfflineInstaller", "EAappInstaller", "msiexec", "UbisoftConnectInstaller", "UplayInstaller")
                 .distinct().joinToString(" ") { "/c:\"$it\"" }
             val guard = rp.hasRunKey?.trim()?.replace('/', '\\')
             val guardKey = guard?.substringBeforeLast('\\', "")?.takeIf { it.isNotEmpty() }
@@ -557,8 +572,10 @@ object InstallScriptExecutor {
         try {
             val srcDir = srcExe.parentFile!!; val dstDir = dstExe.parentFile!!
             dstDir.mkdirs()
+            // Ubisoft's installer sits in the game root next to the multi-GB archives: copy just the installer.
+            val onlyInstaller = UbisoftSupport.isInstaller(process)
             for (f in srcDir.listFiles() ?: emptyArray()) {
-                if (!f.isFile) continue
+                if (!f.isFile || (onlyInstaller && f != srcExe)) continue
                 val d = File(dstDir, f.name)
                 if (d.isFile && d.length() == f.length()) continue
                 if (!com.winlator.star.core.FileUtils.copy(f, d)) { Log.w(TAG, "alias copy failed for ${f.name}"); return plain }

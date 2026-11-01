@@ -5975,6 +5975,9 @@ public class XServerDisplayActivity extends AppCompatActivity {
             if (exe == null) return;
             com.winlator.star.store.steamscript.InstallScriptExecutor.applyLocalStagesForLaunch(
                     this, container, appId, exe.getAbsolutePath());
+            // Ubisoft Connect's overlay hooks dxgi.dll and kills the game (or blacks it out) on an Arm64EC DXVK.
+            // A no-op unless the launcher is installed in this prefix.
+            com.winlator.star.store.UbisoftSupport.disableOverlay(container);
         } catch (Throwable t) {
             Log.w("XServerDisplayActivity", "installScript pre-launch pass failed", t);
         }
@@ -6055,7 +6058,10 @@ public class XServerDisplayActivity extends AppCompatActivity {
                 // A non-ASCII depot name (e.g. the ™ in "Need for Speed™ Payback") makes Frostbite quit
                 // before it ever creates a D3D device. Re-apply the stage now that the link exists; it is
                 // idempotent by design (it re-applies Registry + Copy on every launch anyway).
-                if (realSteamEaChain) runSteamInstallScriptPreLaunch();
+                // Ubisoft titles read the game's InstallDir out of the same install-script registry stage.
+                if (realSteamEaChain || com.winlator.star.store.UbisoftSupport.detect(new File(ref.installDir))) {
+                    runSteamInstallScriptPreLaunch();
+                }
                 // EA titles: watch EA Desktop's own log for a refused licence so the user gets a card
                 // with EA's reason instead of a black screen (see eaRefusalWatchRunnable).
                 if (realSteamEaChain) {

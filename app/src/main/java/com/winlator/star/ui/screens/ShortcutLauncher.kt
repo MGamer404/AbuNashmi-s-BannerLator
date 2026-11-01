@@ -23,7 +23,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.winlator.star.R
 import com.winlator.star.androidgames.AndroidGames
 import com.winlator.star.container.Shortcut
 import com.winlator.star.core.WinePath
@@ -41,6 +43,7 @@ import com.winlator.star.store.SteamLiteComponent
 import com.winlator.star.store.SteamLoginActivity
 import com.winlator.star.store.SteamPrefs
 import com.winlator.star.store.SteamSessionManager
+import com.winlator.star.store.UbisoftSupport
 import com.winlator.star.store.steamscript.InstallScriptExecutor
 import com.winlator.star.ui.DeckDialogBars
 import com.winlator.star.ui.DeckDialogScaled
@@ -83,6 +86,9 @@ class ShortcutLauncher internal constructor(
     internal var eaSetupFor by mutableStateOf<Shortcut?>(null)
     internal var eaUnsupportedFor by mutableStateOf<Shortcut?>(null)
     internal var eaSetupBusy by mutableStateOf(false)
+    // Ubisoft support (see UbisoftSupport): a Ubisoft title whose container has no Ubisoft Connect yet.
+    internal var ubisoftSetupFor by mutableStateOf<Shortcut?>(null)
+    internal var ubisoftSetupBusy by mutableStateOf(false)
     // SteamLite launch pre-flight (session → network → cloud saves → update check, BEFORE the container opens):
     // the RealSteam game whose "Getting Steam ready" dialog is up (null = none). Every RealSteam
     // launch — the popup pick and a remembered pick — routes through it; Goldberg/Raw never do.
@@ -302,6 +308,20 @@ class ShortcutLauncher internal constructor(
                 return
             }
         }
+        // Ubisoft-published Steam titles (Assassin's Creed...) start Ubisoft Connect themselves, so it has to be in
+        // the prefix first: offer the one-time setup, otherwise carry on with the normal launch flow.
+        if (isSteamOriginShortcut(shortcut)) {
+            eaScope.launch {
+                val needsSetup = withContext(Dispatchers.IO) { runCatching { UbisoftSupport.needsSetup(shortcut) }.getOrDefault(false) }
+                if (needsSetup) ubisoftSetupFor = shortcut else launchPastSetupChecks(shortcut)
+            }
+            return
+        }
+        launchPastSetupChecks(shortcut)
+    }
+
+    /** The rest of [requestLaunch] once EA / Ubisoft have had their say: the launch-method popup or the remembered pick. */
+    private fun launchPastSetupChecks(shortcut: Shortcut) {
         // The Linux runtime's own entry is not a Windows game: SteamLite, Goldberg and "Raw .exe"
         // all mean nothing for it, and the sheet was an extra tap on every single launch.
         if (LinuxShortcuts.isLinuxEntry(shortcut)) { launchShortcutNow(activity, shortcut); return }
@@ -450,6 +470,38 @@ fun ShortcutLaunchDialogs(launcher: ShortcutLauncher, onRemove: (Shortcut) -> Bo
                 }
             },
             dismissButton = { TextButton(enabled = !launcher.eaSetupBusy, onClick = { launcher.eaSetupFor = null }) { Text("Cancel") } },
+        )
+    }
+    launcher.ubisoftSetupFor?.let { s ->
+        AlertDialog(
+            onDismissRequest = { if (!launcher.ubisoftSetupBusy) launcher.ubisoftSetupFor = null },
+            title = { Text(stringResource(R.string.ubisoft_setup_title)) },
+            text = { Text(stringResource(R.string.ubisoft_setup_message, s.name ?: "")) },
+            confirmButton = {
+                DeckDialogBars()
+                DeckDialogScaled {
+                    TextButton(enabled = !launcher.ubisoftSetupBusy, onClick = {
+                        launcher.ubisoftSetupBusy = true
+                        launcher.eaScope.launch {
+                            val problem = withContext(Dispatchers.IO) {
+                                try { UbisoftSupport.startSetup(context, s) }
+                                catch (t: Throwable) {
+                                    android.util.Log.w("ShortcutsScreen", "Ubisoft setup failed", t)
+                                    "Couldn't start the Ubisoft Connect setup"
+                                }
+                            }
+                            if (problem != null) Toast.makeText(context, problem, Toast.LENGTH_LONG).show()
+                            launcher.ubisoftSetupBusy = false
+                            launcher.ubisoftSetupFor = null
+                        }
+                    }) { Text(stringResource(if (launcher.ubisoftSetupBusy) R.string.ubisoft_setup_starting else R.string.ubisoft_setup_confirm)) }
+                }
+            },
+            dismissButton = {
+                TextButton(enabled = !launcher.ubisoftSetupBusy, onClick = { launcher.ubisoftSetupFor = null }) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+            },
         )
     }
     launcher.launchChoiceFor?.let { s ->

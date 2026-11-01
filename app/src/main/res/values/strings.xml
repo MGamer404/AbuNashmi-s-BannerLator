@@ -2757,4 +2757,8 @@ trying for speed, <b>notemplates</b> if you get driver crashes.
     <string name="steam_lib_move_another">Move to another location…</string>
     <string name="steam_lib_move_title">Move to…</string>
     <string name="steam_lib_move_hint">Pick where %1$s should live. The files are copied first and the old copy is only deleted once the new one checks out.</string>
+    <string name="ubisoft_setup_title">Set up Ubisoft Connect</string>
+    <string name="ubisoft_setup_message">\"%1$s\" is a Ubisoft title: it starts Ubisoft Connect itself, which isn\'t installed in this container yet. Bannerlator will open one setup session and run the installer that comes with the game, silently. The session closes by itself when it finishes and the app comes back. Then launch the game again. This happens once per container.</string>
+    <string name="ubisoft_setup_confirm">Set up</string>
+    <string name="ubisoft_setup_starting">Starting…</string>
 </resources>
