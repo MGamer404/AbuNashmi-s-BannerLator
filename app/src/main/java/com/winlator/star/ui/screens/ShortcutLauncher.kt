@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -321,7 +322,7 @@ class ShortcutLauncher internal constructor(
     }
 
     /** The rest of [requestLaunch] once EA / Ubisoft have had their say: the launch-method popup or the remembered pick. */
-    private fun launchPastSetupChecks(shortcut: Shortcut) {
+    internal fun launchPastSetupChecks(shortcut: Shortcut) {
         // The Linux runtime's own entry is not a Windows game: SteamLite, Goldberg and "Raw .exe"
         // all mean nothing for it, and the sheet was an extra tap on every single launch.
         if (LinuxShortcuts.isLinuxEntry(shortcut)) { launchShortcutNow(activity, shortcut); return }
@@ -487,7 +488,7 @@ fun ShortcutLaunchDialogs(launcher: ShortcutLauncher, onRemove: (Shortcut) -> Bo
                                 try { UbisoftSupport.startSetup(context, s) }
                                 catch (t: Throwable) {
                                     android.util.Log.w("ShortcutsScreen", "Ubisoft setup failed", t)
-                                    "Couldn't start the Ubisoft Connect setup"
+                                    context.getString(R.string.ubisoft_setup_failed)
                                 }
                             }
                             if (problem != null) Toast.makeText(context, problem, Toast.LENGTH_LONG).show()
@@ -498,8 +499,14 @@ fun ShortcutLaunchDialogs(launcher: ShortcutLauncher, onRemove: (Shortcut) -> Bo
                 }
             },
             dismissButton = {
-                TextButton(enabled = !launcher.ubisoftSetupBusy, onClick = { launcher.ubisoftSetupFor = null }) {
-                    Text(stringResource(android.R.string.cancel))
+                Row {
+                    TextButton(enabled = !launcher.ubisoftSetupBusy, onClick = {
+                        launcher.ubisoftSetupFor = null
+                        launcher.launchPastSetupChecks(s)
+                    }) { Text(stringResource(R.string.ubisoft_setup_launch_anyway)) }
+                    TextButton(enabled = !launcher.ubisoftSetupBusy, onClick = { launcher.ubisoftSetupFor = null }) {
+                        Text(stringResource(android.R.string.cancel))
+                    }
                 }
             },
         )

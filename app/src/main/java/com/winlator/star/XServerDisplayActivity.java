@@ -3322,7 +3322,8 @@ public class XServerDisplayActivity extends AppCompatActivity {
                         // Steam install-recipe robustness pass: a steamAppId-tagged game's installScript.vdf
                         // Registry + Copy Files land in this prefix before the game boots (covers shortcuts made
                         // before the feature or re-bound to a new container). Local stages only — the Run
-                        // Process step (EA Desktop installer) is driven from the Games tab's EA setup flow.
+                        // Process step (EA Desktop / Ubisoft Connect installer) is driven from the Games tab's
+                        // EA and Ubisoft setup flows.
                         runSteamInstallScriptPreLaunch();
                         extractGraphicsDriverFiles();
                         changeWineAudioDriver();
@@ -11461,6 +11462,25 @@ public class XServerDisplayActivity extends AppCompatActivity {
                 String overrides = envVars.has("WINEDLLOVERRIDES") ? envVars.get("WINEDLLOVERRIDES") : "";
                 String xbox = xboxLaunch.getOverrides();
                 envVars.put("WINEDLLOVERRIDES", overrides.isEmpty() ? xbox : xbox + ";" + overrides);
+            }
+
+            // Ubisoft title (SteamLite/RealSteam, Goldberg or a raw exe, anything that runs it under Wine):
+            // upc.exe overflows its stack in Wine's stubbed windows.ui UISettings.TextScaleFactor, so
+            // windows.ui is disabled and the WinRT activation fails cleanly. Detection reads the depot's
+            // files, which is fine here (launch worker thread); a windows.ui entry of the user's is kept.
+            if (shortcut != null && isGenuineSteamShortcut()) {
+                try {
+                    if (com.winlator.star.store.UbisoftSupport.detect(com.winlator.star.store.EaSupport.installDirOf(shortcut))) {
+                        String before = envVars.has("WINEDLLOVERRIDES") ? envVars.get("WINEDLLOVERRIDES") : "";
+                        String after = com.winlator.star.store.UbisoftSupport.mergeDllOverrides(before);
+                        if (!after.equals(before)) envVars.put("WINEDLLOVERRIDES", after);
+                        logSessionLine("ubisoft", after.equals(before)
+                                ? "WINEDLLOVERRIDES: yours kept for windows.ui"
+                                : "WINEDLLOVERRIDES += " + com.winlator.star.store.UbisoftSupport.WINE_DLL_OVERRIDE);
+                    }
+                } catch (Throwable t) {
+                    Log.w("XServerDisplayActivity", "Ubisoft windows.ui override failed", t);
+                }
             }
 
             // Real-Steam (VAC) launch (feature M3) — ENV injection. The staging + plan was built above by

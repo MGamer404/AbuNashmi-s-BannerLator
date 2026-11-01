@@ -48,7 +48,7 @@ object InstallScriptExecutor {
 
     /** Outcome of an [execute] call. */
     sealed class Result {
-        object NoScript : Result()          // no installScript.vdf for this game
+        object NoScript : Result()          // no install script for this game (and no bundled Ubisoft installer)
         object AlreadyDone : Result()       // guard already satisfied for this container
         object LocalApplied : Result()      // registry/copy applied; no run-process needed/launched
         object RunLaunched : Result()
@@ -73,12 +73,13 @@ object InstallScriptExecutor {
      * Desktop" dialog, shown only when the bundled client is NOT installed): it clears this
      * (container, appId)'s optimistic "installer launched" mark first, so a setup session that ran but
      * failed (killed, installer error) can be run again instead of being treated as done forever.
+     * Returns true when a setup session was actually launched.
      */
     @JvmStatic
-    fun runForShortcut(context: Context, container: Container, steamAppId: Int, exePath: String, retryRunProcess: Boolean) {
-        if (steamAppId <= 0) return
+    fun runForShortcut(context: Context, container: Container, steamAppId: Int, exePath: String, retryRunProcess: Boolean): Boolean {
+        if (steamAppId <= 0) return false
         try {
-            val installDir = locateInstallDir(File(exePath)) ?: return
+            val installDir = locateInstallDir(File(exePath)) ?: return false
             // (EA's clean-up is EA-only; a Ubisoft title decides on the launcher files in execute().)
             if (retryRunProcess && !UbisoftSupport.detect(installDir) && !clientInstalled(context, container, installDir)) {
                 unmark(container, "runproc", steamAppId)
@@ -87,12 +88,15 @@ object InstallScriptExecutor {
                 val cleaned = EaSupport.cleanupFailedInstall(container)
                 Log.i(TAG, "retry requested and client not installed — cleared runproc guard for appId $steamAppId (container ${container.id}); leftover state cleaned=$cleaned")
             }
-            when (val r = execute(context, container, steamAppId, installDir, allowRunProcess = true)) {
+            val r = execute(context, container, steamAppId, installDir, allowRunProcess = true)
+            when (r) {
                 is Result.Error -> Log.w(TAG, "installScript for appId $steamAppId: ${r.message}")
                 else -> Log.d(TAG, "installScript for appId $steamAppId -> ${r::class.simpleName}")
             }
+            return r is Result.RunLaunched
         } catch (e: Exception) {
             Log.w(TAG, "runForShortcut failed for appId $steamAppId", e)
+            return false
         }
     }
 
@@ -135,7 +139,10 @@ object InstallScriptExecutor {
         } catch (e: Exception) {
             return Result.Error("parse failed: ${e.message}")
         }
-        val runProcesses = model.runProcesses.ifEmpty { UbisoftSupport.fallbackRunProcesses(installDir) }
+        val scriptProcesses = model.runProcesses.ifEmpty { UbisoftSupport.fallbackRunProcesses(installDir) }
+        // The Run-Process stage only runs the first entry, so Ubisoft's launcher installer has to be that one.
+        val ubisoftRun = scriptProcesses.any { UbisoftSupport.isInstaller(it.process) }
+        val runProcesses = if (ubisoftRun) UbisoftSupport.installerFirst(scriptProcesses) else scriptProcesses
 
         val imageFsRoot = File(context.filesDir, "imagefs")
         val tokens = InstallScriptTokens(container, installDir, imageFsRoot)
@@ -154,7 +161,6 @@ object InstallScriptExecutor {
 
         // Ubisoft's launcher installer is judged by the launcher files in the prefix, never by the "already ran" mark or
         // the script's registry guard: a session that was killed mid-install leaves both behind with nothing installed.
-        val ubisoftRun = runProcesses.any { UbisoftSupport.isInstaller(it.process) }
         val needRun = if (ubisoftRun) !UbisoftSupport.launcherInstalled(container)
             else runProcesses.isNotEmpty() && !runProcDone(container, appId) && !runGuardSatisfied(model, tokens)
         if (needRun) {
@@ -313,7 +319,8 @@ object InstallScriptExecutor {
                 !it.name.lowercase().contains("_installscript")
         }
         if (named != null) return named
-        // Some depots (Ubisoft's, e.g. Assassin's Creed IV Black Flag) name it after the app: `<appId>_install.vdf`.
+        // Ubisoft depots (e.g. Assassin's Creed IV Black Flag) name it after the app: `<appId>_install.vdf`.
+        if (!UbisoftSupport.hasLauncherFiles(installDir)) return null
         return installDir.listFiles()?.firstOrNull { it.isFile && INSTALL_VDF_BY_APP.matches(it.name) }
     }
 

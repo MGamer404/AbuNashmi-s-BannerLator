@@ -2,6 +2,7 @@ package com.winlator.star.store
 
 import android.content.Context
 import android.util.Log
+import com.winlator.star.R
 import com.winlator.star.container.Container
 import com.winlator.star.container.Shortcut
 import com.winlator.star.core.WinePath
@@ -51,12 +52,42 @@ object UbisoftSupport {
      */
     const val CHAIN_VALUE = "UbisoftGameLauncher.exe;upc.exe"
 
+    /**
+     * `WINEDLLOVERRIDES` entry that stops Ubisoft Connect loading Wine's stubbed builtin `windows.ui.dll`. `upc.exe`
+     * (a 32-bit CEF app) calls the stubbed `UISettings.TextScaleFactor` over and over, each call deeper on the stack,
+     * until it dies with EXCEPTION_STACK_OVERFLOW and the game never starts; with the dll disabled the WinRT
+     * activation fails cleanly instead, as the missing `ToastNotificationManager` class already does.
+     */
+    const val WINE_DLL_OVERRIDE = "windows.ui=d"
+
+    /**
+     * [existing] (a `WINEDLLOVERRIDES` value, entries split by `;`) with [WINE_DLL_OVERRIDE] appended once. Returned
+     * unchanged when `windows.ui` is already named in it (the user's own entry wins).
+     */
+    @JvmStatic
+    fun mergeDllOverrides(existing: String): String {
+        val key = WINE_DLL_OVERRIDE.substringBefore('=')
+        val named = existing.split(';').any { entry ->
+            entry.substringBefore('=').split(',').any { it.trim().removeSuffix(".dll").equals(key, ignoreCase = true) }
+        }
+        if (named) return existing
+        val kept = existing.trim().trimEnd(';')
+        return if (kept.isEmpty()) WINE_DLL_OVERRIDE else "$kept;$WINE_DLL_OVERRIDE"
+    }
+
     // ---- Detection ------------------------------------------------------------------------------
 
-    /** True for a "Run Process" exe that is Ubisoft's launcher installer. */
+    /** True for a "Run Process" exe that is Ubisoft's launcher installer (judged by the file name, not the folders). */
     @JvmStatic
-    fun isInstaller(processPath: String): Boolean =
-        INSTALLER_NAMES.any { processPath.contains(it.removeSuffix(".exe"), ignoreCase = true) }
+    fun isInstaller(processPath: String): Boolean {
+        val fileName = processPath.substringAfterLast('\\').substringAfterLast('/')
+        return INSTALLER_NAMES.any { fileName.contains(it.removeSuffix(".exe"), ignoreCase = true) }
+    }
+
+    /** [processes] with Ubisoft's launcher installer first (order otherwise kept), so it is the step that gets run. */
+    @JvmStatic
+    fun installerFirst(processes: List<InstallScriptModel.RunProcess>): List<InstallScriptModel.RunProcess> =
+        processes.sortedByDescending { isInstaller(it.process) }
 
     /**
      * The launcher installer a depot bundles, looked for in its root and up to three folders below it
@@ -75,13 +106,23 @@ object UbisoftSupport {
         return search(installDir, 0)
     }
 
-    /** Null = not a Ubisoft title; otherwise true. Detected from the depot's files, so no tag is needed. */
+    /**
+     * True when the depot's files alone say Ubisoft: a launcher loader in its root or a bundled launcher installer.
+     * File-only on purpose ([InstallScriptExecutor.locateScript] uses it to accept `<appId>_install.vdf`).
+     */
     @JvmStatic
-    fun detect(installDir: File?): Boolean {
+    fun hasLauncherFiles(installDir: File?): Boolean {
         if (installDir == null || !installDir.isDirectory) return false
         val root = installDir.listFiles() ?: return false
         if (root.any { f -> f.isFile && LOADER_PREFIXES.any { f.name.startsWith(it, ignoreCase = true) } }) return true
-        if (bundledInstaller(installDir) != null) return true
+        return bundledInstaller(installDir) != null
+    }
+
+    /** True for a Ubisoft title, detected from the depot's files (and its install script), so no tag is needed. */
+    @JvmStatic
+    fun detect(installDir: File?): Boolean {
+        if (installDir == null || !installDir.isDirectory) return false
+        if (hasLauncherFiles(installDir)) return true
         val script = InstallScriptExecutor.locateScript(installDir) ?: return false
         if (script.length() > 512 * 1024) return false
         return try {
@@ -107,11 +148,25 @@ object UbisoftSupport {
         return dir.isDirectory && LAUNCHER_EXES.any { File(dir, it).isFile }
     }
 
+    /**
+     * True when the depot has something that installs the launcher: a bundled installer, or an install-script
+     * "Run Process" step that runs one. Without either, a setup session would have nothing to run.
+     */
+    @JvmStatic
+    fun hasInstallableLauncher(installDir: File): Boolean {
+        if (bundledInstaller(installDir) != null) return true
+        val script = InstallScriptExecutor.locateScript(installDir) ?: return false
+        if (script.length() > 512 * 1024) return false
+        return try {
+            InstallScriptModel.parse(script.readText()).runProcesses.any { isInstaller(it.process) }
+        } catch (e: Exception) { false }
+    }
+
     /** True when [shortcut] is a Ubisoft title whose container still has no Ubisoft Connect (run [startSetup] first). */
     @JvmStatic
     fun needsSetup(shortcut: Shortcut): Boolean {
         val installDir = EaSupport.installDirOf(shortcut) ?: return false
-        return detect(installDir) && !launcherInstalled(shortcut.container)
+        return detect(installDir) && hasInstallableLauncher(installDir) && !launcherInstalled(shortcut.container)
     }
 
     /**
@@ -121,15 +176,15 @@ object UbisoftSupport {
     @JvmStatic
     fun startSetup(context: Context, shortcut: Shortcut): String? {
         val installDir = EaSupport.installDirOf(shortcut)
-            ?: return "Couldn't locate the game's install folder (${shortcut.path})"
+            ?: return context.getString(R.string.ubisoft_setup_no_folder, shortcut.path)
         // runForShortcut finds the depot from the exe's steam_games/steamapps segment, so prefer a path inside it.
         val resolved = runCatching { WinePath.resolveAndroidPath(shortcut.container, shortcut.path)?.absolutePath }.getOrNull()
         val exe = resolved?.takeIf { InstallScriptExecutor.locateInstallDir(File(it)) != null }
             ?: File(installDir, shortcut.path.replace('\\', '/').substringAfterLast('/')).absolutePath
         val appId = runCatching { EaSupport.resolveSteamAppId(shortcut, installDir) }.getOrDefault(0)
-        if (appId <= 0) return "Couldn't work out this game's Steam app id — re-add it from the Steam library"
-        InstallScriptExecutor.runForShortcut(context, shortcut.container, appId, exe, true)
-        return null
+        if (appId <= 0) return context.getString(R.string.ubisoft_setup_no_app_id)
+        val started = InstallScriptExecutor.runForShortcut(context, shortcut.container, appId, exe, true)
+        return if (started) null else context.getString(R.string.ubisoft_setup_not_started)
     }
 
     // ---- Overlay --------------------------------------------------------------------------------
