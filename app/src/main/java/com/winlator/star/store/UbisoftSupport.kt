@@ -42,6 +42,15 @@ object UbisoftSupport {
 
     private const val SETUP_NAME = "Ubisoft Connect PC Client"
 
+    /**
+     * Agent launcher-chain exe names (`WN_STEAM_LAUNCH_CHAIN`, SteamLite v6 / agent p5). Steam starts the game
+     * as `<game>.exe -uplay_steam_mode`; that stub starts `UbisoftGameLauncher.exe`, exits about 11 seconds later,
+     * and Ubisoft Connect (`upc.exe`) then starts the real game. Without the chain the agent reads the stub's
+     * exit as "game exited" and ends the session before `upc.exe` ever starts (device log, AC4 Black Flag).
+     * Only the two hand-off exes: `UplayService`/`UplayWebCore` stay resident and would hold the session.
+     */
+    const val CHAIN_VALUE = "UbisoftGameLauncher.exe;upc.exe"
+
     // ---- Detection ------------------------------------------------------------------------------
 
     /** True for a "Run Process" exe that is Ubisoft's launcher installer. */
