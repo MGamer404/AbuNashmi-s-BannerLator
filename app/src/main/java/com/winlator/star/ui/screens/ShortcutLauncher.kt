@@ -18,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -44,12 +45,14 @@ import com.winlator.star.store.SteamLiteComponent
 import com.winlator.star.store.SteamLoginActivity
 import com.winlator.star.store.SteamPrefs
 import com.winlator.star.store.SteamSessionManager
+import com.winlator.star.store.UbisoftInstallerDownload
 import com.winlator.star.store.UbisoftSupport
 import com.winlator.star.store.steamscript.InstallScriptExecutor
 import com.winlator.star.ui.DeckDialogBars
 import com.winlator.star.ui.DeckDialogScaled
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -90,6 +93,15 @@ class ShortcutLauncher internal constructor(
     // Ubisoft support (see UbisoftSupport): a Ubisoft title whose container has no Ubisoft Connect yet.
     internal var ubisoftSetupFor by mutableStateOf<Shortcut?>(null)
     internal var ubisoftSetupBusy by mutableStateOf(false)
+    // The "download" variant of that dialog (an Epic game that bundles no installer): Ubisoft's own installer is
+    // fetched first. Progress in bytes (total 0 = connecting), a Cancel in flight, the last failure to show, and
+    // the handle that aborts the transfer.
+    internal var ubisoftSetupDownload by mutableStateOf(false)
+    internal var ubisoftDownloadDone by mutableLongStateOf(0L)
+    internal var ubisoftDownloadTotal by mutableLongStateOf(0L)
+    internal var ubisoftSetupCancelling by mutableStateOf(false)
+    internal var ubisoftSetupError by mutableStateOf<String?>(null)
+    private var ubisoftDownloadHandle: UbisoftInstallerDownload.Handle? = null
     // SteamLite launch pre-flight (session → network → cloud saves → update check, BEFORE the container opens):
     // the RealSteam game whose "Getting Steam ready" dialog is up (null = none). Every RealSteam
     // launch — the popup pick and a remembered pick — routes through it; Goldberg/Raw never do.
@@ -309,16 +321,79 @@ class ShortcutLauncher internal constructor(
                 return
             }
         }
+        // Epic titles that need Ubisoft Connect (Assassin's Creed Syndicate...) get the same one-time setup. A game
+        // stamped "not Ubisoft" (nearly all of them) carries straight on without touching the disk; one without a
+        // stamp yet is looked at once, off the main thread, and the answer is saved on the shortcut.
+        if (UbisoftSupport.isEpicShortcut(shortcut)) {
+            if (UbisoftSupport.epicStamp(shortcut) == false) { launchPastSetupChecks(shortcut); return }
+            eaScope.launch {
+                val setup = withContext(Dispatchers.IO) {
+                    runCatching { UbisoftSupport.epicSetupFor(context, shortcut) }.getOrDefault(UbisoftSupport.EpicSetup.NONE)
+                }
+                if (setup == UbisoftSupport.EpicSetup.NONE) launchPastSetupChecks(shortcut)
+                else offerUbisoftSetup(shortcut, download = setup == UbisoftSupport.EpicSetup.DOWNLOAD)
+            }
+            return
+        }
         // Ubisoft-published Steam titles (Assassin's Creed...) start Ubisoft Connect themselves, so it has to be in
         // the prefix first: offer the one-time setup, otherwise carry on with the normal launch flow.
         if (isSteamOriginShortcut(shortcut)) {
             eaScope.launch {
                 val needsSetup = withContext(Dispatchers.IO) { runCatching { UbisoftSupport.needsSetup(shortcut) }.getOrDefault(false) }
-                if (needsSetup) ubisoftSetupFor = shortcut else launchPastSetupChecks(shortcut)
+                if (needsSetup) offerUbisoftSetup(shortcut, download = false) else launchPastSetupChecks(shortcut)
             }
             return
         }
         launchPastSetupChecks(shortcut)
+    }
+
+    /** Opens the Ubisoft Connect setup dialog for [shortcut]; [download] = the game has no installer, so Ubisoft's own is fetched first. */
+    private fun offerUbisoftSetup(shortcut: Shortcut, download: Boolean) {
+        ubisoftSetupDownload = download
+        ubisoftSetupError = null
+        ubisoftSetupCancelling = false
+        ubisoftDownloadDone = 0L
+        ubisoftDownloadTotal = 0L
+        ubisoftSetupFor = shortcut
+    }
+
+    /**
+     * The dialog's "Download and set up": fetches Ubisoft's installer (off the main thread) and hands it to the setup
+     * stage. A failure stays on the dialog so the user can retry or launch anyway; [cancelUbisoftDownload] aborts.
+     */
+    internal fun runUbisoftDownloadSetup(s: Shortcut) {
+        val handle = UbisoftInstallerDownload.Handle()
+        ubisoftDownloadHandle = handle
+        ubisoftSetupBusy = true
+        ubisoftSetupCancelling = false
+        ubisoftSetupError = null
+        ubisoftDownloadDone = 0L
+        ubisoftDownloadTotal = 0L
+        eaScope.launch {
+            val problem = withContext(Dispatchers.IO) {
+                try {
+                    UbisoftSupport.startSetupWithDownload(context, s.container, handle) { done, total ->
+                        ubisoftDownloadDone = done
+                        ubisoftDownloadTotal = total
+                        // The screen went away mid-download: stop the transfer instead of finishing it unseen.
+                        if (!isActive) handle.cancel()
+                    }
+                } catch (t: Throwable) {
+                    android.util.Log.w("ShortcutsScreen", "Ubisoft download setup failed", t)
+                    context.getString(R.string.ubisoft_setup_failed)
+                }
+            }
+            ubisoftDownloadHandle = null
+            ubisoftSetupBusy = false
+            ubisoftSetupCancelling = false
+            if (problem != null && !handle.cancelled) ubisoftSetupError = problem else ubisoftSetupFor = null
+        }
+    }
+
+    /** Cancel on the download dialog: aborts the transfer (the partial file is deleted); the dialog closes once it has stopped. */
+    internal fun cancelUbisoftDownload() {
+        ubisoftSetupCancelling = true
+        ubisoftDownloadHandle?.cancel()
     }
 
     /** The rest of [requestLaunch] once EA / Ubisoft have had their say: the launch-method popup or the remembered pick. */
@@ -474,38 +549,84 @@ fun ShortcutLaunchDialogs(launcher: ShortcutLauncher, onRemove: (Shortcut) -> Bo
         )
     }
     launcher.ubisoftSetupFor?.let { s ->
+        val download = launcher.ubisoftSetupDownload
+        val busy = launcher.ubisoftSetupBusy
         AlertDialog(
-            onDismissRequest = { if (!launcher.ubisoftSetupBusy) launcher.ubisoftSetupFor = null },
+            onDismissRequest = { if (!busy) launcher.ubisoftSetupFor = null },
             title = { Text(stringResource(R.string.ubisoft_setup_title)) },
-            text = { Text(stringResource(R.string.ubisoft_setup_message, s.name ?: "")) },
+            text = {
+                Column {
+                    if (download) Text(stringResource(R.string.ubisoft_download_message, s.name ?: "", UbisoftInstallerDownload.APPROX_MB))
+                    else Text(stringResource(R.string.ubisoft_setup_message, s.name ?: ""))
+                    if (download && busy) {
+                        val done = launcher.ubisoftDownloadDone
+                        val total = launcher.ubisoftDownloadTotal
+                        Spacer(Modifier.height(12.dp))
+                        if (total > 0L) {
+                            LinearProgressIndicator(
+                                progress = { (done.toFloat() / total).coerceIn(0f, 1f) },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        } else {
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            if (total > 0L) stringResource(
+                                R.string.ubisoft_download_progress,
+                                (done / (1024 * 1024)).toInt(), (total / (1024 * 1024)).toInt(), (done * 100 / total).toInt(),
+                            ) else stringResource(R.string.ubisoft_download_connecting),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    launcher.ubisoftSetupError?.let { error ->
+                        Spacer(Modifier.height(12.dp))
+                        Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            },
             confirmButton = {
                 DeckDialogBars()
                 DeckDialogScaled {
-                    TextButton(enabled = !launcher.ubisoftSetupBusy, onClick = {
-                        launcher.ubisoftSetupBusy = true
-                        launcher.eaScope.launch {
-                            val problem = withContext(Dispatchers.IO) {
-                                try { UbisoftSupport.startSetup(context, s) }
-                                catch (t: Throwable) {
-                                    android.util.Log.w("ShortcutsScreen", "Ubisoft setup failed", t)
-                                    context.getString(R.string.ubisoft_setup_failed)
+                    TextButton(enabled = !busy, onClick = {
+                        if (download) {
+                            launcher.runUbisoftDownloadSetup(s)
+                        } else {
+                            launcher.ubisoftSetupBusy = true
+                            launcher.eaScope.launch {
+                                val problem = withContext(Dispatchers.IO) {
+                                    try { UbisoftSupport.startSetup(context, s) }
+                                    catch (t: Throwable) {
+                                        android.util.Log.w("ShortcutsScreen", "Ubisoft setup failed", t)
+                                        context.getString(R.string.ubisoft_setup_failed)
+                                    }
                                 }
+                                if (problem != null) Toast.makeText(context, problem, Toast.LENGTH_LONG).show()
+                                launcher.ubisoftSetupBusy = false
+                                launcher.ubisoftSetupFor = null
                             }
-                            if (problem != null) Toast.makeText(context, problem, Toast.LENGTH_LONG).show()
-                            launcher.ubisoftSetupBusy = false
-                            launcher.ubisoftSetupFor = null
                         }
-                    }) { Text(stringResource(if (launcher.ubisoftSetupBusy) R.string.ubisoft_setup_starting else R.string.ubisoft_setup_confirm)) }
+                    }) {
+                        Text(stringResource(when {
+                            !busy -> if (download) R.string.ubisoft_download_confirm else R.string.ubisoft_setup_confirm
+                            download -> R.string.ubisoft_download_downloading
+                            else -> R.string.ubisoft_setup_starting
+                        }))
+                    }
                 }
             },
             dismissButton = {
                 Row {
-                    TextButton(enabled = !launcher.ubisoftSetupBusy, onClick = {
+                    TextButton(enabled = !busy, onClick = {
                         launcher.ubisoftSetupFor = null
                         launcher.launchPastSetupChecks(s)
                     }) { Text(stringResource(R.string.ubisoft_setup_launch_anyway)) }
-                    TextButton(enabled = !launcher.ubisoftSetupBusy, onClick = { launcher.ubisoftSetupFor = null }) {
-                        Text(stringResource(android.R.string.cancel))
+                    // While the installer downloads, Cancel aborts the transfer; the dialog closes once it has stopped.
+                    TextButton(enabled = !busy || (download && !launcher.ubisoftSetupCancelling), onClick = {
+                        if (busy) launcher.cancelUbisoftDownload() else launcher.ubisoftSetupFor = null
+                    }) {
+                        Text(stringResource(if (launcher.ubisoftSetupCancelling) R.string.ubisoft_download_cancelling else android.R.string.cancel))
                     }
                 }
             },

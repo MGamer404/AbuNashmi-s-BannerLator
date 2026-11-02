@@ -3331,6 +3331,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
                         applyGameRefreshRateUnlock();
                         applyColorCursorRegistry();
                         applyTahomaFontFallback();
+                        applyUbisoftInstallRecord();
                         provisionEpicOverlay();
                         stage[0] = "Preparing the Xbox game";
                         prepareXboxLaunch();
@@ -11454,6 +11455,9 @@ public class XServerDisplayActivity extends AppCompatActivity {
             if (shortcut != null) {
                 com.winlator.star.store.EpicGameFixes.applyEnv(this, shortcut, envVars);
                 com.winlator.star.store.EpicGameFixes.applyPreLaunch(this, shortcut);
+                // Epic game that needs Ubisoft Connect: its overlay hooks dxgi.dll, so turn it off (a stamp read
+                // for every other Epic game, a no-op until Connect is installed in this container).
+                com.winlator.star.store.UbisoftSupport.applyEpicPreLaunch(this, container, shortcut);
             }
 
             // Xbox store game: the bridge port/key, service socket, save-sync mode and PlayFab token for the
@@ -11463,25 +11467,6 @@ public class XServerDisplayActivity extends AppCompatActivity {
                 String overrides = envVars.has("WINEDLLOVERRIDES") ? envVars.get("WINEDLLOVERRIDES") : "";
                 String xbox = xboxLaunch.getOverrides();
                 envVars.put("WINEDLLOVERRIDES", overrides.isEmpty() ? xbox : xbox + ";" + overrides);
-            }
-
-            // Ubisoft title (SteamLite/RealSteam, Goldberg or a raw exe, anything that runs it under Wine):
-            // upc.exe overflows its stack in Wine's stubbed windows.ui UISettings.TextScaleFactor, so
-            // windows.ui is disabled and the WinRT activation fails cleanly. Detection reads the depot's
-            // files, which is fine here (launch worker thread); a windows.ui entry of the user's is kept.
-            if (shortcut != null && isGenuineSteamShortcut()) {
-                try {
-                    if (com.winlator.star.store.UbisoftSupport.detect(com.winlator.star.store.EaSupport.installDirOf(shortcut))) {
-                        String before = envVars.has("WINEDLLOVERRIDES") ? envVars.get("WINEDLLOVERRIDES") : "";
-                        String after = com.winlator.star.store.UbisoftSupport.mergeDllOverrides(before);
-                        if (!after.equals(before)) envVars.put("WINEDLLOVERRIDES", after);
-                        logSessionLine("ubisoft", after.equals(before)
-                                ? "WINEDLLOVERRIDES: yours kept for windows.ui"
-                                : "WINEDLLOVERRIDES += " + com.winlator.star.store.UbisoftSupport.WINE_DLL_OVERRIDE);
-                    }
-                } catch (Throwable t) {
-                    Log.w("XServerDisplayActivity", "Ubisoft windows.ui override failed", t);
-                }
             }
 
             // Real-Steam (VAC) launch (feature M3) — ENV injection. The staging + plan was built above by
@@ -16645,6 +16630,15 @@ return true;
     private void applyTahomaFontFallback() {
         com.winlator.star.core.WineFontFallback.ensureTahomaReplacement(
                 new File(imageFs.getRootDir(), ImageFs.WINEPREFIX + "/user.reg"));
+    }
+
+    // An Epic build of a Ubisoft game: Ubisoft Connect has no record that it is installed and offers to download it
+    // again (what "Locate installed game" fixes by hand). Writes the keys Locate writes into system.reg, from the game's
+    // uplay_install.state. Every launch, same slot as the registry tweaks above: the prefix is prepared and no Wine
+    // process runs yet, so wineserver cannot overwrite the file. A stamp read for every other game.
+    private void applyUbisoftInstallRecord() {
+        if (shortcut == null || container == null) return;
+        com.winlator.star.store.UbisoftSupport.registerEpicInstall(this, container, shortcut);
     }
 
     // After both user env merges (container + shortcut), unlike the renderer setup, which runs first.

@@ -408,6 +408,17 @@ public final class StarLaunchBridge {
                     if (EpicEosDetector.hasBeenScanned(activity, epic.appName)) {
                         content += "eos=" + (EpicEosDetector.isEosCached(activity, epic.appName) ? "1" : "0") + "\n";
                     }
+                    // Ubisoft Connect titles (Assassin's Creed Syndicate...): stamp it now, on this worker thread,
+                    // so a launch only ever reads it. Left unset when the folder is not found; the launch looks once.
+                    try {
+                        java.io.File epicDir = EpicCloudSavePaths.INSTANCE.installDir(activity, epic.appName);
+                        if (epicDir != null && epicDir.isDirectory()) {
+                            content += com.winlator.star.store.UbisoftSupport.EXTRA_UBISOFT + "="
+                                    + (com.winlator.star.store.UbisoftSupport.hasLauncherFiles(epicDir) ? "1" : "0") + "\n";
+                        }
+                    } catch (Throwable t) {
+                        Log.w(TAG, "Ubisoft detection at shortcut write failed for " + gameName, t);
+                    }
                 } else if (storeSource != null && storeSource.startsWith("xbox:")) {
                     // Xbox: the product id travels with the shortcut; at launch XServerDisplayActivity
                     // prepares a licensed launch view for it and starts that view's executable.
