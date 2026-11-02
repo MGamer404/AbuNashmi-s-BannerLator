@@ -59,6 +59,15 @@ public class EpicDownloadManager {
     private static final String TAG = "BH_EPIC";
     private static final String UA  = "UELauncher/11.0.1-14907503+++Portal+Release-Live Windows/10.0.19041.1.256.64bit";
 
+    /**
+     * Short, user-visible reason for the last {@link #install} failure (e.g. "manifest refused by
+     * CDN (HTTP 403)"), or null when the last install did not fail / was cancelled. Reset at the start
+     * of every install and set at each non-cancel {@code return false}; read it right after
+     * {@code install()} returns false. Never contains URLs or tokens. Shared static: with two
+     * installs running at once the latest writer wins.
+     */
+    public static volatile String lastFailureReason = null;
+
     // ── Public interface ──────────────────────────────────────────────────────
 
     public interface ProgressCallback {
@@ -248,6 +257,7 @@ public class EpicDownloadManager {
             List<String> installTags,
             AtomicBoolean cancelFlag,
             ProgressCallback progressCallback) {
+        lastFailureReason = null;
         StringBuilder dbg = new StringBuilder();
         dbg.append("=== BH Epic Debug ===\n");
         dbg.append("installDirPath=").append(installDirPath).append("\n");
@@ -260,6 +270,7 @@ public class EpicDownloadManager {
                 dbg.append("ERROR: No CDN URLs in manifest API response\n");
                 writeDebug(ctx, dbg);
                 Log.e(TAG, "No CDN URLs in manifest API response");
+                lastFailureReason = "no CDN URLs in manifest response";
                 return false;
             }
             for (CdnUrl c : cdnUrls) {
@@ -271,11 +282,13 @@ public class EpicDownloadManager {
 
             if (isCancelled(cancelFlag)) return cancelOut(ctx, dbg, "after CDN parse");
             progress(progressCallback, "Downloading manifest...", 0);
-            byte[] manifestBytes = downloadManifest(manifestApiJson, cdnUrls);
+            List<Integer> manifestStatuses = new ArrayList<>();
+            byte[] manifestBytes = downloadManifest(manifestApiJson, cdnUrls, dbg, manifestStatuses);
             if (manifestBytes == null) {
-                dbg.append("ERROR: Manifest binary download failed\n");
+                lastFailureReason = manifestFailureReason(manifestStatuses);
+                dbg.append("ERROR: Manifest binary download failed (").append(lastFailureReason).append(")\n");
                 writeDebug(ctx, dbg);
-                Log.e(TAG, "Manifest binary download failed");
+                Log.e(TAG, "Manifest binary download failed: " + lastFailureReason);
                 return false;
             }
             dbg.append("manifestBytes=").append(manifestBytes.length).append("\n");
@@ -288,6 +301,7 @@ public class EpicDownloadManager {
                 dbg.append("ERROR: Manifest parse failed\n");
                 writeDebug(ctx, dbg);
                 Log.e(TAG, "Manifest parse failed");
+                lastFailureReason = "manifest could not be parsed";
                 return false;
             }
             manifest.cdnUrls = cdnUrls;
@@ -384,6 +398,7 @@ public class EpicDownloadManager {
             // OFF or the engine could not start (library missing, plan cross-check failed) —
             // nothing has been fetched in that case, so falling through is safe.
             boolean useJavaPool = true;
+            String engineError = null;
             if (com.winlator.star.store.blsteam.BlStoreEngineFlag.isEpicEnabled(ctx)) {
                 RustPoolResult rr = runRustChunkPool(ctx, dbg, manifestBytes, manifest, pendingFiles,
                         neededChunks, fTotalBytes, installDirPath, cdnUrls, cancelFlag, progressCallback,
@@ -402,6 +417,7 @@ public class EpicDownloadManager {
                         // Surfaces through the shared "N chunks failed" exit below, like a Java
                         // chunk that exhausted every CDN.
                         chunkLog.add("FAIL engine=rust " + rr.error);
+                        engineError = rr.error;
                         failCount.incrementAndGet();
                     }
                 } else {
@@ -468,6 +484,7 @@ public class EpicDownloadManager {
                     pool.shutdownNow();
                     dbg.append("ERROR: chunk pool interrupted\n");
                     writeDebug(ctx, dbg);
+                    lastFailureReason = "download interrupted";
                     return false;
                 }
             }
@@ -487,6 +504,13 @@ public class EpicDownloadManager {
                 dbg.append("ERROR: ").append(failCount.get()).append(" chunks failed\n");
                 writeDebug(ctx, dbg);
                 Log.e(TAG, failCount.get() + " chunks failed to download");
+                if (engineError != null) {
+                    String why = engineError.length() > 120 ? engineError.substring(0, 120) : engineError;
+                    lastFailureReason = why.isEmpty() ? "chunk download failed (native engine)"
+                            : "chunk download failed (native engine: " + why + ")";
+                } else {
+                    lastFailureReason = failCount.get() + " chunk(s) could not be downloaded from any CDN";
+                }
                 return false;
             }
             dbg.append("chunksOK=").append(completedCount.get()).append("\n");
@@ -522,6 +546,7 @@ public class EpicDownloadManager {
                                .append(" for ").append(relPath).append("\n");
                             writeDebug(ctx, dbg);
                             Log.e(TAG, "Missing cached chunk " + part.guidStr() + " for " + relPath);
+                            lastFailureReason = "missing downloaded chunk while writing " + displayName;
                             return false;
                         }
                         byte[] chunkData = readFile(cachedChunk);
@@ -542,6 +567,7 @@ public class EpicDownloadManager {
             dbg.append("EXCEPTION: ").append(e).append("\n");
             writeDebug(ctx, dbg);
             Log.e(TAG, "Epic install failed", e);
+            lastFailureReason = "unexpected error (" + e.getClass().getSimpleName() + ")";
             return false;
         }
     }
@@ -684,28 +710,21 @@ public class EpicDownloadManager {
     /**
      * Extract all CDN entries from the manifest API JSON.
      * Skips cloudflare.epicgamescdn.com.
+     *
+     * The wrapper is read with org.json (never sliced by hand): EpicApiClient re-serializes the API
+     * response with org.json, which escapes every "/" as "\/", so URLs and the signed query values
+     * must be unescaped by a real parser or the manifest request carries literal backslashes.
      */
     public static List<CdnUrl> parseCdnUrls(String json) {
         List<CdnUrl> result = new ArrayList<>();
         try {
-            int manifestsIdx = json.indexOf("\"manifests\"");
-            if (manifestsIdx < 0) return result;
-            int arrStart = json.indexOf("[", manifestsIdx);
-            if (arrStart < 0) return result;
+            JSONArray manifests = manifestsArray(json);
+            if (manifests == null) return result;
 
-            int cursor = arrStart + 1;
-            while (true) {
-                int uriKeyIdx = json.indexOf("\"uri\"", cursor);
-                if (uriKeyIdx < 0) break;
-
-                int colon = json.indexOf(":", uriKeyIdx + 5);
-                if (colon < 0) break;
-                int q1 = json.indexOf("\"", colon + 1);
-                if (q1 < 0) break;
-                int q2 = json.indexOf("\"", q1 + 1);
-                if (q2 < 0) break;
-                String uri = json.substring(q1 + 1, q2);
-                cursor = q2 + 1;
+            for (int i = 0; i < manifests.length(); i++) {
+                JSONObject m = manifests.optJSONObject(i);
+                if (m == null) continue;
+                String uri = m.optString("uri", "");
 
                 int buildsIdx = uri.indexOf("/Builds");
                 if (buildsIdx < 0) continue;
@@ -721,7 +740,7 @@ public class EpicDownloadManager {
                 if (lastSlash < 0) continue;
                 String cloudDir = afterBase.substring(0, lastSlash);
 
-                String authParams = extractQueryParams(json, uriKeyIdx);
+                String authParams = buildAuthParams(m.optJSONArray("queryParams"));
                 result.add(new CdnUrl(baseUrl, cloudDir, authParams));
             }
         } catch (Exception e) {
@@ -730,51 +749,78 @@ public class EpicDownloadManager {
         return result;
     }
 
-    private static String extractQueryParams(String json, int nearPos) {
-        try {
-            int end    = Math.min(json.length(), nearPos + 2000);
-            int qpIdx  = json.indexOf("\"queryParams\"", nearPos);
-            if (qpIdx < 0 || qpIdx > end) return "";
-            int arrOpen  = json.indexOf("[", qpIdx);
-            if (arrOpen < 0) return "";
-            int arrClose = json.indexOf("]", arrOpen);
-            if (arrClose < 0) return "";
-            String arrContent = json.substring(arrOpen + 1, arrClose).trim();
-            if (arrContent.isEmpty()) return "";
+    /** The wrapper's top-level "manifests" array, or null when absent. Throws on malformed JSON. */
+    private static JSONArray manifestsArray(String json) throws org.json.JSONException {
+        if (json == null) return null;
+        return new JSONObject(json).optJSONArray("manifests");
+    }
 
-            StringBuilder sb = new StringBuilder("?");
-            boolean first = true;
-            int pos = 0;
-            while (pos < arrContent.length()) {
-                int nameIdx = arrContent.indexOf("\"name\"", pos);
-                if (nameIdx < 0) break;
-                int nColon = arrContent.indexOf(":", nameIdx + 6);
-                if (nColon < 0) break;
-                int nq1 = arrContent.indexOf("\"", nColon + 1);
-                if (nq1 < 0) break;
-                int nq2 = arrContent.indexOf("\"", nq1 + 1);
-                if (nq2 < 0) break;
-                String name = arrContent.substring(nq1 + 1, nq2);
-
-                int valIdx = arrContent.indexOf("\"value\"", nq2);
-                if (valIdx < 0) break;
-                int vColon = arrContent.indexOf(":", valIdx + 7);
-                if (vColon < 0) break;
-                int vq1 = arrContent.indexOf("\"", vColon + 1);
-                if (vq1 < 0) break;
-                int vq2 = arrContent.indexOf("\"", vq1 + 1);
-                if (vq2 < 0) break;
-                String value = arrContent.substring(vq1 + 1, vq2);
-
-                if (!first) sb.append("&");
-                sb.append(name).append("=").append(value);
-                first = false;
-                pos = vq2 + 1;
-            }
-            return first ? "" : sb.toString();
-        } catch (Exception e) {
-            return "";
+    /**
+     * "?name=value&name2=value2" from a queryParams array of {name,value}, or "" when empty.
+     * Values are used exactly as the API gives them (after JSON unescape), like Legendary does:
+     * signed tokens may legitimately contain "/", "+", "=", "~", "%", so only characters that are
+     * illegal in a URL query (space, quotes, "#", non-ASCII, ...) are percent-encoded.
+     */
+    private static String buildAuthParams(JSONArray queryParams) {
+        if (queryParams == null || queryParams.length() == 0) return "";
+        StringBuilder sb = new StringBuilder("?");
+        boolean first = true;
+        for (int i = 0; i < queryParams.length(); i++) {
+            JSONObject p = queryParams.optJSONObject(i);
+            if (p == null) continue;
+            String name = p.optString("name", "");
+            if (name.isEmpty()) continue;
+            String value = p.optString("value", "");
+            if (!first) sb.append("&");
+            sb.append(name).append("=").append(encodeIllegalQueryChars(value));
+            first = false;
         }
+        return first ? "" : sb.toString();
+    }
+
+    /**
+     * Percent-encode (UTF-8) only the characters that cannot appear raw in a URL query. RFC 3986
+     * unreserved + sub-delims + ":", "@", "/", "?" and "%" (so already-encoded values stay intact)
+     * are left exactly as given.
+     */
+    private static String encodeIllegalQueryChars(String value) {
+        StringBuilder sb = null;
+        byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
+        for (int i = 0; i < bytes.length; i++) {
+            int c = bytes[i] & 0xFF;
+            boolean keep = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+                    || "-._~!$&'()*+,;=:@/?%".indexOf(c) >= 0;
+            if (keep) {
+                if (sb != null) sb.append((char) c);
+            } else {
+                if (sb == null) {
+                    sb = new StringBuilder();
+                    for (int j = 0; j < i; j++) sb.append((char) (bytes[j] & 0xFF));
+                }
+                sb.append('%').append(Character.toUpperCase(Character.forDigit(c >> 4, 16)))
+                  .append(Character.toUpperCase(Character.forDigit(c & 0xF, 16)));
+            }
+        }
+        return sb == null ? value : sb.toString();
+    }
+
+    /** Parameter NAMES only of an authParams string ("?a=1&b=2" -> [a, b]) — safe to log. */
+    private static List<String> queryParamNames(String authParams) {
+        List<String> names = new ArrayList<>();
+        if (authParams == null || authParams.length() < 2) return names;
+        for (String pair : authParams.substring(1).split("&")) {
+            int eq = pair.indexOf('=');
+            names.add(eq >= 0 ? pair.substring(0, eq) : pair);
+        }
+        return names;
+    }
+
+    /** Host part of a CDN base URL ("https://host" -> "host") for diagnostics. */
+    private static String hostOf(String baseUrl) {
+        int s = baseUrl.indexOf("://");
+        String h = s >= 0 ? baseUrl.substring(s + 3) : baseUrl;
+        int slash = h.indexOf('/');
+        return slash >= 0 ? h.substring(0, slash) : h;
     }
 
     // ── Manifest download ─────────────────────────────────────────────────────
@@ -784,18 +830,28 @@ public class EpicDownloadManager {
      * Auth tokens (queryParams) are appended to the manifest URL — but NOT to chunk URLs.
      */
     public static byte[] downloadManifest(String json, List<CdnUrl> cdnUrls) {
+        return downloadManifest(json, cdnUrls, null, null);
+    }
+
+    /**
+     * Same as {@link #downloadManifest(String, List)}, plus diagnostics: per CDN attempt it appends
+     * {@code manifest cdn=<host> http=<code>}, {@code manifest url-has-backslash=<bool>} and the
+     * query-param NAMES (never values) to {@code dbg}, and adds the HTTP status of every attempt
+     * (-1 = no response / exception) to {@code statusOut}. Either may be null.
+     */
+    public static byte[] downloadManifest(String json, List<CdnUrl> cdnUrls,
+                                          StringBuilder dbg, List<Integer> statusOut) {
         try {
-            int manifestsIdx = json.indexOf("\"manifests\"");
-            if (manifestsIdx < 0) return null;
-            int uriIdx = json.indexOf("\"uri\"", manifestsIdx);
-            if (uriIdx < 0) return null;
-            int colon = json.indexOf(":", uriIdx + 5);
-            if (colon < 0) return null;
-            int q1 = json.indexOf("\"", colon + 1);
-            if (q1 < 0) return null;
-            int q2 = json.indexOf("\"", q1 + 1);
-            if (q2 < 0) return null;
-            String firstUri = json.substring(q1 + 1, q2);
+            JSONArray manifests = manifestsArray(json);
+            if (manifests == null) return null;
+            String firstUri = null;
+            for (int i = 0; i < manifests.length(); i++) {
+                JSONObject m = manifests.optJSONObject(i);
+                if (m == null) continue;
+                String u = m.optString("uri", "");
+                if (!u.isEmpty()) { firstUri = u; break; }
+            }
+            if (firstUri == null) return null;
 
             String uriPath = firstUri.contains("?") ? firstUri.substring(0, firstUri.indexOf("?")) : firstUri;
             int lastSlash = uriPath.lastIndexOf("/");
@@ -806,7 +862,20 @@ public class EpicDownloadManager {
             for (CdnUrl cdn : cdnUrls) {
                 String url = cdn.baseUrl + cdn.cloudDir + "/" + manifestFilename + cdn.authParams;
                 Log.i(TAG, "Trying manifest CDN: " + cdn.baseUrl);
-                byte[] bytes = downloadBytes(url, null);
+                HttpResult res = fetch(url, null);
+                if (statusOut != null) statusOut.add(res.status);
+                String host = hostOf(cdn.baseUrl);
+                Log.i(TAG, "manifest cdn=" + host + " http=" + res.status);
+                if (dbg != null) {
+                    dbg.append("manifest cdn=").append(host).append(" http=").append(res.status);
+                    if (!res.error.isEmpty()) dbg.append(" err=").append(res.error);
+                    if (res.body != null) dbg.append(" bytes=").append(res.body.length);
+                    dbg.append("\n");
+                    dbg.append("manifest url=").append(StoreLog.redactUrl(url)).append("\n");
+                    dbg.append("manifest url-has-backslash=").append(url.indexOf('\\') >= 0).append("\n");
+                    dbg.append("manifest queryParam names=").append(queryParamNames(cdn.authParams)).append("\n");
+                }
+                byte[] bytes = res.body;
                 if (bytes != null && bytes.length > 4) {
                     Log.i(TAG, "Manifest OK (" + bytes.length + " bytes) from " + cdn.baseUrl);
                     return bytes;
@@ -816,6 +885,32 @@ public class EpicDownloadManager {
             Log.e(TAG, "downloadManifest error: " + e.getClass().getSimpleName());
         }
         return null;
+    }
+
+    /**
+     * User-visible reason for a failed manifest download, from the per-CDN HTTP statuses
+     * ({@code -1} = no response). Never contains URLs or tokens.
+     */
+    private static String manifestFailureReason(List<Integer> statuses) {
+        if (statuses.isEmpty()) return "manifest URL could not be read";
+        Set<Integer> refused = new LinkedHashSet<>();
+        boolean got200 = false;
+        for (int s : statuses) {
+            if (s == 200) got200 = true;
+            else if (s > 0) refused.add(s);
+        }
+        if (!refused.isEmpty()) {
+            StringBuilder sb = new StringBuilder("manifest refused by CDN (HTTP ");
+            boolean first = true;
+            for (int s : refused) {
+                if (!first) sb.append(", ");
+                sb.append(s);
+                first = false;
+            }
+            return sb.append(")").toString();
+        }
+        if (got200) return "manifest response was empty or truncated";
+        return "manifest download failed (network error)";
     }
 
     // ── Manifest parsing ──────────────────────────────────────────────────────
@@ -1146,7 +1241,19 @@ public class EpicDownloadManager {
 
     // ── HTTP ──────────────────────────────────────────────────────────────────
 
+    /** Outcome of one GET: HTTP status (-1 = no response), body (null unless 200 and fully read), exception name. */
+    private static final class HttpResult {
+        int    status = -1;
+        byte[] body   = null;
+        String error  = "";
+    }
+
     public static byte[] downloadBytes(String urlStr, String bearerToken) {
+        return fetch(urlStr, bearerToken).body;
+    }
+
+    private static HttpResult fetch(String urlStr, String bearerToken) {
+        HttpResult res = new HttpResult();
         HttpURLConnection conn = null;
         try {
             conn = (HttpURLConnection) new URL(urlStr).openConnection();
@@ -1157,9 +1264,10 @@ public class EpicDownloadManager {
             if (bearerToken != null && !bearerToken.isEmpty())
                 conn.setRequestProperty("Authorization", bearerToken);
             int code = conn.getResponseCode();
+            res.status = code;
             if (code != 200) {
                 Log.w(TAG, "HTTP " + code + " for " + StoreLog.redactUrl(urlStr));
-                return null;
+                return res;
             }
             int contentLength = conn.getContentLength();
             ByteArrayOutputStream out = contentLength > 0
@@ -1170,10 +1278,12 @@ public class EpicDownloadManager {
             int n;
             while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
             in.close();
-            return out.toByteArray();
+            res.body = out.toByteArray();
+            return res;
         } catch (Exception e) {
-            Log.w(TAG, "downloadBytes error [" + StoreLog.redactUrl(urlStr) + "]: " + e.getClass().getSimpleName());
-            return null;
+            res.error = e.getClass().getSimpleName();
+            Log.w(TAG, "downloadBytes error [" + StoreLog.redactUrl(urlStr) + "]: " + res.error);
+            return res;
         } finally {
             if (conn != null) conn.disconnect();
         }
