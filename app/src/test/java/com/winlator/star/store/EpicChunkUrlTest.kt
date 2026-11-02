@@ -3,18 +3,19 @@ package com.winlator.star.store
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.util.zip.Deflater
 
 /**
- * Pure chunk-URL / failure-reason / ChunksV5 helpers of [EpicDownloadManager]. None of them touch
- * android.util.Log, so they run on the plain JVM. The ChunksV5 expectations were produced with
- * Legendary's formulas (struct '<Q' / '<IIII' + base64.urlsafe_b64encode + strip('=')).
+ * Chunk path / failure-reason helpers and the binary-manifest feature-level handling of
+ * [EpicDownloadManager]. None of it touches android.util.Log, so it runs on the plain JVM. The
+ * ChunksV5 expectations come from Legendary's formulas (struct '<Q' / '<IIII' +
+ * base64.urlsafe_b64encode + strip('=')).
  */
 class EpicChunkUrlTest {
 
@@ -30,34 +31,28 @@ class EpicChunkUrlTest {
         assertEquals("ChunksV4", EpicDownloadManager.chunkDirForVersion(21))
         assertEquals("ChunksV5", EpicDownloadManager.chunkDirForVersion(22))
         assertEquals("ChunksV5", EpicDownloadManager.chunkDirForVersion(24))
-        assertTrue(EpicDownloadManager.isChunksV5("ChunksV5"))
-        assertFalse(EpicDownloadManager.isChunksV5("ChunksV4"))
     }
 
     @Test
     fun v4PathIsHexAndDecimalGroup() {
+        val expected = "ChunksV4/05/0123456789ABCDEF_00000001000000020000000300000004.chunk"
+        assertEquals(expected, EpicDownloadManager.buildChunkPath("ChunksV4", 5, hash, guid, null))
+        // A secret GUID only matters from ChunksV5 on.
         assertEquals(
-            "ChunksV4/05/0123456789ABCDEF_00000001000000020000000300000004.chunk",
-            EpicDownloadManager.buildChunkPath("ChunksV4", 5, hash, guid, null)
-        )
-        // A secret GUID is ignored below ChunksV5.
-        assertEquals(
-            "ChunksV4/05/0123456789ABCDEF_00000001000000020000000300000004.chunk",
+            expected,
             EpicDownloadManager.buildChunkPath("ChunksV4", 5, hash, guid, intArrayOf(9, 9, 9, 9))
         )
     }
 
     @Test
     fun v5PlainPathIsBase64() {
+        val expected = "ChunksV5/plain/05/782riWdFIwE_AQAAAAIAAAADAAAABAAAAA.chunk"
+        assertEquals(expected, EpicDownloadManager.buildChunkPath("ChunksV5", 5, hash, guid, null))
         assertEquals(
-            "ChunksV5/plain/05/782riWdFIwE_AQAAAAIAAAADAAAABAAAAA.chunk",
-            EpicDownloadManager.buildChunkPath("ChunksV5", 5, hash, guid, null)
-        )
-        assertEquals(
-            "ChunksV5/plain/05/782riWdFIwE_AQAAAAIAAAADAAAABAAAAA.chunk",
+            expected,
             EpicDownloadManager.buildChunkPath("ChunksV5", 5, hash, guid, intArrayOf(0, 0, 0, 0))
         )
-        // Hash/GUID with high bits set: '-'/'_' alphabet, no '=' padding.
+        // High bits set: URL-safe alphabet ('_' / '-'), no '=' padding.
         assertEquals(
             "ChunksV5/plain/123/_v________8_776t3v____8AAAAAAAAAgA.chunk",
             EpicDownloadManager.buildChunkPath(
@@ -77,52 +72,9 @@ class EpicChunkUrlTest {
     }
 
     @Test
-    fun chunkInfoGetPathAndSecretFlag() {
-        val c = EpicDownloadManager.ChunkInfo()
-        c.guid = guid
-        c.hash = hash
-        c.groupNum = 5
-        assertFalse(c.hasSecret())
-        assertEquals(
-            "ChunksV4/05/0123456789ABCDEF_00000001000000020000000300000004.chunk",
-            c.getPath("ChunksV4")
-        )
-        c.secretGuid = intArrayOf(0, 0, 0, 1)
-        assertTrue(c.hasSecret())
-    }
-
-    @Test
-    fun chunkUrlAppendsSignedQueryOnlyWhenAsked() {
-        val cdn = EpicDownloadManager.CdnUrl(
-            "https://egdownload.fastly-edge.com", "/Builds/Org/o-x/y/default", "?f_token=ab/cd+ef=="
-        )
-        val path = "ChunksV4/05/AA_BB.chunk"
-        assertEquals(
-            "https://egdownload.fastly-edge.com/Builds/Org/o-x/y/default/ChunksV4/05/AA_BB.chunk",
-            EpicDownloadManager.buildChunkUrl(cdn, path, false)
-        )
-        assertEquals(
-            "https://egdownload.fastly-edge.com/Builds/Org/o-x/y/default/ChunksV4/05/AA_BB.chunk?f_token=ab/cd+ef==",
-            EpicDownloadManager.buildChunkUrl(cdn, path, true)
-        )
-        val bare = EpicDownloadManager.CdnUrl("https://h", "/Builds/d", "")
-        assertEquals("https://h/Builds/d/p.chunk", EpicDownloadManager.buildChunkUrl(bare, "p.chunk", true))
-    }
-
-    @Test
-    fun authOrderTriesLearnedFormFirst() {
-        assertArrayEquals(booleanArrayOf(false), EpicDownloadManager.chunkAuthOrder("", EpicDownloadManager.FORM_UNKNOWN))
-        assertArrayEquals(booleanArrayOf(false, true), EpicDownloadManager.chunkAuthOrder("?a=1", EpicDownloadManager.FORM_UNKNOWN))
-        assertArrayEquals(booleanArrayOf(false, true), EpicDownloadManager.chunkAuthOrder("?a=1", EpicDownloadManager.FORM_PLAIN))
-        assertArrayEquals(booleanArrayOf(true, false), EpicDownloadManager.chunkAuthOrder("?a=1", EpicDownloadManager.FORM_SIGNED))
-    }
-
-    @Test
     fun engineStatusIsExtracted() {
-        assertEquals(
-            404,
-            EpicDownloadManager.httpStatusFromEngineError("epic app=X: item 9 failed after 5 attempts: unexpected HTTP status (404)")
-        )
+        val err = "epic app=X: item 9 failed after 5 attempts: unexpected HTTP status (404)"
+        assertEquals(404, EpicDownloadManager.httpStatusFromEngineError(err))
         assertNull(EpicDownloadManager.httpStatusFromEngineError("connection reset"))
         assertNull(EpicDownloadManager.httpStatusFromEngineError(null))
     }
@@ -130,93 +82,133 @@ class EpicChunkUrlTest {
     @Test
     fun failureReasonNamesTheRealStatus() {
         assertEquals(
-            "chunk download refused by CDN (HTTP 404)",
-            EpicDownloadManager.chunkFailureReason(listOf(404, 404), null, 3, 0)
-        )
-        assertEquals(
             "chunk download refused by CDN (HTTP 404, 403)",
             EpicDownloadManager.chunkFailureReason(listOf(404, 403), null, 3, 0)
         )
+        // The status inside a native engine error counts too.
         assertEquals(
             "chunk download refused by CDN (HTTP 404)",
-            EpicDownloadManager.chunkFailureReason(emptyList(), "item 9 failed after 5 attempts: unexpected HTTP status (404)", 1, 0)
+            EpicDownloadManager.chunkFailureReason(
+                emptyList(), "item 9 failed after 5 attempts: unexpected HTTP status (404)", 1, 0
+            )
         )
         assertEquals(
-            "chunk download failed (native engine: disk full)",
+            "chunk download failed (native engine)",
             EpicDownloadManager.chunkFailureReason(emptyList(), "disk full", 1, 0)
-        )
-        assertEquals(
-            "encrypted chunk could not be decrypted (key missing or wrong)",
-            EpicDownloadManager.chunkFailureReason(emptyList(), null, 2, 2)
         )
         assertEquals(
             "5 chunk(s) could not be downloaded from any CDN",
             EpicDownloadManager.chunkFailureReason(emptyList(), null, 5, 0)
         )
-    }
-
-    @Test
-    fun chunkSecretsAreNormalised() {
-        val json = """{"manifests":[],"secrets":{"aabbccdd-11223344-55667788-99000011":"0011","AA":""}}"""
-        val s = EpicDownloadManager.parseChunkSecrets(json)
-        assertEquals("0011", s["AABBCCDD112233445566778899000011"])
-        assertEquals(1, s.size)
-        assertTrue(EpicDownloadManager.parseChunkSecrets("{}").isEmpty())
-        assertTrue(EpicDownloadManager.parseChunkSecrets(null).isEmpty())
-    }
-
-    @Test
-    fun encryptedChunkRoundTrips() {
-        val key = ByteArray(16) { (it * 7 + 1).toByte() }
-        val sha = ByteArray(20) { (it + 3).toByte() }            // nonce = first 12 bytes
-        val secretGuid = intArrayOf(0x01020304, 0x05060708, 0x090A0B0C, 0x0D0E0F10)
-        val plainText = deflate(ByteArray(5000) { (it % 251).toByte() })
-
-        val c = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
-        c.init(
-            javax.crypto.Cipher.ENCRYPT_MODE,
-            javax.crypto.spec.SecretKeySpec(key, "AES"),
-            javax.crypto.spec.GCMParameterSpec(128, sha.copyOfRange(0, 12))
+        // Encrypted chunks win over any refusal statuses seen along the way.
+        assertEquals(
+            "this game uses encrypted chunks, not supported yet",
+            EpicDownloadManager.chunkFailureReason(listOf(404), null, 2, 2)
         )
-        val ctAndTag = c.doFinal(plainText)
-        val cipherText = ctAndTag.copyOfRange(0, ctAndTag.size - 16)
-        val tag = ctAndTag.copyOfRange(ctAndTag.size - 16, ctAndTag.size)
+    }
 
-        // Header bytes after the first 41: sha(20) hashType(1) uncompressed(4) secretGuid(16) tag(16)
-        val extra = ByteBuffer.allocate(57).order(ByteOrder.LITTLE_ENDIAN)
-        extra.put(sha).put(3.toByte()).putInt(5000)
-        for (g in secretGuid) extra.putInt(g)
-        extra.put(tag)
+    // ── parseManifest: feature level, secret GUIDs, encrypted flag ────────────
 
-        val keyId = secretGuid.joinToString("") { String.format("%08X", it) }
-        val hex = key.joinToString("") { String.format("%02x", it) }
-        val secrets = mapOf(keyId to hex)
+    private val secretGuid = intArrayOf(0xAABBCCDD.toInt(), 0x11223344, 0x55667788, 0x99000011.toInt())
 
-        val dec = EpicDownloadManager.decryptChunkPayload(cipherText, extra.array(), secrets)
-        assertArrayEquals(plainText, dec)
-        assertEquals(5000, EpicDownloadManager.inflateAll(dec!!)!!.size)
-
-        // Wrong / missing key -> null (no exception).
-        assertNull(EpicDownloadManager.decryptChunkPayload(cipherText, extra.array(), emptyMap()))
-        val bad = mapOf(keyId to "00".repeat(16))
-        assertNull(EpicDownloadManager.decryptChunkPayload(cipherText, extra.array(), bad))
-        // Short header -> null.
-        assertNull(EpicDownloadManager.decryptChunkPayload(cipherText, ByteArray(10), secrets))
+    @Test
+    fun featureLevel22GivesChunksV5WithSecretGuids() {
+        val m = parse(manifest(headerVersion = 22, featureLevel = 22, secrets = listOf(secretGuid, intArrayOf(0, 0, 0, 0))))
+        assertEquals("ChunksV5", m.chunkDir)
+        assertEquals(2, m.uniqueChunks.size)
+        assertArrayEquals(secretGuid, m.uniqueChunks[0].secretGuid)
+        assertTrue(m.uniqueChunks[0].getPath("ChunksV5").startsWith("ChunksV5/3cy7qkQzIhGId2ZVEQAAmQ/07/"))
+        assertTrue(m.uniqueChunks[1].getPath("ChunksV5").startsWith("ChunksV5/plain/07/"))
+        assertEquals(1L, m.uniqueChunks[0].hash)
+        assertFalse(m.encrypted)
     }
 
     @Test
-    fun inflateAllRejectsGarbage() {
-        assertNull(EpicDownloadManager.inflateAll(byteArrayOf(1, 2, 3, 4, 5)))
+    fun featureLevelBelow22KeepsChunksV4AndNoSecrets() {
+        val m = parse(manifest(headerVersion = 21, featureLevel = 21, secrets = null))
+        assertEquals("ChunksV4", m.chunkDir)
+        assertNull(m.uniqueChunks[0].secretGuid)
+        assertTrue(m.uniqueChunks[0].getPath(m.chunkDir).startsWith("ChunksV4/07/0000000000000001_"))
     }
 
-    private fun deflate(data: ByteArray): ByteArray {
-        val d = Deflater()
-        d.setInput(data)
-        d.finish()
-        val out = ByteArrayOutputStream()
-        val buf = ByteArray(4096)
-        while (!d.finished()) out.write(buf, 0, d.deflate(buf))
-        d.end()
-        return out.toByteArray()
+    @Test
+    fun metaFeatureLevelWinsOverHeaderVersion() {
+        // Like Legendary, the META feature level (not the header version) decides the chunk layout.
+        val m = parse(manifest(headerVersion = 18, featureLevel = 22, secrets = listOf(secretGuid, secretGuid)))
+        assertEquals("ChunksV5", m.chunkDir)
+    }
+
+    @Test
+    fun encryptedFlagComesFromStoredAs() {
+        val m = parse(manifest(headerVersion = 22, featureLevel = 24, secrets = listOf(secretGuid, secretGuid), storedAs = 2))
+        assertTrue(m.encrypted)
+    }
+
+    private fun parse(bytes: ByteArray): EpicDownloadManager.EpicManifest.ParsedManifest {
+        val m = EpicDownloadManager.parseManifest(bytes)
+        assertNotNull(m)
+        return m!!
+    }
+
+    private fun le(size: Int) = ByteBuffer.allocate(size).order(ByteOrder.LITTLE_ENDIAN)
+
+    private fun fstring(s: String): ByteArray {
+        val b = le(4 + s.length + 1)
+        b.putInt(s.length + 1)
+        b.put(s.toByteArray(Charsets.US_ASCII))
+        b.put(0)
+        return b.array()
+    }
+
+    /**
+     * Minimal binary manifest (uncompressed body): META, a ChunkDataList with two chunks (hash 1 and
+     * 2, group 7) and an empty FileManifestList. With [secrets] the ChunksV5 arrays are appended to the
+     * ChunkDataList, in Legendary's order: secret GUIDs, window_size_compressed, GCM tags.
+     */
+    private fun manifest(
+        headerVersion: Int,
+        featureLevel: Int,
+        secrets: List<IntArray>?,
+        storedAs: Int = 0,
+    ): ByteArray {
+        val meta = ByteArrayOutputStream()
+        val metaBody = ByteArrayOutputStream().apply {
+            write(0)                                                    // data version
+            write(le(4).putInt(featureLevel).array())
+            write(0)                                                    // is file data
+            write(le(4).putInt(0).array())                              // app id
+            for (s in listOf("App", "1.0", "App.exe", "")) write(fstring(s))
+            write(le(4).putInt(0).array())                              // prereq ids
+            for (s in listOf("", "", "")) write(fstring(s))             // prereq name / path / args
+        }.toByteArray()
+        meta.write(le(4).putInt(4 + metaBody.size).array())
+        meta.write(metaBody)
+
+        val count = 2
+        val cdlBody = ByteArrayOutputStream().apply {
+            write(0)                                                    // version
+            write(le(4).putInt(count).array())
+            for (i in 1..count) write(le(16).putInt(i).putInt(0).putInt(0).putInt(0).array())  // guids
+            for (i in 1..count) write(le(8).putLong(i.toLong()).array())                       // hashes
+            write(ByteArray(20 * count))                                                       // sha1
+            write(ByteArray(count) { 7 })                                                      // group
+            write(ByteArray(4 * count))                                                        // window size
+            write(ByteArray(8 * count))                                                        // file size
+            if (secrets != null) {
+                for (g in secrets) write(le(16).putInt(g[0]).putInt(g[1]).putInt(g[2]).putInt(g[3]).array())
+                write(ByteArray(4 * count))                                                    // window_size_compressed
+                write(ByteArray(16 * count))                                                   // GCM tags
+            }
+        }.toByteArray()
+        val cdl = le(4).putInt(4 + cdlBody.size).array() + cdlBody
+
+        val fml = le(9).putInt(9).put(0).putInt(0).array()
+
+        val body = meta.toByteArray() + cdl + fml
+        val v5Header = headerVersion >= 22
+        val header = le(if (v5Header) 73 else 41)
+        header.putInt(0x44BEC00C).putInt(header.capacity()).putInt(body.size).putInt(body.size)
+        header.put(ByteArray(20)).put(storedAs.toByte()).putInt(headerVersion)
+        return header.array() + body
     }
 }

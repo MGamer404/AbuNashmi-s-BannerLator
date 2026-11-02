@@ -481,8 +481,7 @@ class EpicGamesActivity : ComponentActivity() {
                     return@launch
                 }
                 if (!ok) {
-                    val why = EpicDownloadManager.lastFailureReason
-                    val failMsg = if (why.isNullOrEmpty()) "Download failed" else "Download failed: $why"
+                    val failMsg = EpicDownloadManager.withFailureReason("Download failed")
                     StoreDownloadHooks.markFailed(Store.EPIC, appName, failMsg)
                     withContext(Dispatchers.Main) {
                         cancelRunnables.remove(appName)

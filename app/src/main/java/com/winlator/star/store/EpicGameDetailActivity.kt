@@ -414,11 +414,7 @@ class EpicGameDetailActivity : ComponentActivity() {
                     }
                     onInstallCancelled(); return@launch
                 }
-                if (!ok) {
-                    val why = EpicDownloadManager.lastFailureReason
-                    onInstallError(if (why.isNullOrEmpty()) "Download failed" else "Download failed: $why")
-                    return@launch
-                }
+                if (!ok) { onInstallError(EpicDownloadManager.withFailureReason("Download failed")); return@launch }
 
                 try {
                     val vid = JSONObject(manifestJson).optString("versionId", "")
@@ -677,9 +673,8 @@ class EpicGameDetailActivity : ComponentActivity() {
                 }
                 runOnUiThread {
                     verifyEnabled = true
-                    val why = EpicDownloadManager.lastFailureReason
                     verifyStatusText = if (ok) "Repaired $damaged file(s) ✓"
-                        else if (why.isNullOrEmpty()) "Repair failed." else "Repair failed: $why"
+                        else EpicDownloadManager.withFailureReason("Repair failed")
                 }
             } catch (e: Exception) {
                 runOnUiThread { verifyEnabled = true; verifyStatusText = "Verify error: ${e.message}" }
@@ -714,10 +709,8 @@ class EpicGameDetailActivity : ComponentActivity() {
                     installDir.absolutePath,
                 ) { _, _ -> }
                 if (!ok) {
-                    val why = EpicDownloadManager.lastFailureReason
-                    runOnUiThread {
-                        resultBarMsg = if (why.isNullOrEmpty()) "DLC download failed" else "DLC download failed: $why"
-                    }
+                    val failMsg = EpicDownloadManager.withFailureReason("DLC download failed")
+                    runOnUiThread { resultBarMsg = failMsg }
                     return@launch
                 }
 

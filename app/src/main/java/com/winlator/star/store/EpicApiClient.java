@@ -220,10 +220,6 @@ public class EpicApiClient {
             // Return as a wrapper with top-level "manifests" key that EpicDownloadManager expects
             JSONObject wrapper = new JSONObject();
             wrapper.put("manifests", firstElement.optJSONArray("manifests"));
-            // ChunksV5 (feature level 22+) chunk AES keys: {"<secret guid hex>": "<key hex>"}.
-            // Absent for plain / older builds; EpicDownloadManager.parseChunkSecrets reads it.
-            JSONObject secrets = firstElement.optJSONObject("secrets");
-            if (secrets != null) wrapper.put("secrets", secrets);
             // buildVersion is the version identifier in the assets/v2 response
             String ver = firstElement.optString("buildVersion", "");
             if (ver.isEmpty()) ver = firstElement.optString("versionId", ""); // fallback
