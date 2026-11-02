@@ -5979,6 +5979,11 @@ public class XServerDisplayActivity extends AppCompatActivity {
             // Ubisoft Connect's overlay hooks dxgi.dll and kills the game (or blacks it out) on an Arm64EC DXVK.
             // A no-op unless the launcher is installed in this prefix.
             com.winlator.star.store.UbisoftSupport.disableOverlay(container);
+            // Ubisoft Connect's Chromium UI recurses until its stack is gone when the prefix has no Tahoma font
+            // (Wine's fallback for Latin text is Tahoma only): add an Arial replacement for it. Idempotent.
+            if (com.winlator.star.store.UbisoftSupport.detect(com.winlator.star.store.EaSupport.installDirOf(shortcut))) {
+                com.winlator.star.store.UbisoftSupport.fixTahomaFallback(container);
+            }
         } catch (Throwable t) {
             Log.w("XServerDisplayActivity", "installScript pre-launch pass failed", t);
         }

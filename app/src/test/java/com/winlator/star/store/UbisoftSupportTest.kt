@@ -181,4 +181,30 @@ class UbisoftSupportTest {
         assertEquals("windows.ui.dll=n", UbisoftSupport.mergeDllOverrides("windows.ui.dll=n"))
         assertEquals("windows.uix=n;windows.ui=d", UbisoftSupport.mergeDllOverrides("windows.uix=n"))
     }
+
+    private val replacementsKey = "[Software\\\\Wine\\\\Fonts\\\\Replacements] 1700000000\n#time=1dc0000000000000\n"
+
+    @Test
+    fun tahomaReplacementIsNeededWhenTheRegistryHasNone() {
+        assertTrue(UbisoftSupport.tahomaReplacementNeeded(""))
+        assertTrue(UbisoftSupport.tahomaReplacementNeeded("[Software\\\\Wine\\\\Drivers] 1\n\"Audio\"=\"pulse\"\n"))
+        // Other replacements stay out of the way: only Tahoma counts.
+        assertTrue(UbisoftSupport.tahomaReplacementNeeded(replacementsKey + "\"Segoe UI\"=\"Arial\"\n"))
+    }
+
+    @Test
+    fun tahomaReplacementIsNotNeededOnceOneExists() {
+        assertFalse(UbisoftSupport.tahomaReplacementNeeded(replacementsKey + "\"Tahoma\"=\"Arial\"\n"))
+        // The user's own choice (any data, any case, CRLF) is kept.
+        assertFalse(UbisoftSupport.tahomaReplacementNeeded(replacementsKey.replace("\n", "\r\n") + "\"tahoma\"=\"DejaVu Sans\"\r\n"))
+        assertFalse(UbisoftSupport.tahomaReplacementNeeded(
+            "[SOFTWARE\\\\Wine\\\\Fonts\\\\Replacements] 1\n\"Tahoma\"=hex(7):41,00,00,00,00,00\n"))
+    }
+
+    @Test
+    fun tahomaValueInAnotherKeyDoesNotCount() {
+        val text = "[Software\\\\Wine\\\\Fonts] 1\n\"Tahoma\"=\"x\"\n\n" + replacementsKey + "\"Segoe UI\"=\"Arial\"\n\n" +
+            "[Software\\\\Wine\\\\Fonts\\\\Replacements\\\\Sub] 1\n\"Tahoma\"=\"x\"\n"
+        assertTrue(UbisoftSupport.tahomaReplacementNeeded(text))
+    }
 }

@@ -6,6 +6,7 @@ import com.winlator.star.R
 import com.winlator.star.container.Container
 import com.winlator.star.container.Shortcut
 import com.winlator.star.core.WinePath
+import com.winlator.star.core.WineRegistryEditor
 import com.winlator.star.store.steamscript.InstallScriptExecutor
 import com.winlator.star.store.steamscript.InstallScriptModel
 import com.winlator.star.xenvironment.ImageFs
@@ -34,6 +35,17 @@ object UbisoftSupport {
 
     /** The launcher's own settings file (relative to the container root). */
     private val SETTINGS_FILE = ".wine/drive_c/users/${ImageFs.USER}/AppData/Local/Ubisoft Game Launcher/settings.yaml"
+
+    /** The prefix's user registry (relative to the container root). */
+    private const val USER_REG = ".wine/user.reg"
+
+    /**
+     * Where Wine's dwrite reads font family replacements (`HKCU`, as [WineRegistryEditor] spells a key). Wine's
+     * Latin fallback maps U+0000-024F only to "Tahoma", and a prefix without `tahoma.ttf` has no such family.
+     */
+    private const val FONT_REPLACEMENTS_KEY = "Software\\Wine\\Fonts\\Replacements"
+    private const val MISSING_FONT = "Tahoma"
+    private const val SUBSTITUTE_FONT = "Arial"
 
     /** Installers a depot bundles for the launcher, most current first. */
     private val INSTALLER_NAMES = listOf("UbisoftConnectInstaller.exe", "UplayInstaller.exe")
@@ -185,6 +197,50 @@ object UbisoftSupport {
         if (appId <= 0) return context.getString(R.string.ubisoft_setup_no_app_id)
         val started = InstallScriptExecutor.runForShortcut(context, shortcut.container, appId, exe, true)
         return if (started) null else context.getString(R.string.ubisoft_setup_not_started)
+    }
+
+    // ---- Fonts ----------------------------------------------------------------------------------
+
+    /**
+     * Gives the prefix a Tahoma font family (a replacement by Arial) before Ubisoft Connect starts. Its Chromium
+     * UI (Skia's DirectWrite font manager) asks for "Tahoma", gets Wine's fallback, which also needs "Tahoma", and
+     * recurses until the 1 MiB UI-thread stack is gone (device log, 920 levels). Windows has the font; a prefix
+     * whose `tahoma.ttf` is missing does not. Wine adds the replacement only when no real Tahoma is installed, so
+     * a prefix that has one is unaffected. An existing "Tahoma" replacement of the user's is kept. Returns true
+     * when the registry was changed. Never throws.
+     */
+    @JvmStatic
+    fun fixTahomaFallback(container: Container): Boolean {
+        val file = File(container.rootDir, USER_REG)
+        if (!file.isFile) return false
+        return try {
+            if (!tahomaReplacementNeeded(file.readText(Charsets.UTF_8))) return false
+            WineRegistryEditor(file).use { it.setStringValue(FONT_REPLACEMENTS_KEY, MISSING_FONT, SUBSTITUTE_FONT) }
+            // The editor swallows I/O errors, so look at the file again before saying it worked.
+            val done = !tahomaReplacementNeeded(file.readText(Charsets.UTF_8))
+            if (done) Log.i(TAG, "Tahoma font replacement added: Tahoma -> $SUBSTITUTE_FONT (container ${container.id})")
+            else Log.w(TAG, "could not add the Tahoma font replacement — left as is")
+            done
+        } catch (e: Exception) {
+            Log.w(TAG, "could not add the Tahoma font replacement — left as is", e)
+            false
+        }
+    }
+
+    /**
+     * True when [userReg] (the text of a `user.reg`) has no "Tahoma" value under `Software\Wine\Fonts\Replacements`.
+     * Line-based like [overlayOff]: key and value names compare ignoring case, the value's data is not looked at.
+     */
+    @JvmStatic
+    fun tahomaReplacementNeeded(userReg: String): Boolean {
+        val header = "[" + FONT_REPLACEMENTS_KEY.replace("\\", "\\\\") + "]"
+        val value = "\"$MISSING_FONT\"="
+        var inKey = false
+        for (line in userReg.lineSequence()) {
+            if (line.startsWith("[")) inKey = line.startsWith(header, ignoreCase = true)
+            else if (inKey && line.startsWith(value, ignoreCase = true)) return false
+        }
+        return true
     }
 
     // ---- Overlay --------------------------------------------------------------------------------
