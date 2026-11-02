@@ -6,7 +6,6 @@ import com.winlator.star.R
 import com.winlator.star.container.Container
 import com.winlator.star.container.Shortcut
 import com.winlator.star.core.WinePath
-import com.winlator.star.core.WineRegistryEditor
 import com.winlator.star.store.steamscript.InstallScriptExecutor
 import com.winlator.star.store.steamscript.InstallScriptModel
 import com.winlator.star.xenvironment.ImageFs
@@ -35,17 +34,6 @@ object UbisoftSupport {
 
     /** The launcher's own settings file (relative to the container root). */
     private val SETTINGS_FILE = ".wine/drive_c/users/${ImageFs.USER}/AppData/Local/Ubisoft Game Launcher/settings.yaml"
-
-    /** The prefix's user registry (relative to the container root). */
-    private const val USER_REG = ".wine/user.reg"
-
-    /**
-     * Where Wine's dwrite reads font family replacements (`HKCU`, as [WineRegistryEditor] spells a key). Wine's
-     * Latin fallback maps U+0000-024F only to "Tahoma", and a prefix without `tahoma.ttf` has no such family.
-     */
-    private const val FONT_REPLACEMENTS_KEY = "Software\\Wine\\Fonts\\Replacements"
-    private const val MISSING_FONT = "Tahoma"
-    private const val SUBSTITUTE_FONT = "Arial"
 
     /** Installers a depot bundles for the launcher, most current first. */
     private val INSTALLER_NAMES = listOf("UbisoftConnectInstaller.exe", "UplayInstaller.exe")
@@ -102,20 +90,48 @@ object UbisoftSupport {
         processes.sortedByDescending { isInstaller(it.process) }
 
     /**
+     * What a depot's files say about the launcher, found once and reused for a short while: the installer search
+     * walks up to three folder levels, and one launch asks about the same depot from several places (the Games tab,
+     * the install-script pass, the agent hand-off, the DLL override), mostly for games that are not Ubisoft's.
+     * Each half is looked up on first use only, so a depot with a loader in its root never gets walked.
+     */
+    private class DepotScan(val installDir: File, val atMs: Long) {
+        val hasLoader: Boolean by lazy {
+            installDir.listFiles()?.any { f -> f.isFile && UbisoftSupport.LOADER_PREFIXES.any { f.name.startsWith(it, ignoreCase = true) } } == true
+        }
+        val installer: File? by lazy { UbisoftSupport.searchInstaller(installDir, 0) }
+    }
+
+    private const val SCAN_TTL_MS = 30_000L
+    private val scans = java.util.concurrent.ConcurrentHashMap<String, DepotScan>()
+
+    private fun scanOf(installDir: File): DepotScan {
+        val key = installDir.absolutePath
+        val now = System.currentTimeMillis()
+        scans[key]?.let { if (now - it.atMs in 0..SCAN_TTL_MS) return it }
+        if (scans.size >= 16) scans.clear()
+        return DepotScan(installDir, now).also { scans[key] = it }
+    }
+
+    /** Drops every remembered depot scan (the files changed on disk, or a test reuses a folder). */
+    internal fun forgetScans() = scans.clear()
+
+    private fun searchInstaller(dir: File, depth: Int): File? {
+        val children = dir.listFiles() ?: return null
+        children.firstOrNull { f -> f.isFile && INSTALLER_NAMES.any { it.equals(f.name, ignoreCase = true) } }?.let { return it }
+        if (depth >= 3) return null
+        for (f in children) if (f.isDirectory) searchInstaller(f, depth + 1)?.let { return it }
+        return null
+    }
+
+    /**
      * The launcher installer a depot bundles, looked for in its root and up to three folders below it
-     * (e.g. `Support\Uplay\`). Null when the depot ships none.
+     * (e.g. `Support\Uplay\`). Null when the depot ships none. The answer is reused for 30 seconds.
      */
     @JvmStatic
     fun bundledInstaller(installDir: File?): File? {
         if (installDir == null || !installDir.isDirectory) return null
-        fun search(dir: File, depth: Int): File? {
-            val children = dir.listFiles() ?: return null
-            children.firstOrNull { f -> f.isFile && INSTALLER_NAMES.any { it.equals(f.name, ignoreCase = true) } }?.let { return it }
-            if (depth >= 3) return null
-            for (f in children) if (f.isDirectory) search(f, depth + 1)?.let { return it }
-            return null
-        }
-        return search(installDir, 0)
+        return scanOf(installDir).installer?.takeIf { it.isFile }
     }
 
     /**
@@ -125,9 +141,8 @@ object UbisoftSupport {
     @JvmStatic
     fun hasLauncherFiles(installDir: File?): Boolean {
         if (installDir == null || !installDir.isDirectory) return false
-        val root = installDir.listFiles() ?: return false
-        if (root.any { f -> f.isFile && LOADER_PREFIXES.any { f.name.startsWith(it, ignoreCase = true) } }) return true
-        return bundledInstaller(installDir) != null
+        val scan = scanOf(installDir)
+        return scan.hasLoader || scan.installer?.isFile == true
     }
 
     /** True for a Ubisoft title, detected from the depot's files (and its install script), so no tag is needed. */
@@ -177,8 +192,10 @@ object UbisoftSupport {
     /** True when [shortcut] is a Ubisoft title whose container still has no Ubisoft Connect (run [startSetup] first). */
     @JvmStatic
     fun needsSetup(shortcut: Shortcut): Boolean {
+        // The prefix check is a few file stats; the depot checks read the game's folders, so they come second.
+        if (launcherInstalled(shortcut.container)) return false
         val installDir = EaSupport.installDirOf(shortcut) ?: return false
-        return detect(installDir) && hasInstallableLauncher(installDir) && !launcherInstalled(shortcut.container)
+        return detect(installDir) && hasInstallableLauncher(installDir)
     }
 
     /**
@@ -197,50 +214,6 @@ object UbisoftSupport {
         if (appId <= 0) return context.getString(R.string.ubisoft_setup_no_app_id)
         val started = InstallScriptExecutor.runForShortcut(context, shortcut.container, appId, exe, true)
         return if (started) null else context.getString(R.string.ubisoft_setup_not_started)
-    }
-
-    // ---- Fonts ----------------------------------------------------------------------------------
-
-    /**
-     * Gives the prefix a Tahoma font family (a replacement by Arial) before Ubisoft Connect starts. Its Chromium
-     * UI (Skia's DirectWrite font manager) asks for "Tahoma", gets Wine's fallback, which also needs "Tahoma", and
-     * recurses until the 1 MiB UI-thread stack is gone (device log, 920 levels). Windows has the font; a prefix
-     * whose `tahoma.ttf` is missing does not. Wine adds the replacement only when no real Tahoma is installed, so
-     * a prefix that has one is unaffected. An existing "Tahoma" replacement of the user's is kept. Returns true
-     * when the registry was changed. Never throws.
-     */
-    @JvmStatic
-    fun fixTahomaFallback(container: Container): Boolean {
-        val file = File(container.rootDir, USER_REG)
-        if (!file.isFile) return false
-        return try {
-            if (!tahomaReplacementNeeded(file.readText(Charsets.UTF_8))) return false
-            WineRegistryEditor(file).use { it.setStringValue(FONT_REPLACEMENTS_KEY, MISSING_FONT, SUBSTITUTE_FONT) }
-            // The editor swallows I/O errors, so look at the file again before saying it worked.
-            val done = !tahomaReplacementNeeded(file.readText(Charsets.UTF_8))
-            if (done) Log.i(TAG, "Tahoma font replacement added: Tahoma -> $SUBSTITUTE_FONT (container ${container.id})")
-            else Log.w(TAG, "could not add the Tahoma font replacement — left as is")
-            done
-        } catch (e: Exception) {
-            Log.w(TAG, "could not add the Tahoma font replacement — left as is", e)
-            false
-        }
-    }
-
-    /**
-     * True when [userReg] (the text of a `user.reg`) has no "Tahoma" value under `Software\Wine\Fonts\Replacements`.
-     * Line-based like [overlayOff]: key and value names compare ignoring case, the value's data is not looked at.
-     */
-    @JvmStatic
-    fun tahomaReplacementNeeded(userReg: String): Boolean {
-        val header = "[" + FONT_REPLACEMENTS_KEY.replace("\\", "\\\\") + "]"
-        val value = "\"$MISSING_FONT\"="
-        var inKey = false
-        for (line in userReg.lineSequence()) {
-            if (line.startsWith("[")) inKey = line.startsWith(header, ignoreCase = true)
-            else if (inKey && line.startsWith(value, ignoreCase = true)) return false
-        }
-        return true
     }
 
     // ---- Overlay --------------------------------------------------------------------------------

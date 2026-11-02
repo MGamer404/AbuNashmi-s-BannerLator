@@ -3330,6 +3330,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
                         applyMediaDecoderSettings();
                         applyGameRefreshRateUnlock();
                         applyColorCursorRegistry();
+                        applyTahomaFontFallback();
                         provisionEpicOverlay();
                         stage[0] = "Preparing the Xbox game";
                         prepareXboxLaunch();
@@ -5979,11 +5980,6 @@ public class XServerDisplayActivity extends AppCompatActivity {
             // Ubisoft Connect's overlay hooks dxgi.dll and kills the game (or blacks it out) on an Arm64EC DXVK.
             // A no-op unless the launcher is installed in this prefix.
             com.winlator.star.store.UbisoftSupport.disableOverlay(container);
-            // Ubisoft Connect's Chromium UI recurses until its stack is gone when the prefix has no Tahoma font
-            // (Wine's fallback for Latin text is Tahoma only): add an Arial replacement for it. Idempotent.
-            if (com.winlator.star.store.UbisoftSupport.detect(com.winlator.star.store.EaSupport.installDirOf(shortcut))) {
-                com.winlator.star.store.UbisoftSupport.fixTahomaFallback(container);
-            }
         } catch (Throwable t) {
             Log.w("XServerDisplayActivity", "installScript pre-launch pass failed", t);
         }
@@ -16639,6 +16635,16 @@ return true;
         catch (Exception e) {
             Log.w("XServerDisplayActivity", "colour cursors: could not write ClientSideWithRender", e);
         }
+    }
+
+    // A prefix without tahoma.ttf has no "Tahoma" font family, which is Wine's last-resort family for Latin text, so a
+    // Chromium / CEF UI (Ubisoft Connect: device log, 920-level recursion, black screen) asking DirectWrite for a font
+    // it cannot find recurses until its stack is gone. Adds "Tahoma"="Arial" under Software\Wine\Fonts\Replacements
+    // unless the user already has a Tahoma replacement. Every launch, any store, in the slot of the registry tweaks above:
+    // the prefix is prepared and no Wine process runs yet. One streamed read of user.reg when the value is already there.
+    private void applyTahomaFontFallback() {
+        com.winlator.star.core.WineFontFallback.ensureTahomaReplacement(
+                new File(imageFs.getRootDir(), ImageFs.WINEPREFIX + "/user.reg"));
     }
 
     // After both user env merges (container + shortcut), unlike the renderer setup, which runs first.

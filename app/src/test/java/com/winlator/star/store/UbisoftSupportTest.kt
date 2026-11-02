@@ -13,7 +13,7 @@ import java.io.File
 
 /**
  * Ubisoft support: the launcher's `settings.yaml` overlay edit ([UbisoftSupport.overlayOff]), Steam's
- * `<appId>_install.vdf` script name, and finding the installer a depot bundles.
+ * `<appId>_install.vdf` script name, finding the installer a depot bundles, and the `windows.ui` DLL override.
  */
 class UbisoftSupportTest {
 
@@ -129,9 +129,22 @@ class UbisoftSupportTest {
         assertNull(UbisoftSupport.bundledInstaller(dir))
         val nested = File(dir, "Support/Uplay").apply { mkdirs() }
         val old = File(nested, "UplayInstaller.exe").apply { writeText("x") }
+        UbisoftSupport.forgetScans()
         assertEquals(old, UbisoftSupport.bundledInstaller(dir))
         val root = File(dir, "UbisoftConnectInstaller.exe").apply { writeText("x") }
+        UbisoftSupport.forgetScans()
         assertEquals(root, UbisoftSupport.bundledInstaller(dir))
+    }
+
+    @Test
+    fun aDepotScanIsReusedUntilItIsForgotten() {
+        val dir = tmp.newFolder("scanned")
+        assertFalse(UbisoftSupport.hasLauncherFiles(dir))
+        File(dir, "uplay_r1_loader.dll").writeText("x")
+        // Still the answer from a moment ago: the folders are not walked again for every question.
+        assertFalse(UbisoftSupport.hasLauncherFiles(dir))
+        UbisoftSupport.forgetScans()
+        assertTrue(UbisoftSupport.hasLauncherFiles(dir))
     }
 
     @Test
@@ -155,6 +168,7 @@ class UbisoftSupportTest {
         assertTrue(UbisoftSupport.fallbackRunProcesses(dir).isEmpty())
         File(dir, "Support/Uplay").mkdirs()
         File(dir, "Support/Uplay/UplayInstaller.exe").writeText("x")
+        UbisoftSupport.forgetScans()
         val rp = UbisoftSupport.fallbackRunProcesses(dir).single()
         assertEquals("%INSTALLDIR%\\Support\\Uplay\\UplayInstaller.exe", rp.process)
         assertEquals("/S", rp.command)
@@ -180,31 +194,5 @@ class UbisoftSupportTest {
         assertEquals("x,windows.ui=n;a=b", UbisoftSupport.mergeDllOverrides("x,windows.ui=n;a=b"))
         assertEquals("windows.ui.dll=n", UbisoftSupport.mergeDllOverrides("windows.ui.dll=n"))
         assertEquals("windows.uix=n;windows.ui=d", UbisoftSupport.mergeDllOverrides("windows.uix=n"))
-    }
-
-    private val replacementsKey = "[Software\\\\Wine\\\\Fonts\\\\Replacements] 1700000000\n#time=1dc0000000000000\n"
-
-    @Test
-    fun tahomaReplacementIsNeededWhenTheRegistryHasNone() {
-        assertTrue(UbisoftSupport.tahomaReplacementNeeded(""))
-        assertTrue(UbisoftSupport.tahomaReplacementNeeded("[Software\\\\Wine\\\\Drivers] 1\n\"Audio\"=\"pulse\"\n"))
-        // Other replacements stay out of the way: only Tahoma counts.
-        assertTrue(UbisoftSupport.tahomaReplacementNeeded(replacementsKey + "\"Segoe UI\"=\"Arial\"\n"))
-    }
-
-    @Test
-    fun tahomaReplacementIsNotNeededOnceOneExists() {
-        assertFalse(UbisoftSupport.tahomaReplacementNeeded(replacementsKey + "\"Tahoma\"=\"Arial\"\n"))
-        // The user's own choice (any data, any case, CRLF) is kept.
-        assertFalse(UbisoftSupport.tahomaReplacementNeeded(replacementsKey.replace("\n", "\r\n") + "\"tahoma\"=\"DejaVu Sans\"\r\n"))
-        assertFalse(UbisoftSupport.tahomaReplacementNeeded(
-            "[SOFTWARE\\\\Wine\\\\Fonts\\\\Replacements] 1\n\"Tahoma\"=hex(7):41,00,00,00,00,00\n"))
-    }
-
-    @Test
-    fun tahomaValueInAnotherKeyDoesNotCount() {
-        val text = "[Software\\\\Wine\\\\Fonts] 1\n\"Tahoma\"=\"x\"\n\n" + replacementsKey + "\"Segoe UI\"=\"Arial\"\n\n" +
-            "[Software\\\\Wine\\\\Fonts\\\\Replacements\\\\Sub] 1\n\"Tahoma\"=\"x\"\n"
-        assertTrue(UbisoftSupport.tahomaReplacementNeeded(text))
     }
 }
