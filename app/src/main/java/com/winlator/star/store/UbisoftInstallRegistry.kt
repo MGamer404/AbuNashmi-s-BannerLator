@@ -3,6 +3,7 @@ package com.winlator.star.store
 import android.util.Log
 import com.winlator.star.container.Container
 import com.winlator.star.core.WineRegistryEditor
+import com.winlator.star.xenvironment.ImageFs
 import java.io.BufferedReader
 import java.io.File
 import java.io.StringReader
@@ -241,33 +242,87 @@ object UbisoftInstallRegistry {
             ?: return Outcome(Result.NO_STATE_FILE, "no usable $STATE_FILE in ${installDir.path}: Ubisoft Connect will not see the game as installed")
         val zDir = zPathOf(installDir, imageFsRoot)
             ?: return Outcome(Result.OUTSIDE_IMAGEFS, "${installDir.path} is not below the imagefs root ${imageFsRoot.path}")
-        val systemReg = File(container.rootDir, ".wine/system.reg")
-        if (!systemReg.isFile) {
-            return Outcome(Result.NO_SYSTEM_REG, "no ${systemReg.path} yet (container ${container.id}): left for the next launch")
+        // The hive the running wineserver loads is the active prefix (imagefs/home/xuser/.wine); ContainerManager
+        // .activateContainer symlinks home/xuser to the container folder, so it normally is the container's own file.
+        val hives = chooseHives(File(imageFsRoot, ImageFs.WINEPREFIX + "/system.reg"), File(container.rootDir, ".wine/system.reg"))
+        if (hives.targets.isEmpty()) {
+            return Outcome(Result.NO_SYSTEM_REG, "no system.reg yet (container ${container.id}): left for the next launch; ${hivesNote(hives, emptyList())}")
         }
         val writes = installWrites(state, zDir)
-        val pending = systemReg.bufferedReader(Charsets.UTF_8).use { pendingWrites(it, writes) }
-        if (pending.isEmpty()) {
-            return Outcome(Result.ALREADY_PRESENT, "${writes.size} value(s) for product ${state.productId} (${state.name}) already in system.reg")
+        val results = hives.targets.map { writeHive(it, writes) }
+        val note = hivesNote(hives, results)
+        // The first target is the active prefix's hive (or the container's when that is all there is): it decides the outcome.
+        val main = results.first()
+        if (main.pending == 0) {
+            return Outcome(Result.ALREADY_PRESENT, "${writes.size} value(s) for product ${state.productId} (${state.name}) already in system.reg; $note")
         }
+        if (main.written <= 0) {
+            return Outcome(Result.WRITE_FAILED, "none of ${main.pending} value(s) found in system.reg after writing (container ${container.id}); $note")
+        }
+        val missing = if (main.left.isEmpty()) "" else "; ${main.left.size} not found in the hive afterwards: " + main.left.joinToString { it.key.substringAfterLast('\\') + "/" + it.name }
+        return Outcome(
+            Result.REGISTERED,
+            "${main.written} of ${main.pending} value(s) written for ${state.name} (Ubisoft product ${state.productId}) in container ${container.id}$missing; $note",
+        )
+    }
 
-        WineRegistryEditor(systemReg).use { reg ->
+    // ---- Which hive ----------------------------------------------------------------------------
+
+    /**
+     * The `system.reg` files a registration looks at: the [active] prefix's hive (what wineserver loads) and the
+     * [container]'s own. [same] = both paths are one file on disk (the usual case, through the `xuser` symlink).
+     * [targets] = the existing ones to write, the active hive first; when they are one file it is listed once.
+     */
+    class HiveChoice(val active: File, val container: File, val same: Boolean, val targets: List<File>)
+
+    private fun canonicalOrNull(f: File): String? = try { f.canonicalPath } catch (e: Exception) { null }
+
+    /** Works out [HiveChoice] for the two hive paths. Looks at the file system (canonical paths, whether the files exist). */
+    @JvmStatic
+    fun chooseHives(active: File, container: File): HiveChoice {
+        val a = canonicalOrNull(active)
+        val same = a != null && a == canonicalOrNull(container)
+        val targets = ArrayList<File>()
+        if (active.isFile) targets += active
+        if (!same && container.isFile) targets += container
+        return HiveChoice(active, container, same, targets)
+    }
+
+    private fun describe(f: File): String {
+        if (!f.isFile) return "${f.path} (missing)"
+        val modified = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US).format(java.util.Date(f.lastModified()))
+        return "${f.path} (${f.length()} bytes, modified $modified)"
+    }
+
+    /** What one hive had to say about the writes: how many were missing, how many are there afterwards. */
+    private class HiveResult(val file: File, val pending: Int, val written: Int, val left: List<RegWrite>)
+
+    /** Reads [hive] once, writes what [writes] still lacks, reads it again to check. The editor swallows I/O errors, hence the second read. */
+    private fun writeHive(hive: File, writes: List<RegWrite>): HiveResult {
+        val pending = hive.bufferedReader(Charsets.UTF_8).use { pendingWrites(it, writes) }
+        if (pending.isEmpty()) return HiveResult(hive, 0, 0, emptyList())
+        WineRegistryEditor(hive).use { reg ->
             reg.setCreateKeyIfNotExist(true)
             for (w in pending) {
                 if (w.type == Type.DWORD) reg.setDwordValue(w.key, w.name, w.data.toIntOrNull() ?: 0)
                 else reg.setStringValue(w.key, w.name, w.data)
             }
         }
-        // The editor swallows I/O errors, so read the hive again before saying it worked.
-        val left = systemReg.bufferedReader(Charsets.UTF_8).use { pendingWrites(it, pending) }
-        val written = pending.size - left.size
-        if (written <= 0) {
-            return Outcome(Result.WRITE_FAILED, "none of ${pending.size} value(s) found in system.reg after writing (container ${container.id})")
+        val left = hive.bufferedReader(Charsets.UTF_8).use { pendingWrites(it, pending) }
+        return HiveResult(hive, pending.size, pending.size - left.size, left)
+    }
+
+    /** Both hive paths with size and time (after the writes), whether they are one file, and what was done to each. */
+    private fun hivesNote(h: HiveChoice, results: List<HiveResult>): String {
+        val done = results.joinToString("; ") { r ->
+            val role = if (r.file == h.active) "active" else "container"
+            role + ": " + when {
+                r.pending == 0 -> "already present"
+                r.written <= 0 -> "write FAILED"
+                else -> "wrote ${r.written} of ${r.pending}"
+            }
         }
-        val missing = if (left.isEmpty()) "" else "; ${left.size} not found in the hive afterwards: " + left.joinToString { it.key.substringAfterLast('\\') + "/" + it.name }
-        return Outcome(
-            Result.REGISTERED,
-            "$written of ${pending.size} value(s) written for ${state.name} (Ubisoft product ${state.productId}) in container ${container.id}$missing",
-        )
+        return "active hive ${describe(h.active)}; container hive ${describe(h.container)}; same file: ${if (h.same) "yes" else "NO"}" +
+            if (done.isEmpty()) "" else "; $done"
     }
 }

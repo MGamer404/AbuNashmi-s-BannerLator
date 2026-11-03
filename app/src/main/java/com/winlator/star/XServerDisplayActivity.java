@@ -11770,6 +11770,10 @@ public class XServerDisplayActivity extends AppCompatActivity {
         // toggles say) with what is on disk and what is about to be launched.
         writeGoldbergDiagnostics();
 
+        // Epic-like / Ubisoft launches: launch_decisions.txt (what this launch decided about Ubisoft), a few lines, always
+        // on for those launches; any other launch writes nothing.
+        writeLaunchDecisions();
+
         // Ubisoft launches: the Ubisoft launch report (ubisoft_diag.txt + ubisoft_diag_files/ in the game's log folder),
         // first half. Only the small readable sections run here; listings, probes and the sampler run on their own threads.
         writeUbisoftDiagnostics();
@@ -15125,17 +15129,37 @@ return true;
     private String ubisoftDeepTraceNote = "off";
 
     /**
-     * The Ubisoft launch report's trigger: "epic" for an Epic shortcut stamped Ubisoft (applyUbisoftInstallRecord has
-     * already worked the stamp out this launch, this only reads it), "steam" for a SteamLite launch whose plan armed the
-     * Ubisoft launcher chain (RealSteamLauncher's own decision, read back from the plan env), else null. No disk access.
+     * The Ubisoft launch report's trigger: "epic" for an Epic game (a store-written shortcut, or an imported one whose exe
+     * is under epic_games) stamped Ubisoft, or whose install record found something to record this launch, so a wrong stamp
+     * cannot hide the report (applyUbisoftInstallRecord has already worked the stamp out and recorded the outcome, this
+     * only reads them); "steam" for a SteamLite launch whose plan armed the Ubisoft launcher chain (RealSteamLauncher's
+     * own decision, read back from the plan env), else null. No disk access.
      */
     private String ubisoftLaunchRoute() {
         try {
-            if (shortcut != null && com.winlator.star.store.UbisoftSupport.isEpicShortcut(shortcut)
-                    && Boolean.TRUE.equals(com.winlator.star.store.UbisoftSupport.epicStamp(shortcut))) return "epic";
+            if (shortcut != null && com.winlator.star.store.UbisoftSupport.epicReportRoute(shortcut)) return "epic";
             if (realSteamPlan != null && com.winlator.star.store.UbisoftSupport.steamChainArmed(realSteamPlan.env)) return "steam";
         } catch (Throwable ignored) {}
         return null;
+    }
+
+    /**
+     * Epic-like, Ubisoft-marked and Ubisoft-chain launches only: overwrites {@code launch_decisions.txt} in the game's log
+     * folder with what this launch decided about Ubisoft (the shortcut's extras, the Epic checks, the install folder, the
+     * install record, the report route). Every other launch pays a few string tests and writes nothing. Runs on the
+     * launch worker just before {@link #writeUbisoftDiagnostics()}, after the install record. Never throws.
+     */
+    private void writeLaunchDecisions() {
+        try {
+            final Context appCtx = getApplicationContext();
+            boolean steamChain = realSteamPlan != null && com.winlator.star.store.UbisoftSupport.steamChainArmed(realSteamPlan.env);
+            String text = com.winlator.star.store.UbisoftSupport.launchDecisionsFor(appCtx, shortcut, steamChain, ubisoftDiagRoute);
+            if (text == null) return;
+            java.io.File logDir = com.winlator.star.core.LogLocation.resolveGameLogDir(appCtx, currentLogGameName());
+            com.winlator.star.store.UbisoftSupport.writeLaunchDecisions(logDir, text);
+        } catch (Throwable t) {
+            Log.w("UbisoftSupport", "writeLaunchDecisions failed", t);
+        }
     }
 
     /**

@@ -233,4 +233,67 @@ class UbisoftInstallRegistryTest {
         }
         assertEquals(emptyList<RegWrite>(), UbisoftInstallRegistry.pendingWrites(reader, writes()))
     }
+
+    // ---- Which hive ----------------------------------------------------------------------------
+
+    @get:org.junit.Rule
+    val tmp = org.junit.rules.TemporaryFolder()
+
+    private fun hive(dir: File): File = File(dir, "system.reg").also { dir.mkdirs(); it.writeText("WINE REGISTRY Version 2\n") }
+
+    @Test
+    fun oneHiveReachedByTwoSpellingsIsListedOnce() {
+        val dir = File(tmp.root, "prefix")
+        val active = hive(dir)
+        val container = File(File(dir, "../prefix"), "system.reg")
+        val choice = UbisoftInstallRegistry.chooseHives(active, container)
+        assertTrue(choice.same)
+        assertEquals(listOf(active), choice.targets)
+    }
+
+    @Test
+    fun twoDifferentHivesAreBothTargetsTheActiveOneFirst() {
+        val active = hive(File(tmp.root, "active"))
+        val container = hive(File(tmp.root, "container"))
+        val choice = UbisoftInstallRegistry.chooseHives(active, container)
+        assertFalse(choice.same)
+        assertEquals(listOf(active, container), choice.targets)
+    }
+
+    @Test
+    fun aMissingActiveHiveLeavesTheContainersOwn() {
+        val active = File(File(tmp.root, "active"), "system.reg")
+        val container = hive(File(tmp.root, "container"))
+        val choice = UbisoftInstallRegistry.chooseHives(active, container)
+        assertFalse(choice.same)
+        assertEquals(listOf(container), choice.targets)
+    }
+
+    @Test
+    fun noHiveAtAllMeansNoTarget() {
+        val choice = UbisoftInstallRegistry.chooseHives(File(tmp.root, "a/system.reg"), File(tmp.root, "b/system.reg"))
+        assertFalse(choice.same)
+        assertTrue(choice.targets.isEmpty())
+        val sameMissing = UbisoftInstallRegistry.chooseHives(File(tmp.root, "a/system.reg"), File(tmp.root, "a/system.reg"))
+        assertTrue(sameMissing.same)
+        assertTrue(sameMissing.targets.isEmpty())
+    }
+
+    @Test
+    fun aSymlinkedPrefixIsTheSameHive() {
+        val real = File(tmp.root, "xuser-1")
+        val container = hive(real)
+        val link = File(tmp.root, "xuser")
+        val made = try {
+            java.nio.file.Files.createSymbolicLink(link.toPath(), real.toPath())
+            true
+        } catch (e: Exception) {
+            false // no symlink support here (a Windows account without the privilege)
+        }
+        org.junit.Assume.assumeTrue(made)
+        val active = File(link, "system.reg")
+        val choice = UbisoftInstallRegistry.chooseHives(active, container)
+        assertTrue(choice.same)
+        assertEquals(listOf(active), choice.targets)
+    }
 }

@@ -335,9 +335,46 @@ object UbisoftSupport {
         else -> null
     }
 
-    /** True for a shortcut the Epic store wrote (`storeSource=epic`). No disk access. */
+    /**
+     * True for a shortcut the Epic store wrote (`storeSource=epic`), nothing wider. No disk access. This is the check
+     * for the Epic-only features that are not about Ubisoft (EOS overlay, launch arguments, cloud saves); the Ubisoft
+     * paths use [isEpicShortcut].
+     */
     @JvmStatic
-    fun isEpicShortcut(shortcut: Shortcut): Boolean = shortcut.getExtra("storeSource", "") == "epic"
+    fun isEpicStoreShortcut(shortcut: Shortcut): Boolean = shortcut.getExtra("storeSource", "") == "epic"
+
+    /**
+     * [isEpicLike] with the reason in words (for the launch decisions note and the install-record skip line): the
+     * answer and why. Pure string checks, no disk access.
+     */
+    @JvmStatic
+    fun epicLikeReason(storeSource: String, path: String): Pair<Boolean, String> {
+        val source = storeSource.trim().lowercase()
+        if (source == "epic") return true to "storeSource=epic"
+        if (source.isNotEmpty() && source != "custom") return false to "storeSource='$storeSource' is another store's tag"
+        val shown = if (source.isEmpty()) "empty" else "custom"
+        if (SteamInstallPaths.isUnderInstallRoot(path, source)) return false to "storeSource is $shown and the exe path is in a Steam install folder"
+        val folder = gameFolderUnder(path, EPIC_ROOT)
+            ?: return false to "storeSource is $shown and the exe path is not under epic_games"
+        return true to "storeSource is $shown and the exe path is under epic_games (game folder '${folder.name}')"
+    }
+
+    /**
+     * True for a game that is an Epic install: the Epic store tagged it (`epic`), or it carries no store tag at all /
+     * `custom` (an exe import, a folder scan, the Download Manager's launch button: none of them write Epic extras) and
+     * its Windows exe [path] sits in a game folder below `epic_games`. Any other tag (steam, gog, amazon, xbox,
+     * android...) is never Epic, whatever the path says. Pure string checks, no disk access.
+     */
+    @JvmStatic
+    fun isEpicLike(storeSource: String, path: String): Boolean = epicLikeReason(storeSource, path).first
+
+    /**
+     * True for an Epic game for the Ubisoft paths (setup offer, overlay, install record, launch report): [isEpicLike] on
+     * the shortcut's `storeSource` and exe path. No disk access.
+     */
+    @JvmStatic
+    fun isEpicShortcut(shortcut: Shortcut): Boolean =
+        isEpicLike(shortcut.getExtra("storeSource", ""), shortcut.path.orEmpty())
 
     /** The stamp on [shortcut] (see [EXTRA_UBISOFT]). No disk access. */
     @JvmStatic
@@ -360,13 +397,24 @@ object UbisoftSupport {
      * below `epic_games` on the exe's Android path. Null when neither is there (e.g. the SD card is out).
      */
     @JvmStatic
-    fun epicInstallDirOf(context: Context, shortcut: Shortcut): File? {
+    fun epicInstallDirOf(context: Context, shortcut: Shortcut): File? = epicInstallDirRoute(context, shortcut).first
+
+    /**
+     * [epicInstallDirOf] with the way it was found in words (for the launch decisions note). A shortcut without an
+     * `epicAppName` (one the store did not write) goes straight to the exe path route.
+     */
+    @JvmStatic
+    fun epicInstallDirRoute(context: Context, shortcut: Shortcut): Pair<File?, String> {
         val appName = shortcut.getExtra("epicAppName", "")
         if (appName.isNotEmpty()) {
-            EpicCloudSavePaths.installDir(context, appName)?.takeIf { it.isDirectory }?.let { return it }
+            val saved = EpicCloudSavePaths.installDir(context, appName)?.takeIf { it.isDirectory }
+            if (saved != null) return saved to "the folder the Epic store saved for epicAppName='$appName'"
         }
-        val exe = runCatching { WinePath.resolveAndroidPath(shortcut.container, shortcut.path) }.getOrNull() ?: return null
-        return gameFolderUnder(exe.absolutePath, EPIC_ROOT)?.takeIf { it.isDirectory }
+        val exe = runCatching { WinePath.resolveAndroidPath(shortcut.container, shortcut.path) }.getOrNull()
+            ?: return null to "no saved folder (epicAppName='$appName') and the exe path '${shortcut.path}' does not map to a host path"
+        val below = gameFolderUnder(exe.absolutePath, EPIC_ROOT)?.takeIf { it.isDirectory }
+        return if (below != null) below to "the game folder below epic_games on the exe path ${exe.absolutePath}"
+        else null to "no saved folder (epicAppName='$appName') and no existing game folder below epic_games on ${exe.absolutePath}"
     }
 
     /**
@@ -516,7 +564,12 @@ object UbisoftSupport {
     fun registerEpicInstall(context: Context, container: Container, shortcut: Shortcut?): UbisoftInstallRegistry.Outcome {
         if (shortcut == null) return UbisoftInstallRegistry.record(skippedNotUbisoft("no shortcut"))
         return try {
-            if (!isEpicUbisoft(context, shortcut)) return UbisoftInstallRegistry.record(skippedNotUbisoft("not a Ubisoft game on the Epic store"))
+            if (!isEpicUbisoft(context, shortcut)) {
+                val skipped = skippedNotUbisoft(skipReason(shortcut))
+                // record() stays quiet about skips; say so for an Epic game, where a skip is worth knowing about.
+                if (isEpicShortcut(shortcut)) Log.i(TAG, "Ubisoft install record skipped for ${shortcut.name}: ${skipped.detail}")
+                return UbisoftInstallRegistry.record(skipped)
+            }
             val dir = epicInstallDirOf(context, shortcut)
                 ?: return UbisoftInstallRegistry.record(
                     UbisoftInstallRegistry.Outcome(
@@ -533,6 +586,210 @@ object UbisoftSupport {
 
     private fun skippedNotUbisoft(why: String) =
         UbisoftInstallRegistry.Outcome(UbisoftInstallRegistry.Result.SKIPPED_NOT_UBISOFT, why)
+
+    /** Why [isEpicUbisoft] said no for [shortcut]: its `storeSource`, whether the exe is under `epic_games`, the stamp. No disk access. */
+    private fun skipReason(shortcut: Shortcut): String {
+        val source = shortcut.getExtra("storeSource", "")
+        val path = shortcut.path.orEmpty()
+        val (epicLike, why) = epicLikeReason(source, path)
+        val underEpic = gameFolderUnder(path, EPIC_ROOT) != null
+        val stamp = shortcut.getExtra(EXTRA_UBISOFT, "")
+        return "storeSource='$source', exe under epic_games=$underEpic, ubisoft stamp='$stamp' => " +
+            if (epicLike) "an Epic game, but not stamped Ubisoft (no loader or installer was found in its folder, or the folder was not found)"
+            else "not treated as an Epic game: $why"
+    }
+
+    // ---- Launch report trigger ------------------------------------------------------------------
+
+    /**
+     * True when an Epic-like game gets the Ubisoft launch report: its stamp says Ubisoft, or this launch's install
+     * record found something to record ([last] is anything but "not Ubisoft"), so a wrong stamp cannot hide the report.
+     */
+    @JvmStatic
+    fun epicRouteDecision(epicLike: Boolean, stamp: Boolean?, last: UbisoftInstallRegistry.Result?): Boolean =
+        epicLike && (stamp == true || (last != null && last != UbisoftInstallRegistry.Result.SKIPPED_NOT_UBISOFT))
+
+    /**
+     * [epicRouteDecision] for [shortcut], from what this launch already worked out (the stamp, the install record's
+     * outcome). No disk access: call it after [registerEpicInstall] has run.
+     */
+    @JvmStatic
+    fun epicReportRoute(shortcut: Shortcut): Boolean =
+        epicRouteDecision(isEpicShortcut(shortcut), epicStamp(shortcut), UbisoftInstallRegistry.last()?.result)
+
+    // ---- Launch decisions note ------------------------------------------------------------------
+
+    /** The note's file name in the game's log folder (listed in `LogRotation.isOurRunLog`). */
+    const val DECISIONS_NAME = "launch_decisions.txt"
+
+    /** File names that give a Ubisoft game away when they are part of its exe path: the loaders, the launcher and its installers. */
+    private val PATH_MARKERS = LOADER_PREFIXES + listOf("ubisoftgamelauncher", "ubisoftconnect", "uplayinstaller", "uplaylaunch", "/upc.exe")
+
+    /** True when [path] (either separator, any case) itself carries a Ubisoft marker file name. A string check, no disk access. */
+    @JvmStatic
+    fun pathHasUbisoftMarker(path: String): Boolean {
+        val p = path.replace('\\', '/').lowercase()
+        return PATH_MARKERS.any { p.contains(it) }
+    }
+
+    /**
+     * What makes a launch worth a decisions note, in words, or null when none of it applies (the usual launch).
+     * Booleans and a string in, so the common case is a few field reads.
+     */
+    @JvmStatic
+    fun decisionsTrigger(epicLike: Boolean, storeSourceEpic: Boolean, steamChain: Boolean, pathMarker: Boolean, diagRoute: String?): String? {
+        val parts = ArrayList<String>()
+        if (epicLike) parts += "Epic-like shortcut"
+        if (storeSourceEpic) parts += "storeSource=epic"
+        if (steamChain) parts += "Ubisoft launcher chain armed"
+        if (pathMarker) parts += "Ubisoft file name in the exe path"
+        if (diagRoute != null) parts += "Ubisoft launch report route '$diagRoute'"
+        return if (parts.isEmpty()) null else parts.joinToString(", ")
+    }
+
+    /** Why a launch got no Ubisoft launch report, in one line. Pure. */
+    @JvmStatic
+    fun noRouteReason(storeSource: String, path: String, stampRaw: String, steamChain: Boolean, registrationSkipped: Boolean): String {
+        if (steamChain) return "the Ubisoft launcher chain is armed but the report was not started"
+        val (epicLike, why) = epicLikeReason(storeSource, path)
+        if (!epicLike) return "$why, and no Ubisoft launcher chain in a Steam launch plan"
+        val stamp = stampValue(stampRaw)
+        val stampText = when (stamp) {
+            true -> "1"
+            false -> "0 after recheck"
+            null -> "unset"
+        }
+        return when {
+            stamp == true -> "Epic-like and stamped Ubisoft but the report was not started"
+            registrationSkipped -> "$why; ubisoft stamp=$stampText and the install record was SKIPPED_NOT_UBISOFT"
+            else -> "$why; ubisoft stamp=$stampText"
+        }
+    }
+
+    /** Everything the decisions note prints, already worked out (see [launchDecisionsText]). */
+    class LaunchFacts(
+        val timestamp: String, val trigger: String,
+        val app: String, val flavor: String, val debug: Boolean, val commit: String,
+        val shortcutFile: String, val name: String, val exe: String,
+        val storeSource: String, val epicAppName: String, val epicSandboxId: String, val epicEos: String,
+        val ubisoft: String, val launchMode: String, val steamAppId: String,
+        val strictEpic: Boolean, val epicLike: Boolean, val epicLikeWhy: String,
+        val installDir: String, val installRoute: String,
+        val hasLauncherFiles: String, val stateFile: String,
+        val launcherInstalled: String, val registration: String,
+        val route: String?, val routeWhy: String,
+    )
+
+    /** The text of the decisions note for [f]: a few lines, plain, one fact per line. Pure. */
+    @JvmStatic
+    fun launchDecisionsText(f: LaunchFacts): String = buildString {
+        append("launch decisions (rewritten on every launch of an Epic-like, Ubisoft-marked or Ubisoft-chain shortcut)\n")
+        append("timestamp: ").append(f.timestamp).append('\n')
+        append("written because: ").append(f.trigger).append('\n')
+        append("app: ").append(f.app).append(" flavor=").append(f.flavor).append(" debug=").append(f.debug).append('\n')
+        append("commit: ").append(f.commit).append('\n')
+        append("shortcut file: ").append(f.shortcutFile).append('\n')
+        append("name: ").append(f.name).append('\n')
+        append("exe (Windows path in the shortcut): ").append(f.exe).append('\n')
+        append("storeSource='").append(f.storeSource).append("'  epicAppName='").append(f.epicAppName).append("'  epicSandboxId='").append(f.epicSandboxId)
+            .append("'  epicEos='").append(f.epicEos).append("'  ubisoft='").append(f.ubisoft).append("'  launchMode='").append(f.launchMode)
+            .append("'  steamAppId='").append(f.steamAppId).append("'\n")
+        append("strict Epic check (storeSource=epic, the old isEpicShortcut): ").append(f.strictEpic).append('\n')
+        append("Epic-like (storeSource epic, or empty/custom with the exe under epic_games): ").append(f.epicLike).append(" - ").append(f.epicLikeWhy).append('\n')
+        append("install folder: ").append(f.installDir).append("  (found by: ").append(f.installRoute).append(")\n")
+        append("hasLauncherFiles(install folder): ").append(f.hasLauncherFiles).append('\n')
+        append("uplay_install.state: ").append(f.stateFile).append('\n')
+        append("Ubisoft Connect in the prefix: ").append(f.launcherInstalled).append('\n')
+        append("install record (UbisoftInstallRegistry.last): ").append(f.registration).append('\n')
+        append("Ubisoft launch report route: ").append(f.route ?: "none").append(if (f.route == null) " - " + f.routeWhy else "").append('\n')
+    }
+
+    /**
+     * Builds the decisions note for a launch of [shortcut], or null when the launch is none of the kinds that get one
+     * (see [decisionsTrigger]; the check is a few string tests). [steamChain] = the Steam plan armed the Ubisoft chain,
+     * [diagRoute] = the report route this launch chose (null = none). Looks at a few files for the launches that do
+     * get a note. Call on the launch worker, after [registerEpicInstall] has run. Never throws.
+     */
+    @JvmStatic
+    fun launchDecisionsFor(context: Context, shortcut: Shortcut?, steamChain: Boolean, diagRoute: String?): String? {
+        return try {
+            val source = shortcut?.getExtra("storeSource", "").orEmpty()
+            val exe = shortcut?.path.orEmpty()
+            val strict = shortcut != null && isEpicStoreShortcut(shortcut)
+            val (epicLike, why) = epicLikeReason(source, exe)
+            val trigger = decisionsTrigger(epicLike, strict, steamChain, pathHasUbisoftMarker(exe), diagRoute) ?: return null
+
+            var found: Pair<File?, String> = null to "no shortcut"
+            if (shortcut != null) {
+                found = epicInstallDirRoute(context, shortcut)
+                if (found.first == null && steamChain) {
+                    val steamDir = runCatching { EaSupport.installDirOf(shortcut) }.getOrNull()
+                    if (steamDir != null) found = steamDir to "the Steam install folder of the shortcut (${found.second})"
+                }
+            }
+            val dir = found.first
+            val stateFile = if (dir == null) "no install folder" else {
+                val f = File(dir, UbisoftInstallRegistry.STATE_FILE)
+                if (!f.isFile) "absent (${f.path})" else {
+                    val st = UbisoftInstallState.read(f)
+                    if (st == null) "present but not usable (${f.length()} bytes)" else "present, product id ${st.productId} (${st.name})"
+                }
+            }
+            val launcher = if (shortcut == null) "unknown (no shortcut)" else {
+                val files = launcherFileStatus(shortcut.container)
+                "launcherInstalled=${launcherInstalled(shortcut.container)} (" +
+                    files.joinToString(", ") { it.first + "=" + (if (it.second) "present" else "missing") } + ")"
+            }
+            val last = UbisoftInstallRegistry.last()
+            val facts = LaunchFacts(
+                timestamp = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US).format(java.util.Date()),
+                trigger = trigger,
+                app = "${com.winlator.star.BuildConfig.VERSION_NAME} (versionCode ${com.winlator.star.BuildConfig.VERSION_CODE})",
+                flavor = com.winlator.star.BuildConfig.FLAVOR,
+                debug = com.winlator.star.BuildConfig.DEBUG,
+                commit = "none (BuildConfig has no commit field; versionName + versionCode identify the CI build)",
+                shortcutFile = shortcut?.file?.path ?: "<no shortcut>",
+                name = shortcut?.name ?: "<no shortcut>",
+                exe = exe,
+                storeSource = source,
+                epicAppName = shortcut?.getExtra("epicAppName", "").orEmpty(),
+                epicSandboxId = shortcut?.getExtra("epicSandboxId", "").orEmpty(),
+                epicEos = shortcut?.getExtra("epicEos", "").orEmpty(),
+                ubisoft = shortcut?.getExtra(EXTRA_UBISOFT, "").orEmpty(),
+                launchMode = shortcut?.getExtra("launchMode", "").orEmpty(),
+                steamAppId = shortcut?.getExtra("steamAppId", "").orEmpty(),
+                strictEpic = strict,
+                epicLike = epicLike,
+                epicLikeWhy = why,
+                installDir = dir?.path ?: "<none>",
+                installRoute = found.second,
+                hasLauncherFiles = if (dir == null) "n/a (no folder)" else hasLauncherFiles(dir).toString(),
+                stateFile = stateFile,
+                launcherInstalled = launcher,
+                registration = last?.toString() ?: "none recorded (registerEpicInstall did not run for this launch)",
+                route = diagRoute,
+                routeWhy = noRouteReason(
+                    source, exe, shortcut?.getExtra(EXTRA_UBISOFT, "").orEmpty(), steamChain,
+                    last?.result == UbisoftInstallRegistry.Result.SKIPPED_NOT_UBISOFT,
+                ),
+            )
+            launchDecisionsText(facts)
+        } catch (t: Throwable) {
+            Log.w(TAG, "could not build the launch decisions note", t)
+            null
+        }
+    }
+
+    /** Overwrites the note in [logDir] with [text]. Returns true when it was written. Never throws. */
+    @JvmStatic
+    fun writeLaunchDecisions(logDir: File, text: String): Boolean = try {
+        logDir.mkdirs()
+        File(logDir, DECISIONS_NAME).writeText(text, Charsets.UTF_8)
+        true
+    } catch (t: Throwable) {
+        Log.w(TAG, "could not write $DECISIONS_NAME", t)
+        false
+    }
 
     // ---- Overlay --------------------------------------------------------------------------------
 

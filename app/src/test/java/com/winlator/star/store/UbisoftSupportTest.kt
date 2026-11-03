@@ -379,4 +379,164 @@ class UbisoftSupportTest {
         assertEquals("a=1", UbisoftSupport.dropStaleStamp("a=1\nubisoft=0"))
         assertEquals("a=1\n", UbisoftSupport.dropStaleStamp("a=1\nubisoft=0\n"))
     }
+
+    // ---- Epic-like detection ----------------------------------------------------------------------
+
+    private val epicExe = "Z:\\epic_games\\Assassins Creed Syndicate\\ACS.exe"
+
+    @Test
+    fun anEpicStoreTagIsEpicWhateverThePath() {
+        assertTrue(UbisoftSupport.isEpicLike("epic", epicExe))
+        assertTrue(UbisoftSupport.isEpicLike("epic", "C:\\Games\\X\\x.exe"))
+        assertTrue(UbisoftSupport.isEpicLike("epic", ""))
+    }
+
+    @Test
+    fun aCustomOrUntaggedShortcutUnderEpicGamesIsEpicLike() {
+        assertTrue(UbisoftSupport.isEpicLike("custom", epicExe))
+        assertTrue(UbisoftSupport.isEpicLike("", epicExe))
+        assertTrue(UbisoftSupport.isEpicLike("custom", "Z:/epic_games/Assassins Creed Syndicate/ACS.exe"))
+        assertTrue(UbisoftSupport.isEpicLike("", "/data/user/0/app/files/imagefs/epic_games/G/Bin/g.exe"))
+    }
+
+    @Test
+    fun epicLikePathMatchingIgnoresCaseAndNeedsAGameFolder() {
+        assertTrue(UbisoftSupport.isEpicLike("custom", "Z:\\EPIC_GAMES\\Assassins Creed Syndicate\\ACS.EXE"))
+        assertTrue(UbisoftSupport.isEpicLike("CUSTOM", epicExe))
+        assertFalse(UbisoftSupport.isEpicLike("custom", "Z:\\epic_games"))
+        assertFalse(UbisoftSupport.isEpicLike("custom", "Z:\\epic_games\\"))
+        assertFalse(UbisoftSupport.isEpicLike("custom", "Z:\\epic_games_old\\G\\g.exe"))
+    }
+
+    @Test
+    fun aCustomOrUntaggedShortcutElsewhereIsNotEpicLike() {
+        assertFalse(UbisoftSupport.isEpicLike("custom", "C:\\Games\\Assassins Creed Syndicate\\ACS.exe"))
+        assertFalse(UbisoftSupport.isEpicLike("", "C:\\Games\\Assassins Creed Syndicate\\ACS.exe"))
+        assertFalse(UbisoftSupport.isEpicLike("", ""))
+    }
+
+    @Test
+    fun anotherStoresTagIsNeverEpicLikeEvenUnderEpicGames() {
+        for (tag in listOf("steam", "gog", "amazon", "xbox", "xbox:abc", "android", "Steam", "ea", "origin")) {
+            assertFalse("storeSource=$tag", UbisoftSupport.isEpicLike(tag, epicExe))
+        }
+    }
+
+    @Test
+    fun aSteamInstallFolderIsNotEpicLikeEvenWithEpicGamesInItsPath() {
+        assertFalse(UbisoftSupport.isEpicLike("steam", "Z:\\steam_games\\epic_games\\G\\g.exe"))
+        assertFalse(UbisoftSupport.isEpicLike("", "Z:\\steam_games\\epic_games\\G\\g.exe"))
+        assertFalse(UbisoftSupport.isEpicLike("custom", "Z:\\steam_games\\epic_games\\G\\g.exe"))
+        assertFalse(UbisoftSupport.isEpicLike("", "G:\\steamapps\\common\\epic_games\\G\\g.exe"))
+        assertFalse(UbisoftSupport.isEpicLike("steam", "Z:\\games\\epic_games\\steamapps\\common\\G\\g.exe"))
+    }
+
+    @Test
+    fun theEpicLikeReasonNamesTheTagAndThePath() {
+        val under = UbisoftSupport.epicLikeReason("custom", epicExe)
+        assertTrue(under.first)
+        assertTrue(under.second, under.second.contains("custom") && under.second.contains("epic_games") && under.second.contains("Assassins Creed Syndicate"))
+        assertEquals("storeSource=epic", UbisoftSupport.epicLikeReason("epic", "").second)
+        val elsewhere = UbisoftSupport.epicLikeReason("custom", "C:\\Games\\x.exe")
+        assertFalse(elsewhere.first)
+        assertEquals("storeSource is custom and the exe path is not under epic_games", elsewhere.second)
+        assertEquals("storeSource is empty and the exe path is not under epic_games", UbisoftSupport.epicLikeReason("", "C:\\x.exe").second)
+        assertEquals("storeSource='steam' is another store's tag", UbisoftSupport.epicLikeReason("steam", epicExe).second)
+    }
+
+    // ---- Launch report route -----------------------------------------------------------------------
+
+    @Test
+    fun theReportRouteNeedsAnEpicLikeGameAndEitherTheStampOrARecordedInstall() {
+        val skipped = UbisoftInstallRegistry.Result.SKIPPED_NOT_UBISOFT
+        assertTrue(UbisoftSupport.epicRouteDecision(true, true, null))
+        assertTrue(UbisoftSupport.epicRouteDecision(true, true, skipped))
+        assertFalse(UbisoftSupport.epicRouteDecision(true, false, skipped))
+        assertFalse(UbisoftSupport.epicRouteDecision(true, null, skipped))
+        assertFalse(UbisoftSupport.epicRouteDecision(true, null, null))
+        // A wrong 0 stamp cannot hide the report when the install record found a state file or folder.
+        assertTrue(UbisoftSupport.epicRouteDecision(true, false, UbisoftInstallRegistry.Result.REGISTERED))
+        assertTrue(UbisoftSupport.epicRouteDecision(true, false, UbisoftInstallRegistry.Result.ALREADY_PRESENT))
+        assertTrue(UbisoftSupport.epicRouteDecision(true, null, UbisoftInstallRegistry.Result.NO_STATE_FILE))
+        // Not an Epic-like game: never.
+        assertFalse(UbisoftSupport.epicRouteDecision(false, true, UbisoftInstallRegistry.Result.REGISTERED))
+        assertFalse(UbisoftSupport.epicRouteDecision(false, true, null))
+    }
+
+    // ---- Launch decisions note ---------------------------------------------------------------------
+
+    @Test
+    fun aUbisoftMarkerInThePathIsFoundWithEitherSeparatorAndAnyCase() {
+        assertTrue(UbisoftSupport.pathHasUbisoftMarker("Z:\\Games\\X\\uplay_r1_loader.dll"))
+        assertTrue(UbisoftSupport.pathHasUbisoftMarker("C:\\Program Files (x86)\\Ubisoft\\Ubisoft Game Launcher\\UPC.exe"))
+        assertTrue(UbisoftSupport.pathHasUbisoftMarker("/x/Uplay/UplayInstaller.exe"))
+        assertFalse(UbisoftSupport.pathHasUbisoftMarker("Z:\\steam_games\\Portal 2\\portal2.exe"))
+        assertFalse(UbisoftSupport.pathHasUbisoftMarker("Z:\\games\\upcoming\\upcoming.exe"))
+        assertFalse(UbisoftSupport.pathHasUbisoftMarker(""))
+    }
+
+    @Test
+    fun aLaunchGetsANoteOnlyWhenSomethingUbisoftOrEpicLikeApplies() {
+        assertNull(UbisoftSupport.decisionsTrigger(false, false, false, false, null))
+        assertEquals("Epic-like shortcut", UbisoftSupport.decisionsTrigger(true, false, false, false, null))
+        assertEquals("storeSource=epic", UbisoftSupport.decisionsTrigger(false, true, false, false, null))
+        assertEquals("Ubisoft launcher chain armed", UbisoftSupport.decisionsTrigger(false, false, true, false, null))
+        assertEquals("Ubisoft file name in the exe path", UbisoftSupport.decisionsTrigger(false, false, false, true, null))
+        assertEquals("Ubisoft launch report route 'steam'", UbisoftSupport.decisionsTrigger(false, false, false, false, "steam"))
+        assertEquals(
+            "Epic-like shortcut, storeSource=epic, Ubisoft launch report route 'epic'",
+            UbisoftSupport.decisionsTrigger(true, true, false, false, "epic"),
+        )
+    }
+
+    @Test
+    fun theNoReportReasonSaysWhy() {
+        assertEquals(
+            "storeSource is custom and the exe path is not under epic_games, and no Ubisoft launcher chain in a Steam launch plan",
+            UbisoftSupport.noRouteReason("custom", "C:\\Games\\x.exe", "", false, false),
+        )
+        assertEquals(
+            "storeSource is custom and the exe path is under epic_games (game folder 'G'); ubisoft stamp=0 after recheck and the install record was SKIPPED_NOT_UBISOFT",
+            UbisoftSupport.noRouteReason("custom", "Z:\\epic_games\\G\\g.exe", "0", false, true),
+        )
+        assertEquals(
+            "storeSource=epic; ubisoft stamp=unset",
+            UbisoftSupport.noRouteReason("epic", "Z:\\epic_games\\G\\g.exe", "", false, false),
+        )
+        assertEquals("the Ubisoft launcher chain is armed but the report was not started", UbisoftSupport.noRouteReason("steam", "", "", true, false))
+    }
+
+    private fun facts(route: String?) = UbisoftSupport.LaunchFacts(
+        timestamp = "2026-11-03 14:02:11", trigger = "Epic-like shortcut",
+        app = "3.1.8 (versionCode 318)", flavor = "standard", debug = false, commit = "none",
+        shortcutFile = "/c/desktop/Assassins Creed Syndicate.desktop", name = "Assassins Creed Syndicate", exe = epicExe,
+        storeSource = "custom", epicAppName = "", epicSandboxId = "", epicEos = "", ubisoft = "", launchMode = "", steamAppId = "",
+        strictEpic = false, epicLike = true, epicLikeWhy = "storeSource is custom and the exe path is under epic_games (game folder 'Assassins Creed Syndicate')",
+        installDir = "/imagefs/epic_games/Assassins Creed Syndicate", installRoute = "the game folder below epic_games on the exe path",
+        hasLauncherFiles = "true", stateFile = "present, product id 1875 (Assassin's Creed Syndicate)",
+        launcherInstalled = "launcherInstalled=false (upc.exe=missing)", registration = "REGISTERED: 11 of 11 value(s) written",
+        route = route, routeWhy = "not needed",
+    )
+
+    @Test
+    fun theDecisionsNoteListsEveryFact() {
+        val text = UbisoftSupport.launchDecisionsText(facts("epic"))
+        for (part in listOf(
+            "timestamp: 2026-11-03 14:02:11", "written because: Epic-like shortcut", "app: 3.1.8 (versionCode 318) flavor=standard debug=false",
+            "commit: none", "shortcut file: /c/desktop/Assassins Creed Syndicate.desktop",
+            "storeSource='custom'  epicAppName=''  epicSandboxId=''  epicEos=''  ubisoft=''  launchMode=''  steamAppId=''",
+            "(storeSource=epic, the old isEpicShortcut): false", "): true - storeSource is custom and the exe path is under epic_games",
+            "install folder: /imagefs/epic_games/Assassins Creed Syndicate  (found by: the game folder below epic_games on the exe path)",
+            "hasLauncherFiles(install folder): true", "uplay_install.state: present, product id 1875",
+            "Ubisoft Connect in the prefix: launcherInstalled=false", "install record (UbisoftInstallRegistry.last): REGISTERED: 11 of 11",
+            "Ubisoft launch report route: epic\n",
+        )) assertTrue("missing '$part' in:\n$text", text.contains(part))
+        assertFalse(text.contains("not needed"))
+    }
+
+    @Test
+    fun theDecisionsNoteExplainsAMissingReportRoute() {
+        val text = UbisoftSupport.launchDecisionsText(facts(null))
+        assertTrue(text, text.contains("Ubisoft launch report route: none - not needed\n"))
+    }
 }

@@ -130,6 +130,8 @@ public final class LogRotation {
         // Ubisoft launch report: the index file WE write on every Ubisoft launch (see UbisoftDiag); the
         // ubisoft_diag_files/ folder beside it is replaced by the next launch and is a folder, not a file.
         if (n.equals(com.winlator.star.store.UbisoftDiag.OUTPUT_NAME)) return true;
+        // Ubisoft launch decisions note: a fixed name WE write on every Epic-like / Ubisoft launch (see UbisoftSupport).
+        if (n.equals(com.winlator.star.store.UbisoftSupport.DECISIONS_NAME)) return true;
         if (!n.endsWith(".log")) return false;              // never .txt — that is other people's
         return n.equals("wine_debug.log")
                 || n.equals("logcat.log")
