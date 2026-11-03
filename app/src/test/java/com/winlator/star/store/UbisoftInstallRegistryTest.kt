@@ -22,7 +22,7 @@ class UbisoftInstallRegistryTest {
 
     private fun writes(): List<RegWrite> = UbisoftInstallRegistry.installWrites(state(), game)
 
-    /** `system.reg` text as Wine writes it after Locate (the device capture), plus the native view of the game's key. */
+    /** `system.reg` text as Wine writes it after Locate (the device capture), plus the game's own keys that Connect wrote later. */
     private fun locatedHive(): String = """
 [Software\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Uplay Install 1875] 1793632643
 #time=1dd6add431606e2
@@ -99,52 +99,36 @@ class UbisoftInstallRegistryTest {
     }
 
     @Test
-    fun theGamesLanguageValueGoesToBothViews() {
+    fun theGamesOwnLanguageValueIsNotWritten() {
+        // Locate wrote only the two keys above; the game's own Language value came later, from Connect's first launch.
+        assertNull(valueOf("Software\\Wow6432Node\\Ubisoft\\Assassin's Creed Syndicate", "Language"))
+        assertNull(valueOf("Software\\Ubisoft\\Assassin's Creed Syndicate", "Language"))
+        assertEquals(2 + 9, writes().size)
         assertEquals(
-            RegWrite("Software\\Wow6432Node\\Ubisoft\\Assassin's Creed Syndicate", "Language", Type.STRING, "English(US)"),
-            valueOf("Software\\Wow6432Node\\Ubisoft\\Assassin's Creed Syndicate", "Language"),
+            setOf(
+                "Software\\Wow6432Node\\Ubisoft\\Launcher\\Installs\\1875",
+                "Software\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Uplay Install 1875",
+            ),
+            writes().map { it.key }.toSet(),
         )
-        assertEquals(
-            RegWrite("Software\\Ubisoft\\Assassin's Creed Syndicate", "Language", Type.STRING, "English(US)"),
-            valueOf("Software\\Ubisoft\\Assassin's Creed Syndicate", "Language"),
-        )
-        assertEquals(2 + 9 + 2, writes().size)
     }
 
     @Test
-    fun theGamesLanguageFollowsTheInstallLanguage() {
+    fun theInstallLanguageFollowsTheState() {
         val fr = state().copy(language = "fr-FR")
         val out = UbisoftInstallRegistry.installWrites(fr, game)
         assertEquals("fr-FR", out.first { it.name == "Language" && it.key.endsWith("\\1875") }.data)
-        assertEquals("French(France)", out.first { it.key == "Software\\Ubisoft\\Assassin's Creed Syndicate" }.data)
+        assertEquals(2 + 9, out.size)
     }
 
     @Test
-    fun noGameValueWhenTheStateHasNoEntryForTheLanguageOrAnOddPath() {
-        val noEntry = state().copy(language = "xx-XX")
-        assertEquals(2 + 9, UbisoftInstallRegistry.installWrites(noEntry, game).size)
-        val odd = state().copy(
-            registry = listOf(
-                UbisoftInstallState.RegistryEntry("HKEY_CURRENT_USER\\Software\\Ubisoft\\G\\Language", "en-US", "English(US)"),
-            ),
-        )
-        assertEquals(2 + 9, UbisoftInstallRegistry.installWrites(odd, game).size)
-        val shallow = state().copy(
-            registry = listOf(UbisoftInstallState.RegistryEntry("HKEY_LOCAL_MACHINE\\SOFTWARE\\Language", "en-US", "x")),
-        )
-        assertEquals(2 + 9, UbisoftInstallRegistry.installWrites(shallow, game).size)
-    }
-
-    @Test
-    fun theGamePathIsMappedFromTheStatesRegistryPathWhateverItsCase() {
+    fun theStatesPerLanguageRegistryEntriesDoNotAddWrites() {
         val s = state().copy(
             registry = listOf(
-                UbisoftInstallState.RegistryEntry("hkey_local_machine\\software\\Ubisoft\\Game X\\Language", "en-US", "English(US)"),
+                UbisoftInstallState.RegistryEntry("HKEY_LOCAL_MACHINE\\SOFTWARE\\Ubisoft\\Game X\\Language", "en-US", "English(US)"),
             ),
         )
-        val out = UbisoftInstallRegistry.installWrites(s, game)
-        assertEquals("English(US)", out.first { it.key == "Software\\Wow6432Node\\Ubisoft\\Game X" }.data)
-        assertEquals("English(US)", out.first { it.key == "Software\\Ubisoft\\Game X" }.data)
+        assertEquals(2 + 9, UbisoftInstallRegistry.installWrites(s, game).size)
     }
 
     @Test
@@ -152,7 +136,7 @@ class UbisoftInstallRegistryTest {
         val s = state().copy(name = "Bad\nName", displayName = "Bad\nName")
         val out = UbisoftInstallRegistry.installWrites(s, game)
         assertTrue(out.none { it.name == "DisplayName" })
-        assertEquals(2 + 8 + 2, out.size)
+        assertEquals(2 + 8, out.size)
     }
 
     // ---- The Z: path ----------------------------------------------------------------------------
@@ -187,13 +171,11 @@ class UbisoftInstallRegistryTest {
     }
 
     @Test
-    fun aMissingNativeViewIsTheOnlyPendingWrite() {
+    fun aHiveWithoutTheGameKeysNeedsNothingMore() {
+        // The game's own Language keys are not ours: a hive without them (the state right after Locate) has everything.
         val hive = locatedHive().replace(
             "[Software\\\\Ubisoft\\\\Assassin's Creed Syndicate] 1793633389\n#time=1dd6adeff9f6ac8\n\"Language\"=\"English(US)\"\n\n", "")
-        assertEquals(
-            listOf(RegWrite("Software\\Ubisoft\\Assassin's Creed Syndicate", "Language", Type.STRING, "English(US)")),
-            UbisoftInstallRegistry.pendingWrites(hive, writes()),
-        )
+        assertEquals(emptyList<RegWrite>(), UbisoftInstallRegistry.pendingWrites(hive, writes()))
     }
 
     @Test

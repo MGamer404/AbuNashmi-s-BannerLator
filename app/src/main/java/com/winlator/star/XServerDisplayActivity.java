@@ -5488,6 +5488,8 @@ public class XServerDisplayActivity extends AppCompatActivity {
         gameExitWatchHandler.removeCallbacks(gameExitWatchRunnable);
         affinityReapplyHandler.removeCallbacks(affinityReapplyRunnable);
         stopDxApiDetection();
+        // Ubisoft launch report: the process sampler stops with the session (no-op for any other launch).
+        if (ubisoftDiagRoute != null) com.winlator.star.store.UbisoftDiag.stopSampler();
         // Stop the session foreground service (also removes its ongoing notification).
         stopService(new Intent(this, com.winlator.star.core.GameSessionForegroundService.class));
         if (gamescopeMode) {
@@ -5687,6 +5689,17 @@ public class XServerDisplayActivity extends AppCompatActivity {
                             }
                         } catch (Throwable t) {
                             Log.w("SteamLiteLogs", "collect on exit errored", t);
+                        }
+                        // Ubisoft launch report, second half: the Wine tree has been stopped and flushed above, so the
+                        // hives on disk are final. Bounded (the sections that finish are kept); the first half is on disk
+                        // already if this never runs. Nothing happens for a launch that was not a Ubisoft one.
+                        if (ubisoftDiagRoute != null) {
+                            try {
+                                preloaderDialog.hint(getString(R.string.ubisoft_diag_saving));
+                                com.winlator.star.store.UbisoftDiag.finishBounded(50000L);
+                            } catch (Throwable t) {
+                                Log.w("UbisoftDiag", "finish on exit errored", t);
+                            }
                         }
                     } catch (Throwable t) {
                         Log.w("XServerDisplayActivity", "exit save-backup phase errored", t);
@@ -7403,6 +7416,9 @@ public class XServerDisplayActivity extends AppCompatActivity {
         // user something sooner; this one is the guarantee that nothing is left on the handheld
         // describing a session that no longer exists. No-op when it is already gone.
         com.winlator.star.display.TvCompanionActivity.dismiss("the session is gone");
+        // Ubisoft launch report: when the normal exit routine never ran (the session was torn down some other way) the
+        // second half runs here in the background without waiting. No-op for any other launch and when it already ran.
+        if (ubisoftDiagRoute != null) com.winlator.star.store.UbisoftDiag.onActivityDestroyed();
         if (inGameControlsEditor != null) {
             inGameControlsEditor.dispose();
             inGameControlsEditor = null;
@@ -11509,6 +11525,13 @@ public class XServerDisplayActivity extends AppCompatActivity {
                 } catch (Throwable ignored) {}
             }
 
+            // Ubisoft launch (an Epic game stamped Ubisoft, or a Steam game that armed the Ubisoft launcher chain): the
+            // trigger of the Ubisoft launch report, decided once from what is already known (the stamp, the plan env), no
+            // disk walk. The Log Manager's "Ubisoft deep trace" switch adds +reg,+file to WINEDEBUG for these launches only.
+            // Every other launch pays one null-safe field read here and nothing else.
+            ubisoftDiagRoute = ubisoftLaunchRoute();
+            if (ubisoftDiagRoute != null) applyUbisoftDeepTrace();
+
             // Sync (esync / ntsync / wineserver) is no longer defaulted here: applySyncModeEnv() below
             // writes it after every env source (overrideEnvVars included) is merged.
 
@@ -11746,6 +11769,10 @@ public class XServerDisplayActivity extends AppCompatActivity {
         // Goldberg launches: write goldberg_diag.txt into the game's log folder (whatever the Log Manager
         // toggles say) with what is on disk and what is about to be launched.
         writeGoldbergDiagnostics();
+
+        // Ubisoft launches: the Ubisoft launch report (ubisoft_diag.txt + ubisoft_diag_files/ in the game's log folder),
+        // first half. Only the small readable sections run here; listings, probes and the sampler run on their own threads.
+        writeUbisoftDiagnostics();
 
         // Start all environment components (XServer, Audio, Wine, etc.)
         preloaderDialog.step(4, "Launching Windows…");
@@ -15089,6 +15116,108 @@ return true;
             return "on (" + why + ", " + sw.envName + "=" + envVars.get(sw.envName) + " is yours, kept)";
         envVars.put(sw.envName, sw.envValue);
         return "on (" + why + ", " + sw.envName + "=" + sw.envValue + ")";
+    }
+
+    /** "epic" or "steam" for a Ubisoft launch (decided once in setupXEnvironment, see {@link #ubisoftLaunchRoute()}), null for every other launch. */
+    private volatile String ubisoftDiagRoute = null;
+
+    /** What the Ubisoft deep trace switch did for this launch (written to the report). */
+    private String ubisoftDeepTraceNote = "off";
+
+    /**
+     * The Ubisoft launch report's trigger: "epic" for an Epic shortcut stamped Ubisoft (applyUbisoftInstallRecord has
+     * already worked the stamp out this launch, this only reads it), "steam" for a SteamLite launch whose plan armed the
+     * Ubisoft launcher chain (RealSteamLauncher's own decision, read back from the plan env), else null. No disk access.
+     */
+    private String ubisoftLaunchRoute() {
+        try {
+            if (shortcut != null && com.winlator.star.store.UbisoftSupport.isEpicShortcut(shortcut)
+                    && Boolean.TRUE.equals(com.winlator.star.store.UbisoftSupport.epicStamp(shortcut))) return "epic";
+            if (realSteamPlan != null && com.winlator.star.store.UbisoftSupport.steamChainArmed(realSteamPlan.env)) return "steam";
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
+    /**
+     * Ubisoft launches only: with the Log Manager's "Ubisoft deep trace" switch (or the ubisoftDeepTrace=1 extra on the
+     * shortcut or container) on, adds the +reg and +file Wine debug channels to WINEDEBUG so wine_debug.log shows every
+     * registry and file access. Only while Wine debug is on with a "+channel" list (otherwise the output goes nowhere).
+     * Records what it did in {@link #ubisoftDeepTraceNote}. Never throws.
+     */
+    private void applyUbisoftDeepTrace() {
+        ubisoftDeepTraceNote = "off";
+        try {
+            if (!com.winlator.star.store.UbisoftDiag.deepTraceRequested(preferences, shortcut, container)) return;
+            if (!preferences.getBoolean("enable_wine_debug", false)) {
+                ubisoftDeepTraceNote = "requested but NOT applied: Wine debug is off in the Log Manager, so the trace would be thrown away";
+                return;
+            }
+            String wd = envVars.has("WINEDEBUG") ? envVars.get("WINEDEBUG") : "";
+            String traced = com.winlator.star.store.UbisoftDiag.withDeepTrace(wd);
+            if (traced == null) {
+                ubisoftDeepTraceNote = "requested but NOT applied: WINEDEBUG is '" + wd + "' (it needs a +channel list)";
+                return;
+            }
+            envVars.put("WINEDEBUG", traced);
+            ubisoftDeepTraceNote = "ON: WINEDEBUG=" + traced;
+        } catch (Throwable t) {
+            ubisoftDeepTraceNote = "failed: " + t;
+        }
+    }
+
+    /**
+     * Ubisoft launches only: starts the Ubisoft launch report in the game's log folder ({@code ubisoft_diag.txt} plus
+     * {@code ubisoft_diag_files/}, on every Ubisoft launch whatever the Log Manager toggles say). Runs on the launch
+     * worker just before the guest starts; the report does its heavy work on its own threads and finishes in
+     * {@link #exit()}. Never throws.
+     */
+    private void writeUbisoftDiagnostics() {
+        if (ubisoftDiagRoute == null) return;
+        try {
+            final Context appCtx = getApplicationContext();
+            final boolean steam = "steam".equals(ubisoftDiagRoute) && realSteamPlan != null;
+            int steamAppId = 0;
+            String steamInstall = null;
+            if (steam) {
+                steamAppId = realSteamPlan.appId;
+                SteamAppRef ref = resolveSteamAppRef();
+                if (ref != null) steamInstall = ref.installDir;
+            }
+            java.util.List<String> env = new ArrayList<>();
+            for (String k : envVars) env.add(k + "=" + envVars.get(k));
+
+            String fexPreset = shortcut != null
+                    ? shortcut.getExtra("fexcorePreset", container.getFEXCorePreset()) : container.getFEXCorePreset();
+            String box64Preset = shortcut != null
+                    ? shortcut.getExtra("box64Preset", container.getBox64Preset()) : container.getBox64Preset();
+            java.util.List<String> settings = new ArrayList<>();
+            settings.add("wine: " + container.getWineVersion() + " / "
+                    + (wineInfo != null ? wineInfo.fullVersion() + " " + wineInfo.getArch() + " arm64ec=" + wineInfo.isArm64EC() : "no wineInfo"));
+            settings.add("emulator: " + emulator + " (container: " + container.getEmulator() + " / 64-bit " + container.getEmulator64() + ")");
+            settings.add("box64: version=" + container.getBox64Version() + " preset=" + box64Preset);
+            settings.add("fexcore: version=" + container.getFEXCoreVersion() + " preset=" + fexPreset);
+            settings.add("dxwrapper: " + dxwrapper + " config=" + container.getDXWrapperConfig()
+                    + (dxwrapperConfig != null ? " dxvk=" + dxwrapperConfig.get("version") + " vkd3d=" + dxwrapperConfig.get("vkd3dVersion")
+                    + " ddraw=" + dxwrapperConfig.get("ddrawrapper") : ""));
+            settings.add("graphics driver: " + container.getGraphicsDriver() + " config=" + container.getGraphicsDriverConfig());
+            settings.add("startup selection: " + container.getStartupSelection());
+            settings.add("screen size: " + container.getScreenSize() + " display=" + (waylandMode ? "Wayland" : "X11") + " renderer=" + resolvedRenderer());
+            settings.add("WINEDEBUG: " + (envVars.has("WINEDEBUG") ? envVars.get("WINEDEBUG") : "<unset>")
+                    + " (Wine debug log on: " + preferences.getBoolean("enable_wine_debug", false)
+                    + ", Box64/FEX logs on: " + preferences.getBoolean("enable_box64_logs", false) + ")");
+            settings.add("container env: " + container.getEnvVars());
+            settings.add("shortcut env: " + (shortcut != null ? shortcut.getExtra("envVars", "") : ""));
+
+            java.io.File logDir = com.winlator.star.core.LogLocation.resolveGameLogDir(appCtx, currentLogGameName());
+            com.winlator.star.store.UbisoftDiag.begin(new com.winlator.star.store.UbisoftDiag.Launch(
+                    appCtx, container, shortcut, ubisoftDiagRoute,
+                    steam && com.winlator.star.store.UbisoftSupport.steamChainArmed(realSteamPlan.env),
+                    steamAppId, steamInstall, logDir, getIntent(), env,
+                    guestProgramLauncherComponent != null ? guestProgramLauncherComponent.getGuestExecutable() : "<none>",
+                    settings, ubisoftDeepTraceNote));
+        } catch (Throwable t) {
+            Log.w("UbisoftDiag", "writeUbisoftDiagnostics failed", t);
+        }
     }
 
     /** True for a launch that really runs as Goldberg (set by {@link #writeGoldbergDiagnostics()}). */

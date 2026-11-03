@@ -6,16 +6,14 @@ import com.winlator.star.core.WineRegistryEditor
 import java.io.BufferedReader
 import java.io.File
 import java.io.StringReader
-import java.util.Collections
-import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Tells Ubisoft Connect that a game folder is an installed game, by writing the registry keys Connect itself writes
  * when the user picks "Locate installed game" on a game it offers to download (device-proven with Assassin's Creed
- * Syndicate from the Epic Games Store: after Locate the game launched, and the keys below were all that changed in
- * the prefix's `system.reg`). Without them Connect has no record of the install and offers to download the game
- * again. The product id and the language values come from the `uplay_install.state` file in the game's folder
- * ([UbisoftInstallState]).
+ * Syndicate from the Epic Games Store: after Locate the game launched, and the two keys below were all that Locate
+ * itself changed in the prefix's `system.reg`). Without them Connect has no record of the install and offers to
+ * download the game again. The product id and the language come from the `uplay_install.state` file in the game's
+ * folder ([UbisoftInstallState]).
  *
  * What Locate wrote, with the Syndicate values (1875 is the state file's product id):
  *  - `Software\Wow6432Node\Ubisoft\Launcher\Installs\1875`: `InstallDir` = `Z:/epic_games/<game>/` (forward slashes,
@@ -23,8 +21,9 @@ import java.util.concurrent.ConcurrentHashMap
  *  - `Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Uplay Install 1875`: the game's "Add or
  *    remove programs" entry. Its `DisplayIcon` points at a hash-named `.ico` in Connect's `data` folder, which the
  *    state file does not give, so it is left out.
- *  - `Software\Wow6432Node\Ubisoft\<game>`: `Language` = `English(US)`, the state file's value for the install
- *    language. The same value is also written to the native `Software\Ubisoft\<game>` view.
+ *
+ * The game's own `Software\Wow6432Node\Ubisoft\<game>` `Language` value is NOT part of Locate: it appeared about
+ * twelve minutes later, written by Connect's first-launch prerequisite step, so it is not written here.
  *
  * Writing them is harmless while Connect is not installed yet: they are plain keys no one reads, and Connect's
  * installer only adds its own `Software\Wow6432Node\Ubisoft\Launcher` values, it does not clear `Installs`.
@@ -38,7 +37,6 @@ object UbisoftInstallRegistry {
     private const val LAUNCHER_KEY = "Software\\Wow6432Node\\Ubisoft\\Launcher\\Installs\\"
     private const val UNINSTALL_KEY = "Software\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Uplay Install "
     private const val UPC_EXE = "C:\\Program Files (x86)\\Ubisoft\\Ubisoft Game Launcher\\upc.exe"
-    private const val HKLM_SOFTWARE = "HKEY_LOCAL_MACHINE\\SOFTWARE\\"
 
     /** How a value's data is written and compared. */
     enum class Type {
@@ -101,27 +99,7 @@ object UbisoftInstallRegistry {
         out += RegWrite(uninstall, "Publisher", Type.STRING, "Ubisoft")
         out += RegWrite(uninstall, "UninstallString", Type.STRING, "\"$UPC_EXE\" uplay://uninstall/$id")
         out += RegWrite(uninstall, "URLInfoAbout", Type.STRING, "http://www.ubisoft.com/")
-
-        // The game's own language value: the entry for the install language, in both registry views.
-        val entry = state.registry.firstOrNull { it.language.equals(state.language, ignoreCase = true) }
-        val game = entry?.let { gameValue(it.path) }
-        if (entry != null && game != null) {
-            out += RegWrite("Software\\Wow6432Node\\" + game.first, game.second, Type.STRING, entry.value)
-            out += RegWrite("Software\\" + game.first, game.second, Type.STRING, entry.value)
-        }
         return out.filter { w -> listOf(w.key, w.name, w.data).none { s -> s.any { it < ' ' } } }.distinct()
-    }
-
-    /** `HKEY_LOCAL_MACHINE\SOFTWARE\Ubisoft\<game>\Language` as (`Ubisoft\<game>`, `Language`), null for any other shape. */
-    private fun gameValue(path: String): Pair<String, String>? {
-        val p = path.trim()
-        if (!p.startsWith(HKLM_SOFTWARE, ignoreCase = true)) return null
-        val rest = p.substring(HKLM_SOFTWARE.length)
-        val cut = rest.lastIndexOf('\\')
-        if (cut <= 0 || cut == rest.length - 1) return null
-        val key = rest.substring(0, cut)
-        if (key.split('\\').any { it.isBlank() }) return null
-        return key to rest.substring(cut + 1)
     }
 
     // ---- Reading the hive -----------------------------------------------------------------------
@@ -180,12 +158,58 @@ object UbisoftInstallRegistry {
 
     // ---- Registering ----------------------------------------------------------------------------
 
-    private val noted: MutableSet<String> = Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
+    /** How a [register] call ended, see [Outcome]. */
+    enum class Result {
+        /** The keys were written (the detail says how many values). */
+        REGISTERED,
 
-    /** Logs [message] at info once per process for [key]: a game that cannot be registered says so on every launch otherwise. */
-    private fun noteOnce(key: String, message: String) {
-        if (noted.add(key)) Log.i(TAG, message)
+        /** Every value was already in the hive: nothing written. */
+        ALREADY_PRESENT,
+
+        /** Not a Ubisoft game (or no shortcut): nothing to record. */
+        SKIPPED_NOT_UBISOFT,
+
+        /** The game's install folder could not be found. */
+        NO_FOLDER,
+
+        /** The folder has no usable [STATE_FILE]. */
+        NO_STATE_FILE,
+
+        /** The folder is not below the imagefs root, so it has no `Z:` path. */
+        OUTSIDE_IMAGEFS,
+
+        /** The prefix has no `system.reg` yet (not booted). */
+        NO_SYSTEM_REG,
+
+        /** The values were not found in the hive after writing them. */
+        WRITE_FAILED,
+
+        /** Something threw. */
+        ERROR,
     }
+
+    /** What [register] did, in words for the diagnostics report and the log: [result] plus a [detail] line. */
+    data class Outcome(val result: Result, val detail: String) {
+        /** True when the registry was changed. */
+        val changed: Boolean get() = result == Result.REGISTERED
+
+        override fun toString(): String = if (detail.isEmpty()) result.name else "${result.name}: $detail"
+    }
+
+    @Volatile
+    private var lastOutcome: Outcome? = null
+
+    /** Remembers [outcome] as this launch's answer (see [last]) and logs it. Returns it. */
+    @JvmStatic
+    fun record(outcome: Outcome): Outcome {
+        lastOutcome = outcome
+        if (outcome.result != Result.SKIPPED_NOT_UBISOFT) Log.i(TAG, "Ubisoft install record: $outcome")
+        return outcome
+    }
+
+    /** The outcome of the last [registerDetailed] / `registerEpicInstall` call in this process (one per launch), null before any. */
+    @JvmStatic
+    fun last(): Outcome? = lastOutcome
 
     /**
      * Records the game in [installDir] as installed in [container]'s prefix (see the class comment). Call on the
@@ -194,45 +218,56 @@ object UbisoftInstallRegistry {
      *
      * Cheap and idempotent: one streamed read of `system.reg`, and a write only for what is missing or different.
      * A folder without a usable [STATE_FILE], one outside the imagefs root, or a prefix without `system.reg` (not
-     * booted yet) changes nothing and logs once. Returns true when the registry was changed. Never throws.
+     * booted yet) changes nothing. Returns true when the registry was changed. Never throws.
      */
     @JvmStatic
-    fun register(container: Container, installDir: File, imageFsRoot: File): Boolean {
-        return try {
-            val state = UbisoftInstallState.read(File(installDir, STATE_FILE))
-            if (state == null) {
-                noteOnce("state:" + installDir.path, "no usable $STATE_FILE in ${installDir.path}: Ubisoft Connect will not see the game as installed")
-                return false
-            }
-            val zDir = zPathOf(installDir, imageFsRoot)
-            if (zDir == null) {
-                noteOnce("outside:" + installDir.path, "${installDir.path} is not below the imagefs root: not registering it with Ubisoft Connect")
-                return false
-            }
-            val systemReg = File(container.rootDir, ".wine/system.reg")
-            if (!systemReg.isFile) {
-                noteOnce("noreg:" + systemReg.path, "no system.reg yet (container ${container.id}): Ubisoft install record left for the next launch")
-                return false
-            }
-            val writes = installWrites(state, zDir)
-            val pending = systemReg.bufferedReader(Charsets.UTF_8).use { pendingWrites(it, writes) }
-            if (pending.isEmpty()) return false
+    fun register(container: Container, installDir: File, imageFsRoot: File): Boolean =
+        registerDetailed(container, installDir, imageFsRoot).changed
 
-            WineRegistryEditor(systemReg).use { reg ->
-                reg.setCreateKeyIfNotExist(true)
-                for (w in pending) {
-                    if (w.type == Type.DWORD) reg.setDwordValue(w.key, w.name, w.data.toIntOrNull() ?: 0)
-                    else reg.setStringValue(w.key, w.name, w.data)
-                }
-            }
-            // The editor swallows I/O errors, so read the hive again before saying it worked.
-            val left = systemReg.bufferedReader(Charsets.UTF_8).use { pendingWrites(it, pending) }
-            if (left.isEmpty()) Log.i(TAG, "registered ${state.name} (Ubisoft product ${state.productId}) in container ${container.id}: ${pending.size} value(s)")
-            else Log.w(TAG, "could not write ${left.size} of ${pending.size} Ubisoft install value(s) in container ${container.id}")
-            left.size < pending.size
-        } catch (e: Exception) {
-            Log.w(TAG, "could not register the Ubisoft install — left as is", e)
-            false
+    /** [register] with the answer in words ([Outcome]); also remembered for the launch report ([last]). Never throws. */
+    @JvmStatic
+    fun registerDetailed(container: Container, installDir: File, imageFsRoot: File): Outcome =
+        record(
+            try {
+                doRegister(container, installDir, imageFsRoot)
+            } catch (e: Exception) {
+                Log.w(TAG, "could not register the Ubisoft install — left as is", e)
+                Outcome(Result.ERROR, e.toString())
+            },
+        )
+
+    private fun doRegister(container: Container, installDir: File, imageFsRoot: File): Outcome {
+        val state = UbisoftInstallState.read(File(installDir, STATE_FILE))
+            ?: return Outcome(Result.NO_STATE_FILE, "no usable $STATE_FILE in ${installDir.path}: Ubisoft Connect will not see the game as installed")
+        val zDir = zPathOf(installDir, imageFsRoot)
+            ?: return Outcome(Result.OUTSIDE_IMAGEFS, "${installDir.path} is not below the imagefs root ${imageFsRoot.path}")
+        val systemReg = File(container.rootDir, ".wine/system.reg")
+        if (!systemReg.isFile) {
+            return Outcome(Result.NO_SYSTEM_REG, "no ${systemReg.path} yet (container ${container.id}): left for the next launch")
         }
+        val writes = installWrites(state, zDir)
+        val pending = systemReg.bufferedReader(Charsets.UTF_8).use { pendingWrites(it, writes) }
+        if (pending.isEmpty()) {
+            return Outcome(Result.ALREADY_PRESENT, "${writes.size} value(s) for product ${state.productId} (${state.name}) already in system.reg")
+        }
+
+        WineRegistryEditor(systemReg).use { reg ->
+            reg.setCreateKeyIfNotExist(true)
+            for (w in pending) {
+                if (w.type == Type.DWORD) reg.setDwordValue(w.key, w.name, w.data.toIntOrNull() ?: 0)
+                else reg.setStringValue(w.key, w.name, w.data)
+            }
+        }
+        // The editor swallows I/O errors, so read the hive again before saying it worked.
+        val left = systemReg.bufferedReader(Charsets.UTF_8).use { pendingWrites(it, pending) }
+        val written = pending.size - left.size
+        if (written <= 0) {
+            return Outcome(Result.WRITE_FAILED, "none of ${pending.size} value(s) found in system.reg after writing (container ${container.id})")
+        }
+        val missing = if (left.isEmpty()) "" else "; ${left.size} not found in the hive afterwards: " + left.joinToString { it.key.substringAfterLast('\\') + "/" + it.name }
+        return Outcome(
+            Result.REGISTERED,
+            "$written of ${pending.size} value(s) written for ${state.name} (Ubisoft product ${state.productId}) in container ${container.id}$missing",
+        )
     }
 }

@@ -5,8 +5,9 @@ import java.io.File
 /**
  * What Ubisoft Connect records about a game it installed, read from the `uplay_install.state` file it leaves in the
  * game's folder (Epic Games Store builds of Ubisoft titles ship that file too). Connect reads the same data when the
- * user picks "Locate installed game": the product id, the install language and the game's own language value are
- * what it writes into the registry (see [UbisoftInstallRegistry]).
+ * user picks "Locate installed game": the product id and the install language are what it writes into the registry
+ * (see [UbisoftInstallRegistry]). The per-language registry values (field 15) are only read for the diagnostics
+ * report: Locate does not write the game's own language value, Connect's first-launch step does, much later.
  *
  * The file is Ubisoft's own protobuf (no schema is published; these are the fields seen in Assassin's Creed
  * Syndicate's file, field number first): 1 install hash, 3 install language (`en-US`), 13 game name (a message
@@ -53,6 +54,27 @@ data class UbisoftInstallState(
             parseOrThrow(bytes)
         } catch (e: Exception) {
             null
+        }
+
+        /**
+         * Field 1 of the state (the install hash) as text when it is printable, else as hex; null when the file has no
+         * such field. Only for the diagnostics report, the registry writes do not use it. Never throws.
+         */
+        @JvmStatic
+        fun installHash(bytes: ByteArray): String? {
+            var found: String? = null
+            try {
+                walk(bytes, 0, bytes.size) { field, wire, _, at, len ->
+                    if (field == 1 && wire == WIRE_BYTES && found == null) {
+                        val raw = bytes.copyOfRange(at, at + minOf(len, 256))
+                        found = if (raw.all { it >= 0x20 && it < 0x7f }) String(raw, Charsets.US_ASCII)
+                        else raw.joinToString("") { "%02x".format(it) }
+                    }
+                }
+            } catch (e: Exception) {
+                return null
+            }
+            return found
         }
 
         private fun parseOrThrow(b: ByteArray): UbisoftInstallState? {

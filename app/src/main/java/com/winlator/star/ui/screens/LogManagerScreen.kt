@@ -104,6 +104,7 @@ fun LogManagerScreen(onClose: () -> Unit) {
     }
     var steamLite by remember { mutableStateOf(prefs.getBoolean("enable_steamlite_logs", false)) }
     var headlessSteam by remember { mutableStateOf(prefs.getBoolean("enable_headless_steam_logs", false)) }
+    var ubisoftDeep by remember { mutableStateOf(prefs.getBoolean(com.winlator.star.store.UbisoftDiag.PREF_DEEP_TRACE, false)) }
     var logcat by remember { mutableStateOf(prefs.getBoolean("enable_logcat", true)) }
     var crashReports by remember { mutableStateOf(prefs.getBoolean("enable_crash_reports", true)) }
     var exitAutosave by remember { mutableStateOf(prefs.getBoolean(ExitReasonReporter.PREF_AUTOSAVE, false)) }
@@ -288,6 +289,11 @@ fun LogManagerScreen(onClose: () -> Unit) {
                     hint = "Only when a game launches through Headless Steam",
                     onInfo = { info = "Headless Steam (app session host)" to LogCopy.HEADLESS_STEAM }) {
                     headlessSteam = it; putBool("enable_headless_steam_logs", it)
+                }
+                LogToggle("Ubisoft deep trace", ubisoftDeep,
+                    hint = "Slows Ubisoft games down — needs Wine debug on",
+                    onInfo = { info = "Ubisoft deep trace" to LogCopy.UBISOFT_DEEP }) {
+                    ubisoftDeep = it; putBool(com.winlator.star.store.UbisoftDiag.PREF_DEEP_TRACE, it)
                 }
                 LogToggle("Android logcat", logcat,
                     hint = "Bannerlator's own output only",
@@ -1288,6 +1294,19 @@ private object LogCopy {
         "everything after it is a consequence.\n\n" +
         "Your Steam account name and auth tokens are scrubbed out as it is written, and your Steam ID is " +
         "partially masked — a masked Steam ID may still remain, which is normal and safe to share."
+
+    const val UBISOFT_DEEP =
+        "Slows Ubisoft games down. Off by default.\n\n" +
+        "Every launch of a Ubisoft game (an Epic game that needs Ubisoft Connect, or a Steam game launched " +
+        "with the Ubisoft chain) already writes a report on its own: \"ubisoft_diag.txt\" and a " +
+        "\"ubisoft_diag_files\" folder next to that game's other logs, whatever the switches here say. " +
+        "Zip the whole game folder to send it.\n\n" +
+        "This switch adds two Wine debug channels to those launches only: +reg (every registry read and " +
+        "write) and +file (every file open), so wine_debug.log shows exactly which Ubisoft Connect keys " +
+        "and files the game or Connect touched. It is heavy: the log grows fast and games run slower.\n\n" +
+        "It only takes effect while \"Wine debug\" above is ON with a list of channels (the trace goes into " +
+        "wine_debug.log), and only for Ubisoft launches. It can also be set for one game or container with " +
+        "the extra ubisoftDeepTrace=1."
 
     const val LOGCAT =
         "No performance cost.\n\n" +

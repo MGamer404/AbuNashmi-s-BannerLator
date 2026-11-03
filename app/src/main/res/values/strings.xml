@@ -1694,6 +1694,7 @@ E.g. <b>META</b> for <i>META key</i>, \n
     <string name="shutdown">Shutting down…</string>
     <string name="xbox_saving_on_exit">Saving and uploading your Xbox save…</string>
     <string name="saving_on_exit">Backing up your saves…</string>
+    <string name="ubisoft_diag_saving">Saving the Ubisoft diagnostics…</string>
     <string name="downloading_on_launch">Syncing cloud saves…</string>
     <string name="disable_mouse">Toggle Mouse</string>
     <string name="custom_icon">Custom Icon</string>

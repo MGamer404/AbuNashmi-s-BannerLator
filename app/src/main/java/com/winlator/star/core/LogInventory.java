@@ -144,6 +144,8 @@ public final class LogInventory {
                         File[] runs = f.listFiles(File::isDirectory);
                         archives = runs == null ? 0 : runs.length;
                         bytes += sizeOfTree(f);
+                    } else if (isUbisoftSideFolder(f.getName())) {
+                        bytes += sizeOfTree(f);
                     }
                     continue;
                 }
@@ -236,6 +238,7 @@ public final class LogInventory {
                 if (f.isDirectory()) {
                     // Only our own archive folder, never an arbitrary subdirectory.
                     if (LogRotation.ARCHIVE_DIR.equals(f.getName())) deleted += deleteTree(f);
+                    else if (isUbisoftSideFolder(f.getName())) deleted += deleteTree(f);   // the Ubisoft report's own folder
                     continue;
                 }
                 if (isOurs(f.getName()) && f.delete()) deleted++;
@@ -258,7 +261,7 @@ public final class LogInventory {
         if (files != null) {
             for (File f : files) {
                 if (f.isDirectory()) {
-                    if (LogRotation.ARCHIVE_DIR.equals(f.getName())) n += countTree(f);
+                    if (LogRotation.ARCHIVE_DIR.equals(f.getName()) || isUbisoftSideFolder(f.getName())) n += countTree(f);
                 } else if (isOurs(f.getName())) n++;
             }
         }
@@ -282,6 +285,12 @@ public final class LogInventory {
         if (LogRotation.isOurRunLog(n)) return true;
         // Crash reports are ours and are .txt, which the run-log allowlist deliberately excludes.
         return n.startsWith("crash_") && n.endsWith(".txt");
+    }
+
+    /** The folder the Ubisoft launch report keeps its bigger files in (see UbisoftDiag), or one waiting to be removed. */
+    private static boolean isUbisoftSideFolder(String name) {
+        return com.winlator.star.store.UbisoftDiag.FILES_DIR.equals(name)
+                || name.startsWith(com.winlator.star.store.UbisoftDiag.FILES_DIR + ".deleting-");
     }
 
     private static int deleteTree(File f) {

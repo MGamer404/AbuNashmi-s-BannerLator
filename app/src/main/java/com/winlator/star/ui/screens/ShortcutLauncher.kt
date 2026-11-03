@@ -322,10 +322,12 @@ class ShortcutLauncher internal constructor(
             }
         }
         // Epic titles that need Ubisoft Connect (Assassin's Creed Syndicate...) get the same one-time setup. A game
-        // stamped "not Ubisoft" (nearly all of them) carries straight on without touching the disk; one without a
-        // stamp yet is looked at once, off the main thread, and the answer is saved on the shortcut.
+        // stamped "not Ubisoft" (nearly all of them) carries straight on without touching the disk once that stamp was
+        // re-checked in this app run (the first launch of a run looks again, off the main thread, in case it was stamped
+        // on an empty folder); one without a stamp yet is looked at once, off the main thread, and the answer is saved
+        // on the shortcut.
         if (UbisoftSupport.isEpicShortcut(shortcut)) {
-            if (UbisoftSupport.epicStamp(shortcut) == false) { launchPastSetupChecks(shortcut); return }
+            if (UbisoftSupport.epicStamp(shortcut) == false && UbisoftSupport.epicStampRechecked(shortcut)) { launchPastSetupChecks(shortcut); return }
             eaScope.launch {
                 val setup = withContext(Dispatchers.IO) {
                     runCatching { UbisoftSupport.epicSetupFor(context, shortcut) }.getOrDefault(UbisoftSupport.EpicSetup.NONE)

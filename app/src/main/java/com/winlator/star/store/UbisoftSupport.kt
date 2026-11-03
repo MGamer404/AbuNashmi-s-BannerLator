@@ -60,6 +60,13 @@ object UbisoftSupport {
      */
     const val CHAIN_VALUE = "UbisoftGameLauncher.exe;upc.exe"
 
+    /**
+     * True when a SteamLite launch plan's agent env ([env], `RealSteamLauncher.Plan.env`) carries the Ubisoft chain, i.e.
+     * [RealSteamLauncher] armed it for this launch. A map lookup: the decision was already made when the plan was built.
+     */
+    @JvmStatic
+    fun steamChainArmed(env: Map<String, String>?): Boolean = env?.get(EaSupport.CHAIN_ENV) == CHAIN_VALUE
+
     // ---- Detection ------------------------------------------------------------------------------
 
     /**
@@ -208,6 +215,13 @@ object UbisoftSupport {
         return dir.isDirectory && LAUNCHER_EXES.any { File(dir, it).isFile }
     }
 
+    /** Which of Connect's launcher exes ([launcherInstalled] wants one) are in [container]'s prefix, name to present. For the diagnostics report. */
+    @JvmStatic
+    fun launcherFileStatus(container: Container): List<Pair<String, Boolean>> {
+        val dir = File(container.rootDir, LAUNCHER_DIR)
+        return LAUNCHER_EXES.map { it to File(dir, it).isFile }
+    }
+
     /**
      * True when the depot has something that installs the launcher: a bundled installer, or an install-script
      * "Run Process" step that runs one. Without either, a setup session would have nothing to run.
@@ -311,7 +325,7 @@ object UbisoftSupport {
     /** Shortcut [Extra Data] stamp: "1" = the game's files say Ubisoft, "0" = looked and it is not, absent = not looked yet. */
     const val EXTRA_UBISOFT = "ubisoft"
 
-    private const val EPIC_ROOT = "epic_games"
+    internal const val EPIC_ROOT = "epic_games"
 
     /** [EXTRA_UBISOFT] as true / false, or null while it has not been worked out. */
     @JvmStatic
@@ -356,24 +370,96 @@ object UbisoftSupport {
     }
 
     /**
+     * True when a stamp of [stamp] should be looked at again: only a "not Ubisoft" (`0`) that has not been
+     * re-checked yet in this app run. A `1` stands, an unset stamp is worked out the normal way.
+     */
+    @JvmStatic
+    fun stampNeedsRecheck(stamp: Boolean?, alreadyChecked: Boolean): Boolean = stamp == false && !alreadyChecked
+
+    private const val RECHECKED_MAX = 512
+
+    /** Shortcut files whose `0` stamp was re-checked in this app run (bounded: past the cap it starts over). */
+    private val rechecked: MutableSet<String> =
+        java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
+
+    /** True once [shortcut]'s `0` stamp was re-checked in this app run (see [isEpicUbisoft]). No disk access. */
+    @JvmStatic
+    fun epicStampRechecked(shortcut: Shortcut): Boolean = rechecked.contains(shortcut.file.path)
+
+    /** Takes [shortcut]'s one re-check of this run; false when it was taken already. */
+    private fun claimRecheck(shortcut: Shortcut): Boolean {
+        if (rechecked.size >= RECHECKED_MAX) rechecked.clear()
+        return rechecked.add(shortcut.file.path)
+    }
+
+    /** Forgets every re-check (a test reuses a shortcut path). */
+    internal fun forgetRechecks() = rechecked.clear()
+
+    /**
+     * The stamp to write for a game folder: "1" when its files say Ubisoft, "0" only when it holds files and none
+     * of them do, null (leave the stamp unset, look again at launch) for an empty or unreadable folder.
+     */
+    @JvmStatic
+    fun stampFor(folderHasFiles: Boolean, ubisoft: Boolean): String? = when {
+        ubisoft -> "1"
+        folderHasFiles -> "0"
+        else -> null
+    }
+
+    /** [stampFor] for the game folder [dir]; null when it is missing, unreadable or has no file in its root. */
+    @JvmStatic
+    fun stampForFolder(dir: File?): String? {
+        if (dir == null || !dir.isDirectory) return null
+        val ubisoft = hasLauncherFiles(dir)
+        return stampFor(ubisoft || dir.listFiles()?.any { it.isFile } == true, ubisoft)
+    }
+
+    /**
+     * Drops a stale `ubisoft=0` line from a copied shortcut's text so the copy works it out again (a `0` may have been
+     * stamped while the game folder was empty or partial). A `ubisoft=1` and every other line stay as they are.
+     */
+    @JvmStatic
+    fun dropStaleStamp(text: String): String {
+        if (!text.contains("$EXTRA_UBISOFT=")) return text
+        return text.split('\n').filterNot { line ->
+            val t = line.trim()
+            t.startsWith("$EXTRA_UBISOFT=") && stampValue(t.substring(EXTRA_UBISOFT.length + 1)) == false
+        }.joinToString("\n")
+    }
+
+    /**
      * True when the Epic [shortcut]'s game needs Ubisoft Connect. A plain read of the [EXTRA_UBISOFT] stamp; a
      * shortcut without one (written before the stamp existed) gets it worked out from the game's files once and saved.
-     * Only that first look touches the disk, so call this off the main thread.
+     * A `0` is looked at once more per app run (it may have been stamped on an empty or partial folder): when the files
+     * now say Ubisoft the stamp becomes `1`, otherwise the `0` stays and is not looked at again until the app restarts.
+     * Only those looks touch the disk, so call this off the main thread.
      */
     @JvmStatic
     fun isEpicUbisoft(context: Context, shortcut: Shortcut): Boolean {
         if (!isEpicShortcut(shortcut)) return false
-        epicStamp(shortcut)?.let { return it }
+        epicStamp(shortcut)?.let { stamp ->
+            if (!stampNeedsRecheck(stamp, epicStampRechecked(shortcut)) || !claimRecheck(shortcut)) return stamp
+            // Folder not found or still no loader / installer: the 0 stays.
+            val dir = epicInstallDirOf(context, shortcut) ?: return false
+            scans.remove(dir.absolutePath) // a scan remembered from the stale look would answer the same again
+            if (!hasLauncherFiles(dir)) return false
+            stampEpic(shortcut, true)
+            return true
+        }
         // No folder to look in: say no now and look again next time instead of stamping a guess.
         val dir = epicInstallDirOf(context, shortcut) ?: return false
         val ubisoft = hasLauncherFiles(dir)
+        stampEpic(shortcut, ubisoft)
+        return ubisoft
+    }
+
+    private fun stampEpic(shortcut: Shortcut, ubisoft: Boolean) {
         try {
             shortcut.putExtra(EXTRA_UBISOFT, if (ubisoft) "1" else "0")
             shortcut.saveData()
         } catch (e: Exception) {
             Log.w(TAG, "could not stamp the Ubisoft tag on ${shortcut.name}", e)
         }
-        return ubisoft
     }
 
     /** What an Epic launch has to do about Ubisoft Connect first. */
@@ -423,19 +509,30 @@ object UbisoftSupport {
      * Launch-worker hook for an Epic game that needs Ubisoft Connect: records the game as installed in [container]'s
      * registry, which is what "Locate installed game" does by hand ([UbisoftInstallRegistry]); without it Connect
      * offers to download the game again. Call before any Wine process starts (it rewrites `system.reg`). A stamp
-     * read and nothing else for every other Epic game, a no-op for non-Epic shortcuts. Never throws.
+     * read and nothing else for every other Epic game, a no-op for non-Epic shortcuts. Never throws. Returns what
+     * happened in words ([UbisoftInstallRegistry.Outcome], also kept for the launch report), never null.
      */
     @JvmStatic
-    fun registerEpicInstall(context: Context, container: Container, shortcut: Shortcut?) {
-        if (shortcut == null) return
-        try {
-            if (!isEpicUbisoft(context, shortcut)) return
-            val dir = epicInstallDirOf(context, shortcut) ?: return
-            UbisoftInstallRegistry.register(container, dir, ImageFs.find(context).rootDir)
+    fun registerEpicInstall(context: Context, container: Container, shortcut: Shortcut?): UbisoftInstallRegistry.Outcome {
+        if (shortcut == null) return UbisoftInstallRegistry.record(skippedNotUbisoft("no shortcut"))
+        return try {
+            if (!isEpicUbisoft(context, shortcut)) return UbisoftInstallRegistry.record(skippedNotUbisoft("not a Ubisoft game on the Epic store"))
+            val dir = epicInstallDirOf(context, shortcut)
+                ?: return UbisoftInstallRegistry.record(
+                    UbisoftInstallRegistry.Outcome(
+                        UbisoftInstallRegistry.Result.NO_FOLDER,
+                        "no install folder for epicAppName='${shortcut.getExtra("epicAppName", "")}' and none below epic_games on '${shortcut.path}'",
+                    ),
+                )
+            UbisoftInstallRegistry.registerDetailed(container, dir, ImageFs.find(context).rootDir)
         } catch (t: Throwable) {
             Log.w(TAG, "Epic Ubisoft install record failed for ${shortcut.name}", t)
+            UbisoftInstallRegistry.record(UbisoftInstallRegistry.Outcome(UbisoftInstallRegistry.Result.ERROR, t.toString()))
         }
     }
+
+    private fun skippedNotUbisoft(why: String) =
+        UbisoftInstallRegistry.Outcome(UbisoftInstallRegistry.Result.SKIPPED_NOT_UBISOFT, why)
 
     // ---- Overlay --------------------------------------------------------------------------------
 

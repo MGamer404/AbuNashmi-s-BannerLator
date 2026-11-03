@@ -319,4 +319,64 @@ class UbisoftSupportTest {
         assertNull(folder("/x/epic_games/"))
         assertNull(folder("/x/epic_games_old/G/g.exe"))
     }
+
+    @Test
+    fun onlyAnUncheckedZeroStampIsLookedAtAgain() {
+        assertTrue(UbisoftSupport.stampNeedsRecheck(false, alreadyChecked = false))
+        assertFalse(UbisoftSupport.stampNeedsRecheck(false, alreadyChecked = true))
+        assertFalse(UbisoftSupport.stampNeedsRecheck(true, alreadyChecked = false))
+        assertFalse(UbisoftSupport.stampNeedsRecheck(true, alreadyChecked = true))
+        assertFalse(UbisoftSupport.stampNeedsRecheck(null, alreadyChecked = false))
+        assertFalse(UbisoftSupport.stampNeedsRecheck(null, alreadyChecked = true))
+    }
+
+    @Test
+    fun stampForStampsZeroOnlyWhenTheFolderHoldsFiles() {
+        assertEquals("1", UbisoftSupport.stampFor(folderHasFiles = true, ubisoft = true))
+        assertEquals("1", UbisoftSupport.stampFor(folderHasFiles = false, ubisoft = true))
+        assertEquals("0", UbisoftSupport.stampFor(folderHasFiles = true, ubisoft = false))
+        assertNull(UbisoftSupport.stampFor(folderHasFiles = false, ubisoft = false))
+    }
+
+    @Test
+    fun stampForFolderLeavesAnEmptyOrMissingFolderUnset() {
+        UbisoftSupport.forgetScans()
+        val empty = tmp.newFolder("empty")
+        val onlyDirs = tmp.newFolder("onlyDirs")
+        File(onlyDirs, "Bin").mkdirs()
+        val plain = tmp.newFolder("plain")
+        File(plain, "game.exe").writeText("x")
+        val ubisoft = tmp.newFolder("ubisoft")
+        File(ubisoft, "uplay_r1_loader.dll").writeText("x")
+        assertNull(UbisoftSupport.stampForFolder(null))
+        assertNull(UbisoftSupport.stampForFolder(File(tmp.root, "missing")))
+        assertNull(UbisoftSupport.stampForFolder(empty))
+        assertNull(UbisoftSupport.stampForFolder(onlyDirs))
+        assertEquals("0", UbisoftSupport.stampForFolder(plain))
+        assertEquals("1", UbisoftSupport.stampForFolder(ubisoft))
+    }
+
+    @Test
+    fun dropStaleStampRemovesOnlyTheZeroLine() {
+        val text = "[Desktop Entry]\nName=G\n\n[Extra Data]\nstoreSource=epic\nubisoft=0\nepicEos=1\n"
+        assertEquals("[Desktop Entry]\nName=G\n\n[Extra Data]\nstoreSource=epic\nepicEos=1\n", UbisoftSupport.dropStaleStamp(text))
+    }
+
+    @Test
+    fun dropStaleStampKeepsAOneAndAnythingElse() {
+        val one = "[Extra Data]\nstoreSource=epic\nubisoft=1\n"
+        assertEquals(one, UbisoftSupport.dropStaleStamp(one))
+        val none = "[Extra Data]\nstoreSource=epic\n"
+        assertEquals(none, UbisoftSupport.dropStaleStamp(none))
+        val similar = "[Extra Data]\nxubisoft=0\nubisoft_note=0\nubisoft=yes\n"
+        assertEquals(similar, UbisoftSupport.dropStaleStamp(similar))
+        assertEquals("", UbisoftSupport.dropStaleStamp(""))
+    }
+
+    @Test
+    fun dropStaleStampHandlesCrLfAndAMissingFinalNewline() {
+        assertEquals("a=1\r\nb=2", UbisoftSupport.dropStaleStamp("a=1\r\nubisoft=0\r\nb=2"))
+        assertEquals("a=1", UbisoftSupport.dropStaleStamp("a=1\nubisoft=0"))
+        assertEquals("a=1\n", UbisoftSupport.dropStaleStamp("a=1\nubisoft=0\n"))
+    }
 }
