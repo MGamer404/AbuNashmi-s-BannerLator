@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.graphics.ColorUtils
 import kotlin.math.roundToInt
 import com.winlator.star.ui.components.ColorPicker
+import com.winlator.star.ui.deck.xmbWashFor
 import com.winlator.star.ui.theme.AppThemeState
 import com.winlator.star.ui.theme.CUSTOM_PRESET_INDEX
 import com.winlator.star.ui.theme.Divider
@@ -121,6 +122,13 @@ fun AppearanceScreen() {
 
         // ── Preset themes ────────────────────────────────────────────────
         SectionLabel("Theme Presets")
+        if (xmbHome) {
+            Text(
+                text = "XMB washes the theme color softly and evenly behind every screen; the swatches show that look.",
+                color = OnSurfaceVariant,
+                fontSize = 12.sp,
+            )
+        }
 
         val rows = themePresets.chunked(4)
         rows.forEach { row ->
@@ -133,6 +141,7 @@ fun AppearanceScreen() {
                         isSelected = isSelected,
                         isCustomSlot = index == CUSTOM_PRESET_INDEX,
                         customAccent = customAccent,
+                        xmbWash = xmbHome,
                         onClick = { AppThemeState.setPreset(index) },
                         modifier = Modifier.weight(1f)
                     )
@@ -357,10 +366,17 @@ private fun PresetSwatch(
     isSelected: Boolean,
     isCustomSlot: Boolean,
     customAccent: Color,
+    xmbWash: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val accent = if (isCustomSlot) customAccent else preset.primary
+    // XMB: the swatch's ground is the wash the app would paint with this preset (same maths as the real background),
+    // not the preset's flat background colour.
+    val ground = remember(preset, accent, xmbWash) {
+        if (xmbWash) xmbWashFor(preset.background, accent, listOf(preset.onBackground, preset.onSurface, preset.onSurfaceVariant)).flat
+        else preset.background
+    }
     Column(
         modifier = modifier.clickable(onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -370,7 +386,7 @@ private fun PresetSwatch(
             modifier = Modifier
                 .size(56.dp)
                 .clip(RoundedCornerShape(12.dp))
-                .background(preset.background)
+                .background(ground)
                 .border(
                     width = if (isSelected) 2.dp else 1.dp,
                     color = if (isSelected) MaterialTheme.colorScheme.primary else Divider,

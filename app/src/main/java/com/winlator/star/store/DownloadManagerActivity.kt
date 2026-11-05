@@ -95,6 +95,7 @@ import com.winlator.star.ui.deck.deckFocusRing
 import com.winlator.star.ui.deck.isXmbHome
 import com.winlator.star.ui.deck.rememberScreenScale
 import com.winlator.star.ui.deck.xmbFrame
+import com.winlator.star.ui.deck.xmbWashBackground
 import com.winlator.star.ui.theme.LocalAccentDim
 import com.winlator.star.ui.theme.WinlatorTheme
 import java.io.File
@@ -516,7 +517,7 @@ private fun DownloadManagerScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background)
+                    .xmbWashBackground()
                     .padding(start = frame, end = frame, top = scale.dp(6f)),
             ) {
                 XmbDownloadsBar(onBack, onClear, look)

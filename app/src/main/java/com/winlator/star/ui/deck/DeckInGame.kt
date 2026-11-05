@@ -1315,7 +1315,7 @@ private fun ToolsPage(state: XServerDrawerState, kind: InGameSessionKind) {
         IgDivider()
         IgRow("Picture-in-picture", hint = "Shrink the game into a floating window.") { IgButton("Picture-in-picture", Icons.Outlined.PictureInPictureAlt, { closeThen(state.onPipMode) }) }
         IgDivider()
-        IgRow("Show keyboard", hint = "The Android keyboard, typing into the game.") { IgButton("Show keyboard", Icons.Outlined.Keyboard, { closeThen(state.onKeyboard) }) }
+        IgRow("Show keyboard", hint = "The on-screen keyboard, typing into the game.") { IgButton("Show keyboard", Icons.Outlined.Keyboard, { closeThen(state.onKeyboard) }) }
     }
 
     IgSectionLabel(if (kind.isWine) "Windows & logs" else "Performance")

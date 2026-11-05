@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -27,7 +28,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Backspace
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.SpaceBar
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -53,11 +54,11 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -69,6 +70,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -86,8 +88,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
-import androidx.compose.ui.zIndex
 import androidx.core.view.WindowCompat
+import com.winlator.star.R
+import com.winlator.star.core.GuestTyper
 import com.winlator.star.ui.DeckDialogBars
 import com.winlator.star.ui.LocalDeckDensity
 import kotlin.math.max
@@ -109,7 +112,7 @@ import kotlinx.coroutines.launch
 // also arrive as analog axes on pads that report only that; those come through the window's motion dispatch (pressed
 // past 0.6, released below 0.3, the same hysteresis as DeckInput.onMotion).
 
-private const val PANEL_HEIGHT = 0.5f
+private const val PANEL_HEIGHT = XmbKeyboardGeometry.PANEL_HEIGHT_SHARE
 private const val PANEL_SIDE_MARGIN = 0.055f
 private const val PREVIEW_SHARE = 0.14f
 private const val PREVIEW_BEFORE = 40
@@ -120,9 +123,43 @@ private const val REPEAT_DELAY_MS = 380L
 private const val REPEAT_EVERY_MS = 55L
 private const val KEYS_PER_ROW = 15f
 
+// Square keys on a thin-line grid: no corner radius anywhere, 1 dp lines between the keys (and around the grid), and the
+// space the old rounded keys spent on a 5 dp gap each now goes to the keys. The panel padding is slim for the same reason.
+private const val PANEL_PAD_DP = 5f
+private const val FOCUS_RING_DP = 2.5f
+
+/**
+ * The keyboard's measurements in dp, kept apart from the composables so they can be tested. [line] is the width of the
+ * dividing lines, which also run around the outside of the grid.
+ */
+internal object XmbKeyboardGeometry {
+    /** The share of the screen's height the panel takes, in its own window and in the game alike. */
+    const val PANEL_HEIGHT_SHARE = 0.5f
+
+    /** Labels are sized from the key plus this much: the old unit was the key with a 5 dp gap inside it, so the text keeps its share of the larger key. */
+    private const val LABEL_GROWTH = 1.15f
+
+    /** A label may use this many key widths of room (a character key holds one glyph, so the height normally decides). */
+    private const val LABEL_WIDTH_SHARE = 1.35f
+
+    /** Height of one key when [rows] rows and the lines between and around them fill [gridHeight]. */
+    fun keyHeight(gridHeight: Float, rows: Int, line: Float): Float =
+        ((gridHeight - line * (rows + 1)) / rows.coerceAtLeast(1)).coerceAtLeast(0f)
+
+    /** Width of a weight-1 key in a row of [units] weight and [lines] lines, across [innerWidth]. */
+    fun unitKeyWidth(innerWidth: Float, units: Float, lines: Int, line: Float): Float =
+        ((innerWidth - line * lines) / units).coerceAtLeast(0f)
+
+    /** The size text and icons are measured in: the smaller of the key's height and its width share, grown by [LABEL_GROWTH]. */
+    fun labelUnit(keyHeight: Float, unitKeyWidth: Float): Float = min(keyHeight, unitKeyWidth * LABEL_WIDTH_SHARE) * LABEL_GROWTH
+}
+
 /** What a key does. */
 private enum class Role {
-    CHAR, TAB, BACKSPACE, CAPS, ACTION, SHIFT, SPACE, LEFT, RIGHT, PASTE, SYSTEM, CLOSE, BLANK
+    CHAR, TAB, BACKSPACE, CAPS, ACTION, SHIFT, SPACE, LEFT, RIGHT, PASTE, SYSTEM, CLOSE, BLANK,
+
+    // Typing into the game only: a text field has no use for them.
+    ESC, UP, DOWN
 }
 
 /** One key: [base] is typed unshifted, [shifted] with Shift (or the capital for a [letter]). */
@@ -156,6 +193,15 @@ private val QWERTY_ROWS: List<List<Cap>> = listOf(
     listOf(
         Cap(Role.SYSTEM, 1.6f), Cap(Role.CLOSE, 1.4f), Cap(Role.LEFT, 1.3f), Cap(Role.SPACE, 7f),
         Cap(Role.RIGHT, 1.3f), Cap(Role.PASTE, 2.4f),
+    ),
+)
+
+// The same rows with a bottom row that also holds Esc and the up and down arrows (weights still add up to 15), so the
+// keys above it keep their size.
+private val GUEST_QWERTY_ROWS: List<List<Cap>> = QWERTY_ROWS.dropLast(1) + listOf(
+    listOf(
+        Cap(Role.SYSTEM, 1.3f), Cap(Role.CLOSE, 1.1f), Cap(Role.ESC, 1.1f), Cap(Role.LEFT, 1.1f), Cap(Role.DOWN, 1.1f),
+        Cap(Role.UP, 1.1f), Cap(Role.RIGHT, 1.1f), Cap(Role.SPACE, 4.5f), Cap(Role.PASTE, 2.6f),
     ),
 )
 
@@ -199,15 +245,74 @@ private fun capText(cap: Cap, state: KeyboardState): String =
     if (cap.letter) (if (state.upper) cap.shifted else cap.base) else (if (state.shift) cap.shifted else cap.base)
 
 /**
- * The XMB keyboard: a bottom panel in its own dialog window, so it gets the controller's keys and the page behind it
- * stays visible. Everything typed goes through [session]; [onClose] hides the panel (B, tapping outside, the hide key,
- * or after the field's action), [onSystemKeyboard] is the key that hands typing over to Android's own keyboard.
+ * Where the analog triggers of a pad are read for a panel whose host does not get them as keys: the host calls [onMotion]
+ * with the motion events it receives and the panel body reads them while it is on screen.
+ */
+internal class XmbKeyboardTriggers {
+    @Volatile
+    var sink: ((MotionEvent) -> Unit)? = null
+
+    fun onMotion(event: MotionEvent) {
+        sink?.invoke(event)
+    }
+}
+
+/**
+ * The XMB keyboard for Compose screens: [XmbKeyboardPanelBody] in a bottom panel of its own dialog window, so it gets the
+ * controller's keys and the page behind it stays visible. Everything typed goes through [session]; [onClose] hides the
+ * panel (B, tapping outside, the hide key, or after the field's action), [onSystemKeyboard] is the key that hands typing
+ * over to Android's own keyboard.
  */
 @Composable
 internal fun XmbKeyboardPanel(
     session: XmbKeyboardSession,
     onClose: () -> Unit,
     onSystemKeyboard: () -> Unit,
+) {
+    val triggers = remember { XmbKeyboardTriggers() }
+    Dialog(
+        onDismissRequest = onClose,
+        properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false),
+    ) {
+        DeckDialogBars()
+        // The window covers the whole screen, edge to edge and clear of insets, with no dim: the panel is placed by share.
+        val dialogWindow = (LocalView.current.parent as? DialogWindowProvider)?.window
+        // The analog triggers (pads with no L2/R2 buttons) only arrive as motion events on the window.
+        DisposableEffect(dialogWindow) {
+            val w = dialogWindow
+            val original = w?.callback
+            if (w == null || original == null) return@DisposableEffect onDispose {}
+            WindowCompat.setDecorFitsSystemWindows(w, false)
+            w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+            w.setGravity(android.view.Gravity.BOTTOM)
+            w.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
+            w.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            w.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
+            val wrapper = object : Window.Callback by original {
+                override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+                    triggers.onMotion(event)
+                    return original.dispatchGenericMotionEvent(event)
+                }
+            }
+            w.callback = wrapper
+            onDispose { w.callback = original }
+        }
+        XmbKeyboardPanelBody(session, onClose, onSystemKeyboard, triggers, inOwnWindow = true)
+    }
+}
+
+/**
+ * The keyboard itself, for whatever hosts it. [inOwnWindow] is the dialog's full-screen window, where the panel is
+ * placed at the bottom by share and a tap outside it closes it; otherwise the host's view is exactly the panel (the game's
+ * keyboard sits in a view of the panel's height, so touches above it still reach the game) and the panel fills it.
+ */
+@Composable
+internal fun XmbKeyboardPanelBody(
+    session: XmbKeyboardInput,
+    onClose: () -> Unit,
+    onSystemKeyboard: () -> Unit,
+    triggers: XmbKeyboardTriggers,
+    inOwnWindow: Boolean,
 ) {
     val type = session.imeOptions.keyboardType
     val numeric = type == KeyboardType.Number || type == KeyboardType.Phone ||
@@ -247,11 +352,12 @@ internal fun XmbKeyboardPanel(
                 session.performAction()
                 if (imeAction != ImeAction.Next && imeAction != ImeAction.Previous) currentClose()
             }
-            Role.PASTE -> clipboard.getText()?.text?.let { pasted ->
-                session.commit(if (singleLine) pasted.replace("\r", "").replace('\n', ' ') else pasted)
-            }
+            Role.PASTE -> clipboard.getText()?.text?.let { session.paste(it) }
             Role.SYSTEM -> currentSystem()
             Role.CLOSE -> currentClose()
+            Role.ESC -> session.pressKey(GuestTyper.Key.ESCAPE)
+            Role.UP -> session.pressKey(GuestTyper.Key.UP)
+            Role.DOWN -> session.pressKey(GuestTyper.Key.DOWN)
             Role.BLANK -> Unit
         }
         Unit
@@ -285,101 +391,88 @@ internal fun XmbKeyboardPanel(
         runCatching { firstFocus.requestFocus() }
     }
 
-    Dialog(
-        onDismissRequest = onClose,
-        properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false),
-    ) {
-        DeckDialogBars()
-        // The window covers the whole screen, edge to edge and clear of insets, with no dim: the panel is placed by share.
-        val dialogWindow = (LocalView.current.parent as? DialogWindowProvider)?.window
-        // The analog triggers (pads with no L2/R2 buttons) only arrive as motion events on the window.
-        DisposableEffect(dialogWindow) {
-            val w = dialogWindow
-            val original = w?.callback
-            if (w == null || original == null) return@DisposableEffect onDispose {}
-            WindowCompat.setDecorFitsSystemWindows(w, false)
-            w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-            w.setGravity(android.view.Gravity.BOTTOM)
-            w.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
-            w.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
-            w.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
-            val wrapper = object : Window.Callback by original {
-                override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
-                    handleTriggers(event, state) { latestPerform(Role.ACTION, null) }
-                    return original.dispatchGenericMotionEvent(event)
-                }
-            }
-            w.callback = wrapper
-            onDispose {
-                w.callback = original
-                // An analog trigger still held as the panel closes (R2 pressed for Done) must not act on the page behind.
-                if (state.shiftAxis || state.rightTriggerDown) XmbTriggerGuard.arm()
-            }
+    // The pad's analog triggers (pads with no L2/R2 buttons) reach the panel through its host.
+    DisposableEffect(triggers) {
+        triggers.sink = { handleTriggers(it, state) { latestPerform(Role.ACTION, null) } }
+        onDispose {
+            triggers.sink = null
+            // An analog trigger still held as the panel closes (R2 pressed for Done) must not act on the page behind.
+            if (state.shiftAxis || state.rightTriggerDown) XmbTriggerGuard.arm()
         }
-        CompositionLocalProvider(LocalDensity provides density, LocalDeckDensity provides density) {
-            BoxWithConstraints(
-                Modifier
-                    .fillMaxSize()
-                    .onPreviewKeyEvent { handleButton(it.nativeKeyEvent) }
-                    .pointerInput(Unit) { detectTapGestures { currentClose() } },
+    }
+    val guestKeys = session.hasNavigationKeys
+    CompositionLocalProvider(LocalDensity provides density, LocalDeckDensity provides density) {
+        BoxWithConstraints(
+            Modifier
+                .fillMaxSize()
+                .onPreviewKeyEvent { handleButton(it.nativeKeyEvent) }
+                // A tap beside the panel closes it in its own window; in the game the view is only the panel, and a tap on it must not go on to the game.
+                .pointerInput(inOwnWindow) { detectTapGestures { if (inOwnWindow) currentClose() } },
+        ) {
+            val scale = remember(maxWidth, maxHeight) { ScreenScale(maxWidth.value, maxHeight.value) }
+            val cs = MaterialTheme.colorScheme
+            val roomy = maxWidth >= 560.dp
+            val rows = remember(numeric, type, guestKeys) {
+                if (numeric) numberRows(when (type) { KeyboardType.Decimal -> "."; KeyboardType.Phone -> "+"; else -> null })
+                else if (guestKeys) GUEST_QWERTY_ROWS
+                else QWERTY_ROWS
+            }
+            val panelWidth = maxWidth * (1f - 2f * PANEL_SIDE_MARGIN)
+            val panelHeight = if (inOwnWindow) maxHeight * PANEL_HEIGHT else maxHeight
+            val pad = scale.dp(PANEL_PAD_DP)
+            // The dividing lines are a whole number of pixels wide (at least one), so every one of them is equally crisp.
+            val line = with(density) { max(1, 1.dp.roundToPx()).toDp() }
+            val inner = panelHeight - pad * 2
+            val previewHeight = inner * PREVIEW_SHARE
+            val keyHeight = XmbKeyboardGeometry.keyHeight((inner - previewHeight - pad).value, rows.size, line.value)
+            val keyWidth = XmbKeyboardGeometry.unitKeyWidth(
+                (panelWidth - pad * 2).value, KEYS_PER_ROW, rows.maxOf { it.size } + 1, line.value,
+            )
+            // Text and icons follow the smaller of the key's height and its share of the row's width.
+            val unit = XmbKeyboardGeometry.labelUnit(keyHeight, keyWidth).dp
+            val context = KeyContext(
+                shift = state.shift,
+                upper = state.upper,
+                caps = state.caps,
+                roomy = roomy,
+                actionLabel = actionLabel(imeAction, newlineAction),
+                tabEnabled = !singleLine,
+                scale = scale,
+                unit = unit,
+            )
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .then(if (inOwnWindow) Modifier.windowInsetsPadding(WindowInsets.navigationBars) else Modifier)
+                    .width(panelWidth)
+                    .height(panelHeight)
+                    .background(cs.background.copy(alpha = 0.97f), RectangleShape)
+                    .border(line, deckLine(), RectangleShape)
+                    .pointerInput(Unit) { detectTapGestures { } }
+                    .padding(pad),
             ) {
-                val scale = remember(maxWidth, maxHeight) { ScreenScale(maxWidth.value, maxHeight.value) }
-                val cs = MaterialTheme.colorScheme
-                val roomy = maxWidth >= 560.dp
-                val rows = remember(numeric, type) {
-                    if (numeric) numberRows(when (type) { KeyboardType.Decimal -> "."; KeyboardType.Phone -> "+"; else -> null })
-                    else QWERTY_ROWS
-                }
-                val panelWidth = maxWidth * (1f - 2f * PANEL_SIDE_MARGIN)
-                val pad = scale.dp(8f)
-                val gap = scale.dp(4f)
-                val inner = maxHeight * PANEL_HEIGHT - pad * 2
-                val previewHeight = inner * PREVIEW_SHARE
-                val keyHeight = (inner - previewHeight - gap) / rows.size
-                // Text and icons follow the smaller of the key's height and its share of the row's width.
-                val unit = min(keyHeight.value, (panelWidth.value - pad.value * 2) / KEYS_PER_ROW * 1.35f).dp
-                val context = KeyContext(
-                    shift = state.shift,
-                    upper = state.upper,
-                    caps = state.caps,
-                    roomy = roomy,
-                    actionLabel = actionLabel(imeAction, newlineAction),
-                    tabEnabled = !singleLine,
-                    scale = scale,
-                    unit = unit,
-                )
-                val shape = RoundedCornerShape(topStart = scale.dp(18f), topEnd = scale.dp(18f))
+                PreviewStrip(session, scale, previewHeight, line)
+                Spacer(Modifier.height(pad))
+                // The grid's own background is the line colour and the keys sit on it with a line-wide gap between them.
                 Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(line),
                     modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .windowInsetsPadding(WindowInsets.navigationBars)
-                        .width(panelWidth)
-                        .height(maxHeight * PANEL_HEIGHT)
-                        .clip(shape)
-                        .background(cs.background.copy(alpha = 0.97f))
-                        .border(1.dp, deckLine(), shape)
-                        .pointerInput(Unit) { detectTapGestures { } }
-                        .padding(pad),
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .then(if (numeric) Modifier.widthIn(max = scale.w(0.6f, max = 460.dp)) else Modifier)
+                        .background(deckLine())
+                        .padding(line),
                 ) {
-                    PreviewStrip(session, scale, previewHeight, unit)
-                    Spacer(Modifier.height(gap))
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                            .then(if (numeric) Modifier.widthIn(max = scale.w(0.6f, max = 460.dp)) else Modifier),
-                    ) {
-                        rows.forEach { row ->
-                            Row(Modifier.fillMaxWidth().weight(1f)) {
-                                row.forEach { cap ->
-                                    KeyCap(
-                                        cap = cap,
-                                        context = context,
-                                        requester = if (cap.firstFocus) firstFocus else null,
-                                        onPress = { latestPerform(cap.role, cap) },
-                                    )
-                                }
+                    rows.forEach { row ->
+                        Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(line)) {
+                            row.forEach { cap ->
+                                KeyCap(
+                                    cap = cap,
+                                    context = context,
+                                    requester = if (cap.firstFocus) firstFocus else null,
+                                    onPress = { latestPerform(cap.role, cap) },
+                                )
                             }
                         }
                     }
@@ -437,7 +530,7 @@ private fun Dp.asSp(factor: Float): TextUnit = with(LocalDensity.current) { (thi
 
 /** The text being typed with its cursor or selection, so it stays visible even when the field is behind the panel. */
 @Composable
-private fun PreviewStrip(session: XmbKeyboardSession, scale: ScreenScale, height: Dp, unit: Dp) {
+private fun PreviewStrip(session: XmbKeyboardInput, scale: ScreenScale, height: Dp, line: Dp) {
     val cs = MaterialTheme.colorScheme
     val value = session.value
     val type = session.imeOptions.keyboardType
@@ -461,15 +554,13 @@ private fun PreviewStrip(session: XmbKeyboardSession, scale: ScreenScale, height
         append(shown.substring(selEnd, to))
         if (to < shown.length) append("…")
     }
-    val shape = RoundedCornerShape(scale.dp(8f))
     Box(
         contentAlignment = Alignment.CenterStart,
         modifier = Modifier
             .fillMaxWidth()
             .height(height)
-            .clip(shape)
             .background(cs.surfaceContainer)
-            .border(1.dp, deckLine(), shape)
+            .border(line, deckLine())
             .padding(horizontal = scale.dp(12f)),
     ) {
         Text(
@@ -491,17 +582,19 @@ private fun RowScope.KeyCap(
     requester: FocusRequester?,
     onPress: () -> Unit,
 ) {
+    val cs = MaterialTheme.colorScheme
     if (cap.role == Role.BLANK) {
-        Spacer(Modifier.weight(cap.weight))
+        // A hole in the grid: the panel's colour, so the line-coloured grid does not show as a slab where there is no key.
+        Spacer(Modifier.weight(cap.weight).fillMaxHeight().background(cs.background))
         return
     }
-    val cs = MaterialTheme.colorScheme
     val scale = context.scale
-    val shape = RoundedCornerShape(scale.dp(7f))
+    val shape = RectangleShape
     var focused by remember { mutableStateOf(false) }
     var pressed by remember { mutableStateOf(false) }
     val currentPress by rememberUpdatedState(onPress)
-    val repeats = cap.role == Role.BACKSPACE || cap.role == Role.LEFT || cap.role == Role.RIGHT
+    val repeats = cap.role == Role.BACKSPACE || cap.role == Role.LEFT || cap.role == Role.RIGHT ||
+        cap.role == Role.UP || cap.role == Role.DOWN
     val active = (cap.role == Role.CAPS && context.caps) || (cap.role == Role.SHIFT && context.shift)
     val plain = cap.role == Role.CHAR || cap.role == Role.SPACE
     val fill = when {
@@ -517,50 +610,51 @@ private fun RowScope.KeyCap(
         cap.role == Role.TAB && !context.tabEnabled -> cs.onSurface.copy(alpha = 0.4f)
         else -> cs.onSurface
     }
-    Box(Modifier.weight(cap.weight).fillMaxHeight().zIndex(if (focused) 2f else 0f).padding(scale.dp(2.5f))) {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .fillMaxSize()
-                .onFocusChanged { focused = it.isFocused }
-                .deckFocusRing(shape, scaleTo = 1.1f)
-                .onKeyEvent { event ->
-                    val confirm = event.key == Key.ButtonA || event.key == Key.Enter ||
-                        event.key == Key.NumPadEnter || event.key == Key.DirectionCenter
-                    if (confirm && event.type == KeyEventType.KeyDown) {
-                        if (repeats || event.nativeKeyEvent.repeatCount == 0) currentPress()
-                    }
-                    confirm
+    // The focus ring is drawn inside the key (no scaling, no glow) so it never covers the neighbours across a 1 dp line;
+    // the action key is filled with the accent already, so its ring is the on-accent colour.
+    val ringColor = if (cap.role == Role.ACTION) cs.onPrimary else cs.primary
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .weight(cap.weight)
+            .fillMaxHeight()
+            .onFocusChanged { focused = it.isFocused }
+            .then(if (focused) Modifier.border(scale.dp(FOCUS_RING_DP), ringColor, shape) else Modifier)
+            .onKeyEvent { event ->
+                val confirm = event.key == Key.ButtonA || event.key == Key.Enter ||
+                    event.key == Key.NumPadEnter || event.key == Key.DirectionCenter
+                if (confirm && event.type == KeyEventType.KeyDown) {
+                    if (repeats || event.nativeKeyEvent.repeatCount == 0) currentPress()
                 }
-                .then(if (requester != null) Modifier.focusRequester(requester) else Modifier)
-                .focusable()
-                .clip(shape)
-                .background(fill, shape)
-                .pointerInput(cap.role) {
-                    detectTapGestures(onPress = {
-                        pressed = true
-                        currentPress()
-                        if (repeats) {
-                            coroutineScope {
-                                val repeater = launch {
-                                    delay(REPEAT_DELAY_MS)
-                                    while (true) {
-                                        currentPress()
-                                        delay(REPEAT_EVERY_MS)
-                                    }
+                confirm
+            }
+            .then(if (requester != null) Modifier.focusRequester(requester) else Modifier)
+            .focusable()
+            .background(fill, shape)
+            .pointerInput(cap.role) {
+                detectTapGestures(onPress = {
+                    pressed = true
+                    currentPress()
+                    if (repeats) {
+                        coroutineScope {
+                            val repeater = launch {
+                                delay(REPEAT_DELAY_MS)
+                                while (true) {
+                                    currentPress()
+                                    delay(REPEAT_EVERY_MS)
                                 }
-                                tryAwaitRelease()
-                                repeater.cancel()
                             }
-                        } else {
                             tryAwaitRelease()
+                            repeater.cancel()
                         }
-                        pressed = false
-                    })
-                },
-        ) {
-            KeyLabel(cap, context, ink)
-        }
+                    } else {
+                        tryAwaitRelease()
+                    }
+                    pressed = false
+                })
+            },
+    ) {
+        KeyLabel(cap, context, ink)
     }
 }
 
@@ -580,6 +674,9 @@ private fun KeyLabel(cap: Cap, context: KeyContext, ink: Color) {
         Role.PASTE -> IconLabel(Icons.Filled.ContentPaste, "Paste", if (glyphs) "Paste" else null, null, GlyphKind.PLAIN, false, ink, context)
         Role.SYSTEM -> IconLabel(Icons.Filled.Keyboard, "Android keyboard", null, null, GlyphKind.PLAIN, false, ink, context)
         Role.CLOSE -> IconLabel(Icons.Filled.KeyboardArrowDown, "Hide keyboard", null, null, GlyphKind.PLAIN, false, ink, context)
+        Role.ESC -> IconLabel(null, null, stringResource(R.string.xmb_kb_esc), null, GlyphKind.PLAIN, false, ink, context)
+        Role.UP -> IconLabel(Icons.Filled.KeyboardArrowUp, stringResource(R.string.xmb_kb_up), null, null, GlyphKind.PLAIN, false, ink, context)
+        Role.DOWN -> IconLabel(Icons.Filled.KeyboardArrowDown, stringResource(R.string.xmb_kb_down), null, null, GlyphKind.PLAIN, false, ink, context)
         Role.BLANK -> Unit
     }
 }
@@ -634,7 +731,8 @@ private fun KeyGlyph(text: String, kind: GlyphKind, unit: Dp) {
     val cs = MaterialTheme.colorScheme
     val round = kind == GlyphKind.X || kind == GlyphKind.Y
     val side = unit * 0.5f
-    val shape = if (round) CircleShape else RoundedCornerShape(side * 0.28f)
+    // The face buttons stay round, like the pad's own; the bumper keycaps are square-cornered like the keys around them.
+    val shape = if (round) CircleShape else RectangleShape
     val fill = when (kind) {
         GlyphKind.BUMPER -> cs.surfaceContainerHigh.copy(alpha = 0.7f)
         GlyphKind.X, GlyphKind.Y -> cs.surfaceVariant
