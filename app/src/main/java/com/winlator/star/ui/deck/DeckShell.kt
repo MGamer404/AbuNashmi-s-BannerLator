@@ -1223,6 +1223,24 @@ private fun FloatingBumper(text: String, onClick: () -> Unit) {
 /** The XMB home's only hint, on every tab: a muted "Y Search" in the bottom-right corner, tappable like the button. */
 @Composable
 private fun DeckFloatingSearch(onSearch: () -> Unit, modifier: Modifier = Modifier) {
+    DeckFloatingHint("Y", GlyphKind.Y, "Search", onSearch, modifier)
+}
+
+/**
+ * A floating hint with no box around it: the button's [glyph] (none = not drawn, for a touch-only screen), an optional [icon]
+ * and a [label], muted and tappable. The one look behind the Search hint and the All Games page's Back / View / Sort. A
+ * [modifier] height or width minimum (applied first) widens the tap area without changing how it looks.
+ */
+@Composable
+internal fun DeckFloatingHint(
+    glyph: String?,
+    kind: GlyphKind,
+    label: String?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
+    description: String? = label,
+) {
     val ss = rememberScreenScale()
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -1230,12 +1248,13 @@ private fun DeckFloatingSearch(onSearch: () -> Unit, modifier: Modifier = Modifi
         modifier = modifier
             .clip(RoundedCornerShape(10.dp))
             .dpadFocus(false)
-            .clickable(onClick = onSearch)
+            .clickable(onClick = onClick)
             .padding(horizontal = ss.dp(8f), vertical = ss.dp(4f))
             .alpha(0.75f),
     ) {
-        DeckGlyph("Y", GlyphKind.Y)
-        Text("Search", color = Color(0xFFDDDDDD), fontSize = ss.sp(14f), fontWeight = FontWeight.Light, maxLines = 1)
+        if (glyph != null) DeckGlyph(glyph, kind)
+        if (icon != null) Icon(icon, contentDescription = description, tint = Color(0xFFDDDDDD), modifier = Modifier.size(ss.dp(18f)))
+        if (label != null) Text(label, color = Color(0xFFDDDDDD), fontSize = ss.sp(14f), fontWeight = FontWeight.Light, maxLines = 1)
     }
 }
 

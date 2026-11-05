@@ -7,6 +7,7 @@ import androidx.activity.compose.BackHandler
 import androidx.annotation.DrawableRes
 import android.content.res.Configuration
 import android.hardware.input.InputManager
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.text.format.DateUtils
@@ -75,12 +76,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -121,7 +125,6 @@ import com.winlator.star.ui.deck.XmbStoreMark
 import com.winlator.star.ui.deck.rememberScreenScale
 import com.winlator.star.ui.deck.rememberXmbLogo
 import com.winlator.star.ui.deck.storeMarkOf
-import com.winlator.star.ui.deck.xmbWashBackground
 import com.winlator.star.ui.findActivity
 import com.winlator.star.ui.theme.DangerRed
 import kotlinx.coroutines.Job
@@ -148,7 +151,7 @@ internal data class XmbAction(
 )
 
 /**
- * An upper-row card's background, drawn edge to edge on the card and, full bleed and sharp, behind the home: a store's
+ * An upper-row card's background, drawn edge to edge on the card and, faintly blurred, behind the home: a store's
  * [logo] on its brand colours, or with no logo the card's own icon in white on [colors]. [tintWhite] = draw the logo white.
  */
 internal data class XmbCardArt(@DrawableRes val logo: Int?, val colors: List<Color>, val tintWhite: Boolean = false)
@@ -203,21 +206,22 @@ internal fun ShortcutsXmbView(
     /** Changes when the host wants the view to take focus again (the Deck shell, when a page should take its first focus). */
     focusTick: Int = 0,
     /**
-     * Every game the host has. Given, the row starts with an All Games card that opens the All Games page over this view, and
-     * [shortcuts] is the part of the library the row shows (the host limits it to the most recent games).
+     * Every game the host has. Given, the row ends with an All Games card that opens the All Games page over this view, and
+     * [shortcuts] is the part of the library the row shows (the host limits it to the most recent games). With no games the
+     * card is the whole row.
      */
     allShortcuts: List<Shortcut>? = null,
 ) {
-    if (shortcuts.isEmpty()) return
+    if (shortcuts.isEmpty() && allShortcuts == null) return
     val context = LocalContext.current
     val density = LocalDensity.current
     val accent = MaterialTheme.colorScheme.primary
     val scope = rememberCoroutineScope()
     val n = shortcuts.size
-    // The All Games card is slot 0 of the row and the games follow it, so the row's index maths (target, pos, the swipes, the
-    // counters) runs on slots; `shortcuts` is only ever read at `slot - off`, never for the card.
-    val off = if (allShortcuts != null) 1 else 0
-    val slots = n + off
+    // The All Games card is the slot after the last game (slot n), so a game's slot is its index in `shortcuts` and the row's
+    // index maths (target, pos, the swipes, the counters) runs on slots; slot 0 is the first game.
+    val hasAll = allShortcuts != null
+    val slots = n + if (hasAll) 1 else 0
     val allTotal = allShortcuts?.size ?: 0
     val allCount = remember(allTotal) { context.resources.getQuantityString(R.plurals.xmb_all_games_count, allTotal, allTotal) }
     val allLabel = stringResource(R.string.xmb_all_games_open)
@@ -226,9 +230,9 @@ internal fun ShortcutsXmbView(
     // The focused game is remembered by path so it survives rotation, leaving the tab, and a
     // refresh or sort that reorders the list. The All Games card is remembered as XMB_ALL_PATH.
     var focusedPath by rememberSaveable { mutableStateOf<String?>(null) }
-    fun slotOfPath(path: String?): Int = xmbSlotOf(shortcuts.map { it.file.path }, path, off > 0)
-    // Opens on the first real game (slot `off`) unless the cursor was somewhere else.
-    var target by remember { mutableIntStateOf(slotOfPath(focusedPath).takeIf { it >= 0 } ?: off) }
+    fun slotOfPath(path: String?): Int = xmbSlotOf(shortcuts.map { it.file.path }, path, hasAll)
+    // Opens on the first game (slot 0) unless the cursor was somewhere else.
+    var target by remember { mutableIntStateOf(slotOfPath(focusedPath).takeIf { it >= 0 } ?: 0) }
     val pos = remember { mutableFloatStateOf(target.toFloat()) } // visual position, fractional mid-swipe
     var act by remember { mutableIntStateOf(0) }
     var settleJob by remember { mutableStateOf<Job?>(null) }
@@ -236,21 +240,20 @@ internal fun ShortcutsXmbView(
     var optsOpen by remember { mutableStateOf(false) }
     val centered = centeredHome && !optsOpen
 
-    LaunchedEffect(shortcuts, off) {
+    LaunchedEffect(shortcuts, hasAll) {
         val i = slotOfPath(focusedPath)
         val idx = if (i >= 0) i else target.coerceIn(0, slots - 1)
         settleJob?.cancel()
         target = idx
         pos.floatValue = idx.toFloat()
     }
-    // On the All Games card there is no game: `focused` stands in (the first one) so the game-only code below keeps a Shortcut
-    // to read, and everything that shows it checks `onAll`.
-    val onAll = target < off
-    val focused = shortcuts[(target - off).coerceIn(0, n - 1)]
-    val focusKey = if (onAll) XMB_ALL_PATH else focused.file.path
+    // The game under the cursor, or null on the All Games card (the slot after the last game), which has no game behind it.
+    val focused: Shortcut? = if (hasAll && target >= n) null else shortcuts[target.coerceIn(0, n - 1)]
+    val onAll = focused == null
+    val focusKey = focused?.file?.path ?: XMB_ALL_PATH
     LaunchedEffect(focusKey) {
         focusedPath = focusKey
-        if (!onAll) onFocusedChange(focused)
+        if (focused != null) onFocusedChange(focused)
     }
 
     // Moving to another game always lands back on Play, so A launches (like tapping a card).
@@ -265,10 +268,10 @@ internal fun ShortcutsXmbView(
         }
     }
 
-    val playtime = remember(focused) { xmbPlaytime(context, focused.name) }
-    val isSelected = focused.file.path in selectedPaths
+    val playtime = remember(focused) { focused?.let { xmbPlaytime(context, it.name) } }
+    val isSelected = focused != null && focused.file.path in selectedPaths
     // The All Games card offers just "Open".
-    val actions = if (onAll) listOf(XmbAction(allLabel, Icons.Filled.GridView, allCount) { allOpen = true }) else buildList<XmbAction> {
+    val actions = if (focused == null) listOf(XmbAction(allLabel, Icons.Filled.GridView, allCount) { allOpen = true }) else buildList<XmbAction> {
         add(
             if (selectionMode) XmbAction(if (isSelected) "Deselect" else "Select", Icons.Filled.Checklist) { onToggleSelect(focused) }
             else XmbAction("Play", Icons.Filled.PlayArrow, playtime?.let { "$it played" } ?: "Not played yet") { onPlay(focused) }
@@ -426,6 +429,8 @@ internal fun ShortcutsXmbView(
         val rowScale = { 1f + (homeK - 1f) * cT * (1f - upT) }
         val pitchPx = with(density) { m.pitch.dp.toPx() }
         val rowPx = with(density) { m.rowH.dp.toPx() }
+        val wPx = with(density) { maxWidth.toPx() }
+        val hPx = with(density) { maxHeight.toPx() }
 
         var swipe by remember { mutableFloatStateOf(0f) }
         val swipeBackPx = with(density) { 60.dp.toPx() }
@@ -566,41 +571,50 @@ internal fun ShortcutsXmbView(
                 )
                 .draggable(swipeDrag, Orientation.Vertical, onDragStarted = { swipeAcc = 0f; swipeDone = false }),
         ) {
-            // Background: the theme wash as one opaque fill (inside the Deck shell it is the same colour the shell already paints,
-            // and it still paints where no shell does, the classic Games screen), then the focused cover (with the cards up, the
-            // chosen card's art) sharp and full bleed under one even dark veil, so the type stays readable without dimming any
-            // side. The All Games card has no art: just the wash.
-            Box(Modifier.fillMaxSize().xmbWashBackground())
-            val card = if (upperOpen) upperRow.getOrNull(upIdx) else null
-            // Keyed on the card's art and icon (not the card itself, whose lambdas change every recomposition).
-            val picture: Any? = card?.let { c -> c.art?.let { XmbBackdropArt(it, c.icon) } } ?: focused.icon.takeUnless { onAll }
-            Crossfade(targetState = picture, animationSpec = tween(600), label = "xmbBackdrop") { pic ->
-                when (pic) {
-                    is Bitmap -> Image(
-                        bitmap = remember(pic) { pic.asImageBitmap() },
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize().xmbVeil(),
+            // Background: accent glow → the focused cover (with the cards up, the chosen card's art), blurred → shade. The All
+            // Games card has no art, so on it only the glow and the shade show.
+            Box(
+                Modifier.fillMaxSize().background(
+                    Brush.radialGradient(
+                        0f to accent.copy(alpha = 0.50f), 0.48f to accent.copy(alpha = 0.10f), 0.85f to Color.Black,
+                        center = Offset(wPx * 0.18f, 0f), radius = max(wPx, hPx) * 1.1f,
                     )
-                    is XmbBackdropArt -> Box(
-                        Modifier.fillMaxSize().xmbVeil().background(Brush.linearGradient(pic.art.colors)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        val logo = pic.art.logo
-                        if (logo != null) {
-                            rememberXmbLogo(logo)?.let { bmp ->
-                                Image(
-                                    bmp, contentDescription = null, contentScale = ContentScale.Fit,
-                                    colorFilter = if (pic.art.tintWhite) ColorFilter.tint(Color.White) else null,
-                                    modifier = Modifier.fillMaxSize(0.5f),
-                                )
+                )
+            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val card = if (upperOpen) upperRow.getOrNull(upIdx) else null
+                // Keyed on the card's art and icon (not the card itself, whose lambdas change every recomposition).
+                val picture: Any? = card?.let { c -> c.art?.let { XmbBackdropArt(it, c.icon) } } ?: focused?.icon
+                Crossfade(targetState = picture, animationSpec = tween(600), label = "xmbBackdrop") { pic ->
+                    when (pic) {
+                        is Bitmap -> Image(
+                            bitmap = remember(pic) { pic.asImageBitmap() },
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize().blur(14.dp).alpha(0.34f),
+                        )
+                        is XmbBackdropArt -> Box(
+                            Modifier.fillMaxSize().blur(14.dp).alpha(0.34f).background(Brush.linearGradient(pic.art.colors)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            val logo = pic.art.logo
+                            if (logo != null) {
+                                rememberXmbLogo(logo)?.let { bmp ->
+                                    Image(
+                                        bmp, contentDescription = null, contentScale = ContentScale.Fit,
+                                        colorFilter = if (pic.art.tintWhite) ColorFilter.tint(Color.White) else null,
+                                        modifier = Modifier.fillMaxSize(0.6f),
+                                    )
+                                }
+                            } else {
+                                Icon(pic.icon, contentDescription = null, tint = Color.White, modifier = Modifier.fillMaxSize(0.4f))
                             }
-                        } else {
-                            Icon(pic.icon, contentDescription = null, tint = Color.White, modifier = Modifier.fillMaxSize(0.3f))
                         }
                     }
                 }
             }
+            Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Color.Black.copy(alpha = 0.55f), 0.55f to Color.Black.copy(alpha = 0.1f), 1f to Color.Black.copy(alpha = 0.45f))))
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.4f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.9f))))
             // Faint shade behind a see-through top bar so its title and buttons stay readable.
             if (topInset > 0.dp) {
                 Box(Modifier.fillMaxWidth().height(topInset + 24.dp).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.35f), Color.Transparent))))
@@ -638,7 +652,7 @@ internal fun ShortcutsXmbView(
                     Modifier.align(Alignment.TopEnd).padding(end = 16.dp * hs, top = 8.dp * hs),
                     horizontalArrangement = Arrangement.spacedBy(12.dp * hs),
                 ) {
-                    Text(if (onAll) "All / $allTotal" else "${target - off + 1} / $n", color = Color(0xFFAAAAAA), fontSize = 12.sp * hs)
+                    Text(if (onAll) "All / $allTotal" else "${target + 1} / $n", color = Color(0xFFAAAAAA), fontSize = 12.sp * hs)
                     Text(clock, color = Color(0xFFDDDDDD), fontSize = 12.sp * hs, fontWeight = FontWeight.Light)
                 }
 
@@ -669,7 +683,7 @@ internal fun ShortcutsXmbView(
                     alpha = 1f - 0.5f * upT
                 }) {
                 for (i in (baseIdx - 3).coerceAtLeast(0)..(baseIdx + ahead + 1).coerceAtMost(slots - 1)) {
-                    if (i < off) {
+                    if (i >= n) {
                         key(XMB_ALL_PATH) {
                             XmbAllGamesCover(
                                 index = i, pos = pos, m = m, accent = accent, count = allCount,
@@ -681,7 +695,7 @@ internal fun ShortcutsXmbView(
                         }
                         continue
                     }
-                    val s = shortcuts[i - off]
+                    val s = shortcuts[i]
                     key(s.file.path) {
                         // With the cards up no game is chosen: none is enlarged or ringed.
                         XmbCover(
@@ -704,7 +718,7 @@ internal fun ShortcutsXmbView(
                 // Focused game's name + "container · resolution", right of its cover under the rest of the bar.
                 // On the All Games card: its name and the number of games.
                 AnimatedContent(
-                    targetState = if (onAll) null else focused,
+                    targetState = focused,
                     contentKey = { it?.file?.path ?: XMB_ALL_PATH },
                     transitionSpec = { (fadeIn(tween(220)) + slideInVertically(tween(220)) { it / 6 }) togetherWith fadeOut(tween(90)) },
                     label = "xmbTitle",
@@ -780,7 +794,7 @@ internal fun ShortcutsXmbView(
                 }
 
                 // Nothing about a game to show on the All Games card.
-                if (m.infoW >= 120f && m.infoH >= 40f && !onAll) {
+                if (m.infoW >= 120f && m.infoH >= 40f && focused != null) {
                     Column(
                         Modifier.offset(m.infoX.dp, m.infoY.dp).width(m.infoW.dp).height(m.infoH.dp).graphicsLayer { alpha = optsA() }.clipToBounds(),
                     ) {
@@ -838,7 +852,7 @@ internal fun ShortcutsXmbView(
                     )
                 }
                 if (nested) {
-                    XmbNestedLayer(nav, xmbScope, m.w, m.h, m.port, accent, focused.name, focused.icon, actions.map { it.icon }, actIdx)
+                    XmbNestedLayer(nav, xmbScope, m.w, m.h, m.port, accent, focused?.name.orEmpty(), focused?.icon, actions.map { it.icon }, actIdx)
                 }
             }
         }
@@ -967,14 +981,10 @@ private fun Modifier.xmbCoverSlot(index: Int, pos: MutableFloatState, m: XmbMetr
         alpha = ((if (u >= 0f) 0.82f else 0.82f + u * 0.32f) + 0.18f * t).coerceIn(0f, 1f)
     }
 
-/** The even dark veil over the backdrop art: light enough to keep the art vivid, dark enough for the white type on it. */
-private fun Modifier.xmbVeil(): Modifier = this.drawWithContent {
-    drawContent()
-    drawRect(Color.Black.copy(alpha = XMB_ART_VEIL))
-}
-
-// The first card of the row: a stack of covers in the theme colours, 2:3 like a cover, ringed like the focused game. It opens
-// the All Games page and has no game behind it, so there is no store mark and no selection mark.
+// The last card of the row: the grid glyph, "All Games" and the game count on the same plain surface as the upper row's Add game
+// card, 2:3 like a cover and ringed like the focused one. It opens the All Games page and has no game behind it, so there is no
+// store mark and no selection mark. One flat opaque fill and nothing nested: a see-through fill would let the focus shadow show
+// through as a dark inner box.
 @Composable
 private fun XmbAllGamesCover(
     index: Int,
@@ -993,12 +1003,12 @@ private fun XmbAllGamesCover(
             .xmbCoverSlot(index, pos, m, focused, grow)
             .then(if (focused) Modifier.shadow(14.dp, shape, ambientColor = accent, spotColor = accent) else Modifier)
             .clip(shape)
-            .background(Brush.linearGradient(listOf(accent.copy(alpha = 0.55f), Color(0xFF0A0A0A))))
-            .then(if (focused) Modifier.border(2.dp, accent, shape) else Modifier.border(1.dp, Color.White.copy(alpha = 0.14f), shape))
+            .background(Brush.linearGradient(XMB_PLAIN_CARD))
+            .border(if (focused) 2.dp else 1.dp, if (focused) accent else Color.White.copy(alpha = 0.14f), shape)
             .xmbClick(src, onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(Icons.Filled.GridView, contentDescription = null, tint = Color.White.copy(alpha = 0.92f), modifier = Modifier.size((m.fW * 0.42f).dp))
+        Icon(Icons.Filled.GridView, contentDescription = null, tint = Color.White, modifier = Modifier.size((m.fW * 0.44f).dp))
         Column(Modifier.align(Alignment.BottomStart).padding(10.dp)) {
             Text(stringResource(R.string.xmb_all_games), color = Color.White.copy(alpha = 0.92f), fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 2, lineHeight = 15.sp)
             Text(count, color = Color.White.copy(alpha = 0.7f), fontSize = 10.sp, maxLines = 1)
@@ -1063,8 +1073,8 @@ private fun XmbActionRow(action: XmbAction, selected: Boolean, accent: Color, ic
 /** Centred home: the peeking cards' middle sits this far (dp, on a 412 dp phone) from the top, just below the host's floating tab bar; above it they fade out. */
 internal const val XMB_PEEK_CLIP = 50f
 
-/** The dark veil (0..1) over the focused game's sharp backdrop art, even across the screen. */
-private const val XMB_ART_VEIL = 0.3f
+/** The surface of the upper row's plain cards (Add game) and of the All Games card, so they always match. */
+internal val XMB_PLAIN_CARD = listOf(Color(0xFF2A2D33), Color(0xFF16181C))
 
 /** Centred home: the most the cover row is drawn larger than its normal size. */
 private const val XMB_HOME_MAX_GROW = 1.3f
@@ -1190,7 +1200,7 @@ private fun XmbUpperCard(
             .then(if (focused) Modifier.shadow(14.dp, shape, ambientColor = accent, spotColor = accent) else Modifier)
             .clip(shape)
             // Opaque, edge to edge: a see-through fill would let the focus shadow show through as a dark inner box.
-            .background(Brush.linearGradient(art?.colors ?: listOf(Color(0xFF2A2D33), Color(0xFF16181C))))
+            .background(Brush.linearGradient(art?.colors ?: XMB_PLAIN_CARD))
             .border(if (focused) 2.dp else 1.dp, if (focused) accent else Color.White.copy(alpha = 0.14f), shape)
             .then(if (enabled) Modifier.xmbClick(src, onClick) else Modifier),
         contentAlignment = Alignment.Center,

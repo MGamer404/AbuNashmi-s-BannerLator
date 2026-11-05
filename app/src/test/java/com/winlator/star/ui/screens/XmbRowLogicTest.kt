@@ -3,14 +3,14 @@ package com.winlator.star.ui.screens
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/** The XMB games row's slot maths (the All Games card in slot 0), its row limit, and the All Games page's grid cursor. */
+/** The XMB games row's slot maths (the All Games card after the last game), its row limit, and the All Games page's grid. */
 class XmbRowLogicTest {
 
     private val paths = listOf("a.desktop", "b.desktop", "c.desktop")
 
-    @Test fun slotOf_withAllCard_shiftsGamesRight() {
-        assertEquals(1, xmbSlotOf(paths, "a.desktop", hasAll = true))
-        assertEquals(3, xmbSlotOf(paths, "c.desktop", hasAll = true))
+    @Test fun slotOf_withAllCard_leavesTheGamesWhereTheyAre() {
+        assertEquals(0, xmbSlotOf(paths, "a.desktop", hasAll = true))
+        assertEquals(2, xmbSlotOf(paths, "c.desktop", hasAll = true))
     }
 
     @Test fun slotOf_withoutAllCard_isThePlainIndex() {
@@ -18,9 +18,24 @@ class XmbRowLogicTest {
         assertEquals(2, xmbSlotOf(paths, "c.desktop", hasAll = false))
     }
 
-    @Test fun slotOf_allCardPath_isSlotZeroOnlyWhenThereIsACard() {
-        assertEquals(0, xmbSlotOf(paths, XMB_ALL_PATH, hasAll = true))
+    @Test fun slotOf_allCardPath_isTheSlotAfterTheLastGameOnlyWhenThereIsACard() {
+        assertEquals(3, xmbSlotOf(paths, XMB_ALL_PATH, hasAll = true))
         assertEquals(-1, xmbSlotOf(paths, XMB_ALL_PATH, hasAll = false))
+    }
+
+    @Test fun slotOf_noGames_theCardIsSlotZero() {
+        assertEquals(0, xmbSlotOf(emptyList(), XMB_ALL_PATH, hasAll = true))
+    }
+
+    @Test fun gridColumns_wideScreen_isSix() {
+        assertEquals(6, xmbGridColumns(avail = 740f, gap = 12f, minCell = 80f))
+        assertEquals(6, xmbGridColumns(avail = 1400f, gap = 12f, minCell = 80f))
+    }
+
+    @Test fun gridColumns_narrowScreen_dropsColumnsButNotBelowThree() {
+        assertEquals(4, xmbGridColumns(avail = 380f, gap = 12f, minCell = 80f))
+        assertEquals(3, xmbGridColumns(avail = 280f, gap = 12f, minCell = 80f))
+        assertEquals(3, xmbGridColumns(avail = 100f, gap = 12f, minCell = 80f))
     }
 
     @Test fun slotOf_unknownOrMissingPath_isNone() {

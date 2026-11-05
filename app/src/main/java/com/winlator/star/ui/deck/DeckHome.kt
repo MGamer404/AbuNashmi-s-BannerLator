@@ -135,6 +135,7 @@ import com.winlator.star.ui.screens.rememberShortcutActions
 import com.winlator.star.ui.screens.ShortcutsXmbView
 import com.winlator.star.ui.screens.xmbRowOf
 import com.winlator.star.ui.screens.WrapperManagerDialog
+import com.winlator.star.ui.screens.XMB_PLAIN_CARD
 import com.winlator.star.ui.screens.XmbAction
 import com.winlator.star.ui.screens.XmbCardArt
 import com.winlator.star.ui.screens.XmbGameHost
@@ -416,7 +417,7 @@ internal fun DeckHome(
             add(XmbAction("Community configs", Icons.Filled.Public, "Shared settings for your games",
                 art = XmbCardArt(null, listOf(Color(0xFF2E2A6B), Color(0xFF17153A)))) { actions.showCommunityBrowser = true })
             add(XmbAction("Add game", Icons.Filled.Add, "Add games to your library",
-                art = XmbCardArt(null, listOf(Color(0xFF2A2D33), Color(0xFF16181C)))) { addGame() })
+                art = XmbCardArt(null, XMB_PLAIN_CARD)) { addGame() })
         }
     }
     // The store logos are big PNGs: decode them now, off the main thread, so the first frame finds them ready.

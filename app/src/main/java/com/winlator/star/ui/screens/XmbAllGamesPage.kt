@@ -22,14 +22,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -37,7 +35,6 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.ViewDay
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -83,6 +80,8 @@ import androidx.preference.PreferenceManager
 import com.winlator.star.R
 import com.winlator.star.container.Shortcut
 import com.winlator.star.ui.LocalTopBarOverlayInset
+import com.winlator.star.ui.deck.DeckFloatingHint
+import com.winlator.star.ui.deck.GlyphKind
 import com.winlator.star.ui.deck.LibrarySort
 import com.winlator.star.ui.deck.PlayStats
 import com.winlator.star.ui.deck.XmbStoreMark
@@ -136,7 +135,7 @@ private val PAGE_MUTED = Color(0xFFB4B4B4)
 
 /**
  * Every game, on one full-screen page in the XMB's look (the backdrop wash, white type, the accent ring). It opens from the
- * All Games card at the left of the games row and closes with Back / B onto the same card. The cursor is one index into the
+ * All Games card at the end of the games row and closes with Back / B onto the same card. The cursor is one index into the
  * sorted list, moved by the D-pad and by taps; the page owns the keys while it is up. Three views ([AllView]) and the sorts in
  * [ALL_SORTS] are kept between visits. A game runs through [onPlay], the same launch the games row uses.
  *
@@ -201,12 +200,15 @@ internal fun XmbAllGamesPage(
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val avail = maxWidth - padH * 2
-        val cell = when (view) {
-            AllView.GRID -> ss.dp(104f)
-            AllView.BIG -> ss.dp(176f)
-            AllView.LIST -> avail
+        // Grid: always six covers across when each can stay about 80 dp wide (any landscape screen), fewer on a narrow portrait
+        // one but never under three. Big art keeps its own cover width, and the list is one column.
+        val bigCell = ss.dp(176f)
+        val cols = when (view) {
+            AllView.GRID -> xmbGridColumns(avail.value, gap.value, ss.dp(80f).value)
+            AllView.BIG -> ((avail + gap) / (bigCell + gap)).toInt().coerceAtLeast(1)
+            AllView.LIST -> 1
         }
-        val cols = if (view == AllView.LIST) 1 else ((avail + gap) / (cell + gap)).toInt().coerceAtLeast(1)
+        // The header's hints carry their names only where there is room for them.
         val wide = maxWidth >= 600.dp
 
         val marginPx = with(density) { (bottomPad - 8.dp).coerceAtLeast(0.dp).toPx() }
@@ -254,24 +256,37 @@ internal fun XmbAllGamesPage(
                 .pointerInput(Unit) { detectTapGestures { } },
         ) {
             Column(Modifier.fillMaxSize()) {
+                // One slim row: the title and count on the left, then Back / View / Sort as the shell's floating hints (a
+                // button badge only with a pad attached, the icon always, the current view / sort name where there is room).
+                // The hints pad themselves by 8 dp, so the row starts that much earlier to line up with the grid.
+                val hintTap = Modifier.heightIn(min = 40.dp).widthIn(min = 40.dp)
                 Row(
-                    Modifier.fillMaxWidth().padding(start = padH, end = padH, top = topPad, bottom = 8.dp),
+                    Modifier.fillMaxWidth().padding(start = (padH - ss.dp(8f)).coerceAtLeast(0.dp), end = (padH - ss.dp(8f)).coerceAtLeast(0.dp), top = topPad, bottom = 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    PageButton(Icons.AutoMirrored.Filled.ArrowBack, null, "B".takeIf { hasPad }, stringResource(R.string.xmb_all_back)) { onClose() }
-                    Column(Modifier.weight(1f)) {
+                    val back = stringResource(R.string.xmb_all_back)
+                    DeckFloatingHint(
+                        "B".takeIf { hasPad }, GlyphKind.B, back.takeIf { wide }, { onClose() }, hintTap,
+                        icon = Icons.AutoMirrored.Filled.ArrowBack, description = back,
+                    )
+                    Row(Modifier.weight(1f).padding(start = ss.dp(6f)), verticalAlignment = Alignment.Bottom) {
                         Text(
-                            stringResource(R.string.xmb_all_games), color = Color.White, fontSize = ss.sp(22f),
-                            fontWeight = FontWeight.Light, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            stringResource(R.string.xmb_all_games), color = Color.White, fontSize = ss.sp(16f),
+                            fontWeight = FontWeight.Light, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
                         )
                         Text(
                             context.resources.getQuantityString(R.plurals.xmb_all_games_count, sorted.size, sorted.size),
-                            color = PAGE_MUTED, fontSize = ss.sp(12f), maxLines = 1,
+                            color = PAGE_MUTED, fontSize = ss.sp(11f), maxLines = 1, modifier = Modifier.padding(start = ss.dp(8f), bottom = 1.dp),
                         )
                     }
-                    PageButton(view.icon, if (wide) stringResource(view.label) else null, "X".takeIf { hasPad }, stringResource(R.string.xmb_all_view)) { setView(view.next()) }
-                    PageButton(Icons.Filled.SwapVert, if (wide) stringResource(sort.labelRes()) else null, "Y".takeIf { hasPad }, stringResource(R.string.xmb_all_sort)) { openMenu() }
+                    DeckFloatingHint(
+                        "X".takeIf { hasPad }, GlyphKind.X, stringResource(view.label).takeIf { wide }, { setView(view.next()) }, hintTap,
+                        icon = view.icon, description = stringResource(R.string.xmb_all_view) + ": " + stringResource(view.label),
+                    )
+                    DeckFloatingHint(
+                        "Y".takeIf { hasPad }, GlyphKind.Y, stringResource(sort.labelRes()).takeIf { wide }, { openMenu() }, hintTap,
+                        icon = Icons.Filled.SwapVert, description = stringResource(R.string.xmb_all_sort) + ": " + stringResource(sort.labelRes()),
+                    )
                 }
 
                 LazyVerticalGrid(
@@ -303,7 +318,7 @@ internal fun XmbAllGamesPage(
                 Column(
                     Modifier
                         .align(Alignment.TopEnd)
-                        .padding(top = topPad + 56.dp, end = padH)
+                        .padding(top = topPad + 40.dp, end = padH)
                         .widthIn(min = 200.dp)
                         .clip(shape)
                         .background(Color(0xEE16171B))
@@ -348,32 +363,6 @@ private suspend fun LazyGridState.reveal(index: Int, bottomMarginPx: Float) {
         else -> 0f
     }
     if (d != 0f) animateScrollBy(d)
-}
-
-@Composable
-private fun PageButton(icon: ImageVector, label: String?, glyph: String?, description: String, onClick: () -> Unit) {
-    val src = remember { MutableInteractionSource() }
-    val shape = RoundedCornerShape(12.dp)
-    Row(
-        Modifier
-            .clip(shape)
-            .background(Color.White.copy(alpha = 0.10f))
-            .border(1.dp, Color.White.copy(alpha = 0.14f), shape)
-            .xmbClick(src, onClick)
-            .heightIn(min = 48.dp)
-            .widthIn(min = 48.dp)
-            .padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-    ) {
-        Icon(icon, contentDescription = description, tint = PAGE_TEXT, modifier = Modifier.size(22.dp))
-        if (label != null) Text(label, color = PAGE_TEXT, fontSize = 13.sp, maxLines = 1)
-        if (glyph != null) {
-            Box(Modifier.size(17.dp).clip(CircleShape).background(Color(0xFFB4B4B4)), contentAlignment = Alignment.Center) {
-                Text(glyph, color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-            }
-        }
-    }
 }
 
 /** A cover with its name under it, for the grid and the big-art views. */
