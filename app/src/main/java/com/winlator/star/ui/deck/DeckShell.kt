@@ -216,22 +216,29 @@ internal fun DeckShell(
 ) {
     // The XMB mode can be switched on and off while the shell is up, so the keyboard host follows the live setting.
     val xmbHome by AppThemeState.deckXmbHome.collectAsState()
+    // Owned here, not by the content, so the theme below can tell Home (which keeps its own backdrop) from the other pages.
+    val navController = rememberNavController()
+    val route by navController.currentBackStackEntryAsState()
+    val onHome = (route?.destination?.route ?: DeckRoutes.HOME) == DeckRoutes.HOME
     DeckTheme {
-        XmbKeyboardHost(xmbHome) {
-            DeckShellContent(startRoute, pendingRoute, onPendingRouteConsumed, onAbout, onLaunchStore)
+        // XMB mode: every page but Home sits on the glow, so its own `colorScheme.background` fill goes clear; Home keeps the flat wash.
+        XmbWashTheme(xmbHome, glow = !onHome) {
+            XmbKeyboardHost(xmbHome) {
+                DeckShellContent(navController, startRoute, pendingRoute, onPendingRouteConsumed, onAbout, onLaunchStore)
+            }
         }
     }
 }
 
 @Composable
 private fun DeckShellContent(
+    navController: NavHostController,
     startRoute: String,
     pendingRoute: String?,
     onPendingRouteConsumed: () -> Unit,
     onAbout: () -> Unit,
     onLaunchStore: (Screen) -> Unit,
 ) {
-    val navController = rememberNavController()
     val context = LocalContext.current
     val cs = MaterialTheme.colorScheme
     val cfg = LocalConfiguration.current
@@ -453,6 +460,8 @@ private fun DeckShellContent(
 
     // Backdrop: the theme background, washed with two soft glows.
     // On Home they follow the focused game's cover; elsewhere they are the accent.
+    // XMB mode has no ambient glows: Home sits on one even wash of the theme colour, every other page on the soft theme-colour glow
+    // (XmbGlowBackdrop), the same for all of them and from edge to edge.
     val tints = ambient.value
     val glow1 by animateColorAsState(tints?.first ?: cs.primary, tween(900), label = "deckGlow1")
     val glow2 by animateColorAsState(tints?.second ?: lerp(cs.primary, cs.background, 0.35f), tween(900), label = "deckGlow2")
@@ -467,24 +476,30 @@ private fun DeckShellContent(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(cs.background)
-                .drawBehind {
-                    drawRect(
-                        Brush.radialGradient(
-                            colors = listOf(glow1.copy(alpha = 0.30f), Color.Transparent),
-                            center = Offset(size.width * 0.88f, -size.height * 0.10f),
-                            radius = size.maxDimension * 0.75f,
-                        )
-                    )
-                    drawRect(
-                        Brush.radialGradient(
-                            colors = listOf(glow2.copy(alpha = 0.20f), Color.Transparent),
-                            center = Offset(-size.width * 0.05f, size.height * 1.05f),
-                            radius = size.maxDimension * 0.65f,
-                        )
-                    )
-                },
+                .then(
+                    if (xmbHome) { if (currentRoute == DeckRoutes.HOME) Modifier.xmbWashBackground() else Modifier }
+                    else Modifier
+                        .background(cs.background)
+                        .drawBehind {
+                            drawRect(
+                                Brush.radialGradient(
+                                    colors = listOf(glow1.copy(alpha = 0.30f), Color.Transparent),
+                                    center = Offset(size.width * 0.88f, -size.height * 0.10f),
+                                    radius = size.maxDimension * 0.75f,
+                                )
+                            )
+                            drawRect(
+                                Brush.radialGradient(
+                                    colors = listOf(glow2.copy(alpha = 0.20f), Color.Transparent),
+                                    center = Offset(-size.width * 0.05f, size.height * 1.05f),
+                                    radius = size.maxDimension * 0.65f,
+                                )
+                            )
+                        }
+                ),
         ) {
+            // XMB mode, every page but Home (which paints its own over the wash): the glow, behind the page and the bars.
+            if (xmbHome && currentRoute != DeckRoutes.HOME) XmbGlowBackdrop(Modifier.matchParentSize())
             // Landscape: a camera hole on a short edge is not left as an empty strip. The side rail's glass runs under it with its
             // icons clear of it; on the other side the page background runs under it and only the page, not the legend, keeps clear.
             val dir = LocalLayoutDirection.current
@@ -1039,7 +1054,7 @@ private fun DeckTabButton(tab: DeckTab, selected: Boolean, showLabel: Boolean, m
 @Composable
 private fun DeckMark() {
     val accent = MaterialTheme.colorScheme.primary
-    val bg = MaterialTheme.colorScheme.background
+    val bg = xmbSolidBackground()
     Canvas(modifier = Modifier.size(28.dp)) {
         val r = 9.dp.toPx()
         drawRoundRect(
@@ -1215,6 +1230,24 @@ private fun FloatingBumper(text: String, onClick: () -> Unit) {
 /** The XMB home's only hint, on every tab: a muted "Y Search" in the bottom-right corner, tappable like the button. */
 @Composable
 private fun DeckFloatingSearch(onSearch: () -> Unit, modifier: Modifier = Modifier) {
+    DeckFloatingHint("Y", GlyphKind.Y, "Search", onSearch, modifier)
+}
+
+/**
+ * A floating hint with no box around it: the button's [glyph] (none = not drawn, for a touch-only screen), an optional [icon]
+ * and a [label], muted and tappable. The one look behind the Search hint and the All Games page's Back / View / Sort. A
+ * [modifier] height or width minimum (applied first) widens the tap area without changing how it looks.
+ */
+@Composable
+internal fun DeckFloatingHint(
+    glyph: String?,
+    kind: GlyphKind,
+    label: String?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
+    description: String? = label,
+) {
     val ss = rememberScreenScale()
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -1222,12 +1255,13 @@ private fun DeckFloatingSearch(onSearch: () -> Unit, modifier: Modifier = Modifi
         modifier = modifier
             .clip(RoundedCornerShape(10.dp))
             .dpadFocus(false)
-            .clickable(onClick = onSearch)
+            .clickable(onClick = onClick)
             .padding(horizontal = ss.dp(8f), vertical = ss.dp(4f))
             .alpha(0.75f),
     ) {
-        DeckGlyph("Y", GlyphKind.Y)
-        Text("Search", color = Color(0xFFDDDDDD), fontSize = ss.sp(14f), fontWeight = FontWeight.Light, maxLines = 1)
+        if (glyph != null) DeckGlyph(glyph, kind)
+        if (icon != null) Icon(icon, contentDescription = description, tint = Color(0xFFDDDDDD), modifier = Modifier.size(ss.dp(18f)))
+        if (label != null) Text(label, color = Color(0xFFDDDDDD), fontSize = ss.sp(14f), fontWeight = FontWeight.Light, maxLines = 1)
     }
 }
 

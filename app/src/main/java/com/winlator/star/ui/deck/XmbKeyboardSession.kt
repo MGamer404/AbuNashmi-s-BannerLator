@@ -11,6 +11,40 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.ImeOptions
 import androidx.compose.ui.text.input.SetSelectionCommand
 import androidx.compose.ui.text.input.TextFieldValue
+import com.winlator.star.core.GuestTyper
+
+/**
+ * What the XMB keyboard panel types into: a Compose text field ([XmbKeyboardSession]) or the running game
+ * ([GuestKeySession]). The panel only draws [value] in its preview strip and sends its keys here.
+ */
+internal interface XmbKeyboardInput {
+    /** The text and cursor the preview strip shows. */
+    val value: TextFieldValue
+
+    /** The field's keyboard type, line mode and action decide the layout and the action key. */
+    val imeOptions: ImeOptions
+
+    /** Types [text] at the cursor, replacing a selection. */
+    fun commit(text: String)
+
+    /** Deletes the selection, or the character before the cursor. */
+    fun backspace()
+
+    /** Moves the cursor [delta] characters. */
+    fun moveCursor(delta: Int)
+
+    /** Runs the field's action (Search, Done, Go, Send, Next...). */
+    fun performAction()
+
+    /** Types the clipboard's [text]. */
+    fun paste(text: String)
+
+    /** True when the keys of a keyboard (Esc and the up and down arrows) are wanted too; a Compose field has no use for them. */
+    val hasNavigationKeys: Boolean get() = false
+
+    /** Presses a key that is not a character; only called when [hasNavigationKeys] is true. */
+    fun pressKey(key: GuestTyper.Key) {}
+}
 
 /**
  * One text field's typing session with the XMB keyboard: what Compose handed over when the field asked for the keyboard
@@ -20,26 +54,27 @@ import androidx.compose.ui.text.input.TextFieldValue
 @Stable
 internal class XmbKeyboardSession(
     initial: TextFieldValue,
-    val imeOptions: ImeOptions,
+    override val imeOptions: ImeOptions,
     private val sendEdits: (List<EditCommand>) -> Unit,
     private val sendAction: (ImeAction) -> Unit,
-) {
-    var value by mutableStateOf(initial)
+) : XmbKeyboardInput {
+    override var value: TextFieldValue by mutableStateOf(initial)
 
-    /** Types [text] at the cursor, replacing a selection. */
-    fun commit(text: String) = sendEdits(listOf(CommitTextCommand(text, 1)))
+    override fun commit(text: String) = sendEdits(listOf(CommitTextCommand(text, 1)))
 
-    /** Deletes the selection, or the character before the cursor. */
-    fun backspace() {
+    override fun backspace() {
         if (!value.selection.collapsed) commit("") else if (value.selection.start > 0) sendEdits(listOf(DeleteSurroundingTextCommand(1, 0)))
     }
 
-    /** Moves the cursor [delta] characters, kept inside the text. */
-    fun moveCursor(delta: Int) {
+    /** Kept inside the text. */
+    override fun moveCursor(delta: Int) {
         val at = (value.selection.end + delta).coerceIn(0, value.text.length)
         sendEdits(listOf(SetSelectionCommand(at, at)))
     }
 
-    /** Runs the field's IME action (Search, Done, Go, Send, Next...); Android's own keyboard turns a single line's default into Done. */
-    fun performAction() = sendAction(if (imeOptions.imeAction == ImeAction.Default && imeOptions.singleLine) ImeAction.Done else imeOptions.imeAction)
+    /** Android's own keyboard turns a single line's default action into Done. */
+    override fun performAction() = sendAction(if (imeOptions.imeAction == ImeAction.Default && imeOptions.singleLine) ImeAction.Done else imeOptions.imeAction)
+
+    /** A single line has no line breaks, so they become spaces. */
+    override fun paste(text: String) = commit(if (imeOptions.singleLine) text.replace("\r", "").replace('\n', ' ') else text)
 }

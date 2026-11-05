@@ -215,7 +215,8 @@ internal fun XmbKeyboardHost(enabled: Boolean = rememberXmbHome(), content: @Com
         content()
         val session = state.session
         if (enabled && state.panelOpen && session != null) {
-            key(session) { XmbKeyboardPanel(session, onClose = state::closePanel, onSystemKeyboard = state::useSystemKeyboard) }
+            // The keyboard keeps its own look (solid panel, line-coloured grid) on every page, glow or not.
+            key(session) { XmbFlatTheme { XmbKeyboardPanel(session, onClose = state::closePanel, onSystemKeyboard = state::useSystemKeyboard) } }
         }
     }
 }

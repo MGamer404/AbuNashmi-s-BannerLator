@@ -307,6 +307,8 @@
     <string name="fex_extreme_wn">Extreme-wn</string>
     <string name="fex_extreme_tso_wn">Extreme (TSO)-wn</string>
     <string name="fex_extreme_gn">Extreme-gn</string>
+    <string name="fex_performance_x87_full">Performance (full x87)</string>
+    <string name="fex_unreal_engine_3">Unreal Engine 3</string>
 
     <!-- Help for the Box64 variables added alongside the 19 -> 32 expansion. Wording follows
          WinNative, which has shipped these knobs longest. Without these the "?" button had
@@ -609,6 +611,13 @@
     ]]></string>
     <string name="mali_panvk_section">Mali (PanVK)</string>
     <string name="mali_panvk_mode">Mali (PanVK) mode</string>
+    <string name="bcn_layer_fast">Faster BCn layer (Fcharan build)</string>
+    <string name="help_bcn_layer_fast"><![CDATA[
+        <b>Faster BCn layer</b><br /><br />
+        Uses Fcharan\'s build of leegao\'s BCn texture layer (from WinlatorMali 1.2, 2026-10-22) instead of the bundled one. Its author says it loads textures faster with the same memory use.<br /><br />
+        Try it on a Mali GPU when textures take long to appear or a game stutters while loading. If textures break or the game crashes, turn it off again. The ETC2 / ASTC transcode choices are not used by this build. Mali GPUs only; nothing changes on other GPUs.<br /><br />
+        Credit: Fcharan (GunaCharanTeja, WinlatorMali) and leegao (bcn_layer, MIT).
+    ]]></string>
     <string name="mali_panvk_mode_hint">FristOneRR\'s PanVK tweaks in the Wayland adapter: hides present_id, present_wait and dynamic_rendering, plus two sync workarounds. On by default with a PanVK driver.</string>
     <string name="mali_panvk_bcn_warning">Converting BCn textures to ASTC can freeze or reboot the phone with this driver; only try it if a game shows broken or missing textures.</string>
     <string name="mali_panvk_advanced">Advanced PanVK settings</string>
@@ -2761,6 +2770,24 @@ trying for speed, <b>notemplates</b> if you get driver crashes.
     <string name="steam_lib_no_room">⛔ Not enough free space here: this game needs about %1$s and only %2$s is free. Pick another location.</string>
     <string name="steam_lib_sd_warning">⚠️ The SD card is slower than internal storage. Some games stall on intro movies or asset loads from the card — if that happens, open the shortcut and use \"Copy game to Drive C\" to move it onto fast internal storage.</string>
     <string name="steam_lib_slow_warning">⚠️ Shared storage and SD cards are slower than internal storage. Some games stall on intro movies or asset loads from there — if that happens, open the shortcut and use \"Copy game to Drive C\" to move it onto fast internal storage.</string>
+    <string name="xmb_all_games">All Games</string>
+    <string name="xmb_all_games_open">Open</string>
+    <plurals name="xmb_all_games_count">
+        <item quantity="one">%d game</item>
+        <item quantity="other">%d games</item>
+    </plurals>
+    <string name="xmb_all_back">Back</string>
+    <string name="xmb_all_view">View</string>
+    <string name="xmb_all_sort">Sort</string>
+    <string name="xmb_all_view_grid">Grid</string>
+    <string name="xmb_all_view_list">List</string>
+    <string name="xmb_all_view_big">Big art</string>
+    <string name="xmb_all_sort_recent">Recently played</string>
+    <string name="xmb_all_sort_name">Name A-Z</string>
+    <string name="xmb_all_sort_name_desc">Name Z-A</string>
+    <string name="xmb_all_sort_playtime">Most played</string>
+    <string name="xmb_all_sort_store">Store</string>
+    <string name="xmb_all_sort_container">Container</string>
     <string name="steam_lib_move_another">Move to another location…</string>
     <string name="steam_lib_move_title">Move to…</string>
     <string name="steam_lib_move_hint">Pick where %1$s should live. The files are copied first and the old copy is only deleted once the new one checks out.</string>
@@ -2787,4 +2814,18 @@ trying for speed, <b>notemplates</b> if you get driver crashes.
     <string name="ubisoft_download_failed_invalid">What Ubisoft\'s server sent isn\'t a Windows program, so it was thrown away. Try again later, or launch anyway.</string>
     <string name="ubisoft_download_failed_space">Not enough free storage for the Ubisoft Connect installer (it needs about %1$d MB free). Free some space and try again, or launch anyway.</string>
     <string name="ubisoft_download_failed_io">Couldn\'t save the Ubisoft Connect installer on this device. Try again, or launch anyway.</string>
+    <string name="xmb_cover_add">Add your own cover</string>
+    <string name="xmb_cover_add_hint">Pick an image from your storage</string>
+    <string name="xmb_cover_browser_title">Select cover image</string>
+    <string name="xmb_cover_applied">Cover updated.</string>
+    <string name="xmb_cover_unreadable">Couldn\'t read that image.</string>
+    <string name="xmb_cover_remove">Remove your cover</string>
+    <string name="xmb_cover_remove_hint">Back to the cover this game had before</string>
+    <string name="xmb_cover_removed">Cover removed.</string>
+    <string name="xmb_cover_remove_failed">Couldn\'t remove the cover.</string>
+    <string name="xmb_kb_esc">Esc</string>
+    <string name="xmb_kb_up">Up</string>
+    <string name="xmb_kb_down">Down</string>
+    <string name="ig_keyboard_hint_xmb">The on-screen keyboard, typing into the game. On a controller, Select + X opens and closes it.</string>
+    <string name="ig_keyboard_hint_android">The Android keyboard, typing into the game.</string>
 </resources>

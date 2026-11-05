@@ -14,19 +14,14 @@ import android.text.format.DateUtils
 import android.view.InputDevice
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animate
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.basicMarquee
@@ -57,6 +52,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Icon
@@ -94,10 +90,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
@@ -111,6 +105,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
@@ -122,24 +117,25 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.LifecycleEventObserver
+import com.winlator.star.R
 import com.winlator.star.container.Shortcut
 import com.winlator.star.inputcontrols.ExternalController
 import com.winlator.star.ui.LocalTopBarOverlayInset
+import com.winlator.star.ui.deck.XmbStoreMark
 import com.winlator.star.ui.deck.rememberScreenScale
 import com.winlator.star.ui.deck.rememberXmbLogo
+import com.winlator.star.ui.deck.storeMarkOf
 import com.winlator.star.ui.findActivity
 import com.winlator.star.ui.theme.DangerRed
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
-import kotlin.math.sin
 
 /** One row of the XMB options column: the same entries as a game card's ⋮ menu. */
 internal data class XmbAction(
@@ -209,18 +205,34 @@ internal fun ShortcutsXmbView(
     takeFocus: () -> Boolean = { true },
     /** Changes when the host wants the view to take focus again (the Deck shell, when a page should take its first focus). */
     focusTick: Int = 0,
+    /**
+     * Every game the host has. Given, the row ends with an All Games card that opens the All Games page over this view, and
+     * [shortcuts] is the part of the library the row shows (the host limits it to the most recent games). With no games the
+     * card is the whole row.
+     */
+    allShortcuts: List<Shortcut>? = null,
 ) {
-    if (shortcuts.isEmpty()) return
+    if (shortcuts.isEmpty() && allShortcuts == null) return
     val context = LocalContext.current
     val density = LocalDensity.current
     val accent = MaterialTheme.colorScheme.primary
     val scope = rememberCoroutineScope()
     val n = shortcuts.size
+    // The All Games card is the slot after the last game (slot n), so a game's slot is its index in `shortcuts` and the row's
+    // index maths (target, pos, the swipes, the counters) runs on slots; slot 0 is the first game.
+    val hasAll = allShortcuts != null
+    val slots = n + if (hasAll) 1 else 0
+    val allTotal = allShortcuts?.size ?: 0
+    val allCount = remember(allTotal) { context.resources.getQuantityString(R.plurals.xmb_all_games_count, allTotal, allTotal) }
+    val allLabel = stringResource(R.string.xmb_all_games_open)
+    var allOpen by rememberSaveable { mutableStateOf(false) }
 
     // The focused game is remembered by path so it survives rotation, leaving the tab, and a
-    // refresh or sort that reorders the list.
+    // refresh or sort that reorders the list. The All Games card is remembered as XMB_ALL_PATH.
     var focusedPath by rememberSaveable { mutableStateOf<String?>(null) }
-    var target by remember { mutableIntStateOf(shortcuts.indexOfFirst { it.file.path == focusedPath }.coerceAtLeast(0)) }
+    fun slotOfPath(path: String?): Int = xmbSlotOf(shortcuts.map { it.file.path }, path, hasAll)
+    // Opens on the first game (slot 0) unless the cursor was somewhere else.
+    var target by remember { mutableIntStateOf(slotOfPath(focusedPath).takeIf { it >= 0 } ?: 0) }
     val pos = remember { mutableFloatStateOf(target.toFloat()) } // visual position, fractional mid-swipe
     var act by remember { mutableIntStateOf(0) }
     var settleJob by remember { mutableStateOf<Job?>(null) }
@@ -228,22 +240,25 @@ internal fun ShortcutsXmbView(
     var optsOpen by remember { mutableStateOf(false) }
     val centered = centeredHome && !optsOpen
 
-    LaunchedEffect(shortcuts) {
-        val i = shortcuts.indexOfFirst { it.file.path == focusedPath }
-        val idx = if (i >= 0) i else target.coerceIn(0, n - 1)
+    LaunchedEffect(shortcuts, hasAll) {
+        val i = slotOfPath(focusedPath)
+        val idx = if (i >= 0) i else target.coerceIn(0, slots - 1)
         settleJob?.cancel()
         target = idx
         pos.floatValue = idx.toFloat()
     }
-    val focused = shortcuts[target.coerceIn(0, n - 1)]
-    LaunchedEffect(focused.file.path) {
-        focusedPath = focused.file.path
-        onFocusedChange(focused)
+    // The game under the cursor, or null on the All Games card (the slot after the last game), which has no game behind it.
+    val focused: Shortcut? = if (hasAll && target >= n) null else shortcuts[target.coerceIn(0, n - 1)]
+    val onAll = focused == null
+    val focusKey = focused?.file?.path ?: XMB_ALL_PATH
+    LaunchedEffect(focusKey) {
+        focusedPath = focusKey
+        if (focused != null) onFocusedChange(focused)
     }
 
     // Moving to another game always lands back on Play, so A launches (like tapping a card).
     fun settleTo(i: Int) {
-        val t = i.coerceIn(0, n - 1)
+        val t = i.coerceIn(0, slots - 1)
         if (t != target) { target = t; act = 0; optsOpen = false }
         settleJob?.cancel()
         settleJob = scope.launch {
@@ -253,9 +268,10 @@ internal fun ShortcutsXmbView(
         }
     }
 
-    val playtime = remember(focused) { xmbPlaytime(context, focused.name) }
-    val isSelected = focused.file.path in selectedPaths
-    val actions = buildList<XmbAction> {
+    val playtime = remember(focused) { focused?.let { xmbPlaytime(context, it.name) } }
+    val isSelected = focused != null && focused.file.path in selectedPaths
+    // The All Games card offers just "Open".
+    val actions = if (focused == null) listOf(XmbAction(allLabel, Icons.Filled.GridView, allCount) { allOpen = true }) else buildList<XmbAction> {
         add(
             if (selectionMode) XmbAction(if (isSelected) "Deselect" else "Select", Icons.Filled.Checklist) { onToggleSelect(focused) }
             else XmbAction("Play", Icons.Filled.PlayArrow, playtime?.let { "$it played" } ?: "Not played yet") { onPlay(focused) }
@@ -285,7 +301,8 @@ internal fun ShortcutsXmbView(
         }
     }
     fun runAction(a: XmbAction) { val mk = a.menu; if (mk != null) nav.push(mk(xmbScope)) else a.onClick() }
-    LaunchedEffect(nested) { onNestedChange(nested) }
+    // The All Games page counts as nested for the host: the Games tab's floating + button would sit on the page's last row.
+    LaunchedEffect(nested, allOpen) { onNestedChange(nested || allOpen) }
     DisposableEffect(Unit) { onDispose { onNestedChange(false) } }
     BackHandler(enabled = nested) { nav.pop() }
 
@@ -300,10 +317,14 @@ internal fun ShortcutsXmbView(
     var upJob by remember { mutableStateOf<Job?>(null) }
     val upperOpen = upOpen && upperRow.isNotEmpty() && !nested
     val upIdx = upSel.coerceIn(0, (upperRow.size - 1).coerceAtLeast(0))
-    // The card list changes while the screen is up (Friends appears once you sign in): keep the same card chosen.
+    // The card list changes while the screen is up (Friends appears or goes): keep the same card chosen, by its label; a card
+    // that is gone falls back to the first.
     LaunchedEffect(upperRow) {
         val i = upperRow.indexOfFirst { it.label == upLabel }
-        if (i >= 0 && i != upSel) { upJob?.cancel(); upSel = i; upPos.floatValue = i.toFloat() }
+        when {
+            i >= 0 && i != upSel -> { upJob?.cancel(); upSel = i; upPos.floatValue = i.toFloat() }
+            i < 0 && upLabel != null && upperRow.isNotEmpty() -> { upJob?.cancel(); upSel = 0; upPos.floatValue = 0f }
+        }
     }
     LaunchedEffect(upIdx, upperRow) { upLabel = upperRow.getOrNull(upIdx)?.label }
     val upT by animateFloatAsState(if (upperOpen) 1f else 0f, tween(300), label = "xmbUpper")
@@ -317,10 +338,17 @@ internal fun ShortcutsXmbView(
             }
         }
     }
-    // Up from the games always lands on the first card.
-    fun openUpper() { upJob?.cancel(); upSel = 0; upPos.floatValue = 0f; upOpen = true }
-    // Closed, the peeking row eases back to its start.
-    fun closeUpper() { upOpen = false; act = 0; upSettle(0) }
+    // Up from the games lands on the card that was chosen when the row was left (the first one the first time), as the games
+    // row lands on its game.
+    fun openUpper() {
+        upJob?.cancel()
+        val i = upperRow.indexOfFirst { it.label == upLabel }.coerceAtLeast(0)
+        upSel = i
+        upPos.floatValue = i.toFloat()
+        upOpen = true
+    }
+    // The chosen card stays chosen (and the peeking row stays on it) for the next time the row opens.
+    fun closeUpper() { upOpen = false; act = 0 }
     LaunchedEffect(nested) { if (nested) upOpen = false }
     BackHandler(enabled = upperOpen) { closeUpper() }
     fun closeOpts() { optsOpen = false; act = 0 }
@@ -332,8 +360,17 @@ internal fun ShortcutsXmbView(
     // Take D-pad focus on entry and again whenever the app comes back (e.g. after a game exits).
     val focusRequester = remember { FocusRequester() }
     nav.refocus = { runCatching { focusRequester.requestFocus() } }
-    val mayTakeFocus by rememberUpdatedState(takeFocus)
+    val hostMayTakeFocus by rememberUpdatedState(takeFocus)
+    // The All Games page holds the keys while it is up (it takes focus back itself when the app returns).
+    val pageUp by rememberUpdatedState(allOpen)
+    val mayTakeFocus = { hostMayTakeFocus() && !pageUp }
     LaunchedEffect(focusTick) { if (mayTakeFocus()) runCatching { focusRequester.requestFocus() } }
+    // Closing the page hands the keys back to the row, with its card still under the cursor.
+    var pageWasUp by remember { mutableStateOf(allOpen) }
+    LaunchedEffect(allOpen) {
+        if (pageWasUp && !allOpen) runCatching { focusRequester.requestFocus() }
+        pageWasUp = allOpen
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -409,9 +446,9 @@ internal fun ShortcutsXmbView(
             }
             settleJob?.cancel()
             // One cover's step on screen, so the row follows the finger at the larger size too.
-            val p = (pos.floatValue - delta / (pitchPx * rowScale())).coerceIn(-0.45f, n - 1 + 0.45f)
+            val p = (pos.floatValue - delta / (pitchPx * rowScale())).coerceIn(-0.45f, slots - 1 + 0.45f)
             pos.floatValue = p
-            val r = p.roundToInt().coerceIn(0, n - 1)
+            val r = p.roundToInt().coerceIn(0, slots - 1)
             if (r != target) { target = r; act = 0; optsOpen = false }
         }
         var vAcc by remember { mutableFloatStateOf(0f) }
@@ -451,7 +488,6 @@ internal fun ShortcutsXmbView(
         Box(
             Modifier
                 .fillMaxSize()
-                .background(Color.Black)
                 .onPreviewKeyEvent { e ->
                     if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                     if (nav.depth > 0) {
@@ -497,7 +533,8 @@ internal fun ShortcutsXmbView(
                             Key.ButtonR1 -> if (inDeckShell) false else { settleTo(target + 5); true }
                             Key.DirectionDown -> true
                             Key.DirectionUp -> if (upperRow.isNotEmpty() && !selectionMode) { openUpper(); true } else false
-                            Key.ButtonA, Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> { optsOpen = true; act = 0; true }
+                            // The All Games card has no options to show: A opens its page.
+                            Key.ButtonA, Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> { if (onAll) allOpen = true else { optsOpen = true; act = 0 }; true }
                             Key.ButtonB -> if (selectionMode) { onExitSelection(); true } else false
                             else -> false
                         }
@@ -534,7 +571,8 @@ internal fun ShortcutsXmbView(
                 )
                 .draggable(swipeDrag, Orientation.Vertical, onDragStarted = { swipeAcc = 0f; swipeDone = false }),
         ) {
-            // Background: accent glow → the focused cover (with the cards up, the chosen card's art), blurred → shade → the moving waves.
+            // Background: accent glow → the focused cover (with the cards up, the chosen card's art), blurred → shade. The All
+            // Games card has no art, so on it only the glow and the shade show.
             Box(
                 Modifier.fillMaxSize().background(
                     Brush.radialGradient(
@@ -546,7 +584,7 @@ internal fun ShortcutsXmbView(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 val card = if (upperOpen) upperRow.getOrNull(upIdx) else null
                 // Keyed on the card's art and icon (not the card itself, whose lambdas change every recomposition).
-                val picture: Any? = card?.let { c -> c.art?.let { XmbBackdropArt(it, c.icon) } } ?: focused.icon
+                val picture: Any? = card?.let { c -> c.art?.let { XmbBackdropArt(it, c.icon) } } ?: focused?.icon
                 Crossfade(targetState = picture, animationSpec = tween(600), label = "xmbBackdrop") { pic ->
                     when (pic) {
                         is Bitmap -> Image(
@@ -577,7 +615,6 @@ internal fun ShortcutsXmbView(
             }
             Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Color.Black.copy(alpha = 0.55f), 0.55f to Color.Black.copy(alpha = 0.1f), 1f to Color.Black.copy(alpha = 0.45f))))
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.4f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.9f))))
-            XmbWaves(accent, Modifier.fillMaxSize())
             // Faint shade behind a see-through top bar so its title and buttons stay readable.
             if (topInset > 0.dp) {
                 Box(Modifier.fillMaxWidth().height(topInset + 24.dp).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.35f), Color.Transparent))))
@@ -604,7 +641,7 @@ internal fun ShortcutsXmbView(
                         }
                         if (hi.sections) XmbKeyHint("L1 R1", "Section", hs)
                     } else if (hasPad) {
-                        XmbHint("A", Color(0xFF3DDC84), if (upperOpen) upperRow[upIdx].label else if (centered) "Options" else actions[actIdx].label, hs)
+                        XmbHint("A", Color(0xFF3DDC84), if (upperOpen) upperRow[upIdx].label else if (onAll) allLabel else if (centered) "Options" else actions[actIdx].label, hs)
                         XmbHint("B", Color(0xFFFF5252), "Back", hs)
                         if (!m.port && m.w >= 600f) {
                             XmbKeyHint("◀ ▶", "Games", hs); XmbKeyHint("▲ ▼", "Options", hs); XmbKeyHint("L1 R1", if (inDeckShell) "Tabs" else "Jump", hs)
@@ -615,7 +652,7 @@ internal fun ShortcutsXmbView(
                     Modifier.align(Alignment.TopEnd).padding(end = 16.dp * hs, top = 8.dp * hs),
                     horizontalArrangement = Arrangement.spacedBy(12.dp * hs),
                 ) {
-                    Text("${target + 1} / $n", color = Color(0xFFAAAAAA), fontSize = 12.sp * hs)
+                    Text(if (onAll) "All / $allTotal" else "${target + 1} / $n", color = Color(0xFFAAAAAA), fontSize = 12.sp * hs)
                     Text(clock, color = Color(0xFFDDDDDD), fontSize = 12.sp * hs, fontWeight = FontWeight.Light)
                 }
 
@@ -645,7 +682,19 @@ internal fun ShortcutsXmbView(
                     transformOrigin = TransformOrigin(m.cross / m.w, (m.top + m.fH / 2f) / m.h)
                     alpha = 1f - 0.5f * upT
                 }) {
-                for (i in (baseIdx - 3).coerceAtLeast(0)..(baseIdx + ahead + 1).coerceAtMost(n - 1)) {
+                for (i in (baseIdx - 3).coerceAtLeast(0)..(baseIdx + ahead + 1).coerceAtMost(slots - 1)) {
+                    if (i >= n) {
+                        key(XMB_ALL_PATH) {
+                            XmbAllGamesCover(
+                                index = i, pos = pos, m = m, accent = accent, count = allCount,
+                                focused = i == target && !upperOpen,
+                                grow = { 1f - upT },
+                                // Like a game, a tap first brings it to the cross; on the focused one it opens the page.
+                                onClick = { if (nav.depth == 0) { if (i != target) settleTo(i) else allOpen = true } },
+                            )
+                        }
+                        continue
+                    }
                     val s = shortcuts[i]
                     key(s.file.path) {
                         // With the cards up no game is chosen: none is enlarged or ringed.
@@ -667,9 +716,10 @@ internal fun ShortcutsXmbView(
                 }
 
                 // Focused game's name + "container · resolution", right of its cover under the rest of the bar.
+                // On the All Games card: its name and the number of games.
                 AnimatedContent(
                     targetState = focused,
-                    contentKey = { it.file.path },
+                    contentKey = { it?.file?.path ?: XMB_ALL_PATH },
                     transitionSpec = { (fadeIn(tween(220)) + slideInVertically(tween(220)) { it / 6 }) togetherWith fadeOut(tween(90)) },
                     label = "xmbTitle",
                     // On the centred home it follows the focused cover at its larger size (text kept at its own size),
@@ -684,23 +734,33 @@ internal fun ShortcutsXmbView(
                             translationY = (e * (m.titleY - m.top - m.fH / 2f)).dp.toPx()
                         },
                 ) { s ->
-                    // An Android game has no container/resolution line; its package name stands in.
-                    val meta = remember(s) {
-                        com.winlator.star.androidgames.AndroidGames.packageOf(s) ?: buildLaunchSpec(s, context).meta
-                    }
-                    Column {
-                        Text(
-                            s.name, color = Color.White, fontSize = m.titleSize.sp, lineHeight = (m.titleSize * 1.15f).sp,
-                            maxLines = m.titleLines, overflow = TextOverflow.Ellipsis,
-                        )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (meta.isNotEmpty()) {
-                                Text(
-                                    meta, color = Color(0xFFC4C4C4), fontSize = if (centeredHome) ss.sp(12f) else 12.sp, maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
-                                )
+                    if (s == null) {
+                        Column {
+                            Text(
+                                stringResource(R.string.xmb_all_games), color = Color.White, fontSize = m.titleSize.sp,
+                                lineHeight = (m.titleSize * 1.15f).sp, maxLines = m.titleLines, overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(allCount, color = Color(0xFFC4C4C4), fontSize = if (centeredHome) ss.sp(12f) else 12.sp, maxLines = 1)
+                        }
+                    } else {
+                        // An Android game has no container/resolution line; its package name stands in.
+                        val meta = remember(s) {
+                            com.winlator.star.androidgames.AndroidGames.packageOf(s) ?: buildLaunchSpec(s, context).meta
+                        }
+                        Column {
+                            Text(
+                                s.name, color = Color.White, fontSize = m.titleSize.sp, lineHeight = (m.titleSize * 1.15f).sp,
+                                maxLines = m.titleLines, overflow = TextOverflow.Ellipsis,
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (meta.isNotEmpty()) {
+                                    Text(
+                                        meta, color = Color(0xFFC4C4C4), fontSize = if (centeredHome) ss.sp(12f) else 12.sp, maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
+                                    )
+                                }
+                                sdBadge(s)
                             }
-                            sdBadge(s)
                         }
                     }
                 }
@@ -733,7 +793,8 @@ internal fun ShortcutsXmbView(
                     }
                 }
 
-                if (m.infoW >= 120f && m.infoH >= 40f) {
+                // Nothing about a game to show on the All Games card.
+                if (m.infoW >= 120f && m.infoH >= 40f && focused != null) {
                     Column(
                         Modifier.offset(m.infoX.dp, m.infoY.dp).width(m.infoW.dp).height(m.infoH.dp).graphicsLayer { alpha = optsA() }.clipToBounds(),
                     ) {
@@ -791,9 +852,13 @@ internal fun ShortcutsXmbView(
                     )
                 }
                 if (nested) {
-                    XmbNestedLayer(nav, xmbScope, m.w, m.h, m.port, accent, focused.name, focused.icon, actions.map { it.icon }, actIdx)
+                    XmbNestedLayer(nav, xmbScope, m.w, m.h, m.port, accent, focused?.name.orEmpty(), focused?.icon, actions.map { it.icon }, actIdx)
                 }
             }
+        }
+        // The All Games page covers the row; closing it lands back here with the All Games card still under the cursor.
+        if (allOpen && allShortcuts != null) {
+            XmbAllGamesPage(allShortcuts, inDeckShell, onPlay = onPlay, onClose = { allOpen = false })
         }
     }
 }
@@ -849,25 +914,10 @@ private fun XmbCover(
 ) {
     val shape = RoundedCornerShape(8.dp)
     val src = remember { MutableInteractionSource() }
+    val mark = remember(shortcut) { storeMarkOf(shortcut) }
     Box(
         Modifier
-            .zIndex(if (focused) 1f else 0f)
-            .size(m.fW.dp, m.fH.dp)
-            .graphicsLayer {
-                // u = distance from the cross in covers; the focused one grows to full size and the
-                // ones after it are pushed right by the extra width, so spacing stays even mid-swipe.
-                val g = grow()
-                val u = index - pos.floatValue
-                val t = (1f - abs(u)).coerceAtLeast(0f) * g
-                val sc = (m.sH + (m.fH - m.sH) * t) / m.fH
-                val x = m.cross + u * m.pitch + m.grow * g * u.coerceIn(0f, 1f)
-                translationX = x.dp.toPx()
-                translationY = m.top.dp.toPx()
-                scaleX = sc
-                scaleY = sc
-                transformOrigin = TransformOrigin(0f, 0f)
-                alpha = ((if (u >= 0f) 0.82f else 0.82f + u * 0.32f) + 0.18f * t).coerceIn(0f, 1f)
-            }
+            .xmbCoverSlot(index, pos, m, focused, grow)
             .then(if (focused && !selected) Modifier.shadow(14.dp, shape, ambientColor = accent, spotColor = accent) else Modifier)
             .clip(shape)
             .background(Color(0xFF111111))
@@ -891,6 +941,8 @@ private fun XmbCover(
         } else {
             XmbMonogram(shortcut.name, accent)
         }
+        // Bottom-end, so it clears the selection mark at the top-end; it scales with the cover.
+        XmbStoreMark(mark, Modifier.align(Alignment.BottomEnd).padding(5.dp), (m.fW * 0.2f).coerceIn(18f, 26f).dp)
         if (selectionMode) {
             Box(
                 Modifier
@@ -908,9 +960,65 @@ private fun XmbCover(
     }
 }
 
+// A cover's place in the row (a game's or the All Games card's): its size, position and fade from its distance to the cross,
+// read in the graphics layer so a swipe re-draws without recomposing.
+private fun Modifier.xmbCoverSlot(index: Int, pos: MutableFloatState, m: XmbMetrics, focused: Boolean, grow: () -> Float): Modifier = this
+    .zIndex(if (focused) 1f else 0f)
+    .size(m.fW.dp, m.fH.dp)
+    .graphicsLayer {
+        // u = distance from the cross in covers; the focused one grows to full size and the
+        // ones after it are pushed right by the extra width, so spacing stays even mid-swipe.
+        val g = grow()
+        val u = index - pos.floatValue
+        val t = (1f - abs(u)).coerceAtLeast(0f) * g
+        val sc = (m.sH + (m.fH - m.sH) * t) / m.fH
+        val x = m.cross + u * m.pitch + m.grow * g * u.coerceIn(0f, 1f)
+        translationX = x.dp.toPx()
+        translationY = m.top.dp.toPx()
+        scaleX = sc
+        scaleY = sc
+        transformOrigin = TransformOrigin(0f, 0f)
+        alpha = ((if (u >= 0f) 0.82f else 0.82f + u * 0.32f) + 0.18f * t).coerceIn(0f, 1f)
+    }
+
+// The last card of the row: the grid glyph, "All Games" and the game count on the same plain surface as the upper row's Add game
+// card, 2:3 like a cover and ringed like the focused one. It opens the All Games page and has no game behind it, so there is no
+// store mark and no selection mark. One flat opaque fill and nothing nested: a see-through fill would let the focus shadow show
+// through as a dark inner box.
+@Composable
+private fun XmbAllGamesCover(
+    index: Int,
+    pos: MutableFloatState,
+    m: XmbMetrics,
+    accent: Color,
+    count: String,
+    focused: Boolean,
+    grow: () -> Float,
+    onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(8.dp)
+    val src = remember { MutableInteractionSource() }
+    Box(
+        Modifier
+            .xmbCoverSlot(index, pos, m, focused, grow)
+            .then(if (focused) Modifier.shadow(14.dp, shape, ambientColor = accent, spotColor = accent) else Modifier)
+            .clip(shape)
+            .background(Brush.linearGradient(XMB_PLAIN_CARD))
+            .border(if (focused) 2.dp else 1.dp, if (focused) accent else Color.White.copy(alpha = 0.14f), shape)
+            .xmbClick(src, onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(Icons.Filled.GridView, contentDescription = null, tint = Color.White, modifier = Modifier.size((m.fW * 0.44f).dp))
+        Column(Modifier.align(Alignment.BottomStart).padding(10.dp)) {
+            Text(stringResource(R.string.xmb_all_games), color = Color.White.copy(alpha = 0.92f), fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 2, lineHeight = 15.sp)
+            Text(count, color = Color.White.copy(alpha = 0.7f), fontSize = 10.sp, maxLines = 1)
+        }
+    }
+}
+
 // Cover fallback: initials on an accent gradient (no art yet, or a custom game).
 @Composable
-private fun XmbMonogram(name: String, accent: Color) {
+internal fun XmbMonogram(name: String, accent: Color) {
     Column(
         Modifier
             .fillMaxSize()
@@ -963,7 +1071,10 @@ private fun XmbActionRow(action: XmbAction, selected: Boolean, accent: Color, ic
 }
 
 /** Centred home: the peeking cards' middle sits this far (dp, on a 412 dp phone) from the top, just below the host's floating tab bar; above it they fade out. */
-private const val XMB_PEEK_CLIP = 50f
+internal const val XMB_PEEK_CLIP = 50f
+
+/** The surface of the upper row's plain cards (Add game) and of the All Games card, so they always match. */
+internal val XMB_PLAIN_CARD = listOf(Color(0xFF2A2D33), Color(0xFF16181C))
 
 /** Centred home: the most the cover row is drawn larger than its normal size. */
 private const val XMB_HOME_MAX_GROW = 1.3f
@@ -1089,7 +1200,7 @@ private fun XmbUpperCard(
             .then(if (focused) Modifier.shadow(14.dp, shape, ambientColor = accent, spotColor = accent) else Modifier)
             .clip(shape)
             // Opaque, edge to edge: a see-through fill would let the focus shadow show through as a dark inner box.
-            .background(Brush.linearGradient(art?.colors ?: listOf(Color(0xFF2A2D33), Color(0xFF16181C))))
+            .background(Brush.linearGradient(art?.colors ?: XMB_PLAIN_CARD))
             .border(if (focused) 2.dp else 1.dp, if (focused) accent else Color.White.copy(alpha = 0.14f), shape)
             .then(if (enabled) Modifier.xmbClick(src, onClick) else Modifier),
         contentAlignment = Alignment.Center,
@@ -1181,63 +1292,9 @@ private fun XmbKeyHint(keys: String, label: String, s: Float = 1f) {
     }
 }
 
-private class XmbRibbon(val y: Float, val amp: Float, val k: Float, val cycles: Int, val thick: Float, val alpha: Float)
-
-private val XMB_RIBBONS = listOf(
-    XmbRibbon(0.58f, 0.05f, 1.1f, 1, 0.07f, 0.10f),
-    XmbRibbon(0.65f, 0.07f, 0.75f, -1, 0.11f, 0.07f),
-    XmbRibbon(0.71f, 0.045f, 1.6f, 2, 0.05f, 0.12f),
-    XmbRibbon(0.63f, 0.03f, 2.2f, -2, 0.02f, 0.16f),
-)
-
-// The XMB wave. Every time term is a whole number of turns per loop, so the 40 s cycle is seamless.
-// The phase is read only inside the draw lambda, so this redraws without recomposing.
-@Composable
-private fun XmbWaves(accent: Color, modifier: Modifier) {
-    val phase by rememberInfiniteTransition(label = "xmbWaves").animateFloat(
-        initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(40_000, easing = LinearEasing)),
-        label = "xmbWavePhase",
-    )
-    val paths = remember { List(XMB_RIBBONS.size * 2) { Path() } }
-    Canvas(modifier) {
-        val w = size.width
-        val h = size.height
-        val tau = (2.0 * PI).toFloat()
-        val step = 8.dp.toPx()
-        XMB_RIBBONS.forEachIndexed { ri, r ->
-            val ph = phase * tau * r.cycles
-            val base = r.y * h
-            val amp = r.amp * h
-            val th = r.thick * h
-            val edge = paths[ri * 2].apply { reset() }
-            val band = paths[ri * 2 + 1].apply { reset() }
-            val bottoms = ArrayList<Offset>()
-            var x = 0f
-            while (x <= w + step) {
-                val u = x / w * tau * r.k
-                val y = base + amp * sin(u + ph) + amp * 0.5f * sin(u * 0.55f - 2f * ph)
-                if (x == 0f) { edge.moveTo(x, y); band.moveTo(x, y) } else { edge.lineTo(x, y); band.lineTo(x, y) }
-                bottoms.add(Offset(x, y + th * (0.55f + 0.45f * sin(u * 0.7f + ph))))
-                x += step
-            }
-            for (i in bottoms.indices.reversed()) band.lineTo(bottoms[i].x, bottoms[i].y)
-            band.close()
-            drawPath(
-                band,
-                Brush.verticalGradient(
-                    listOf(Color.White.copy(alpha = r.alpha), accent.copy(alpha = 0f)),
-                    startY = base - amp, endY = base + amp + th,
-                ),
-            )
-            drawPath(edge, Color.White.copy(alpha = min(1f, r.alpha * 2.2f)), style = Stroke(width = 1.dp.toPx()))
-        }
-    }
-}
-
 // Controller hints only make sense with a pad attached; tracks hot-plug.
 @Composable
-private fun rememberGamepadConnected(): Boolean {
+internal fun rememberGamepadConnected(): Boolean {
     val context = LocalContext.current
     var connected by remember { mutableStateOf(false) }
     DisposableEffect(context) {
@@ -1265,7 +1322,7 @@ private fun xmbPlaytime(context: Context, name: String): String? {
     return if (mins >= 60) "${mins / 60}h ${mins % 60}m" else "${mins}m"
 }
 
-private fun xmbInitials(name: String): String {
+internal fun xmbInitials(name: String): String {
     val words = name.replace(Regex("[^A-Za-z0-9 ]"), " ").split(' ').filter { it.isNotBlank() }
     val first = words.firstOrNull() ?: return name.trim().take(1).ifEmpty { "?" }
     if (first.length <= 4 && first == first.uppercase() && first.any { it.isLetter() }) return first

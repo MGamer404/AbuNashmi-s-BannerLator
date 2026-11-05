@@ -249,6 +249,8 @@ import com.winlator.star.core.ControllerIdentity
 import com.winlator.star.core.DInputVibration
 import com.winlator.star.core.DInputVisibility
 import com.winlator.star.core.GameXInputDlls
+import com.winlator.star.core.GameModCache
+import com.winlator.star.core.GameMods
 import com.winlator.star.core.RumbleMotors
 import com.winlator.star.core.StickPacing
 import com.winlator.star.core.CopyGameToDriveC
@@ -510,8 +512,14 @@ fun ShortcutsScreen(vm: ShortcutsViewModel = viewModel()) {
             } else {
                 AnimatedContent(targetState = viewMode, label = "layout") { mode ->
                     if (mode == ShortcutViewMode.XMB) {
+                        // The row holds the latest XMB_ROW_LIMIT games (the rest are on the All Games page); picking games to
+                        // select needs them all.
+                        val xmbRow = remember(shortcuts, selectionMode) {
+                            if (selectionMode) shortcuts else xmbRowOf(xmbRecentFirst(context, shortcuts))
+                        }
                         ShortcutsXmbView(
-                            shortcuts = shortcuts,
+                            shortcuts = xmbRow,
+                            allShortcuts = shortcuts,
                             selectionMode = selectionMode,
                             selectedPaths = selectedPaths,
                             onToggleSelect = { selectedPaths = selectedPaths.toggle(it.file.path) },
@@ -1449,10 +1457,8 @@ internal fun ShortcutActionDialogs(actions: ShortcutActions) {
                                 )
                                 CommunityStoreBadge(isSteam = game.isSteam)
                             }
-                            val devWord = if (game.devices.size == 1) "device" else "devices"
-                            val cfgWord = if (game.configCount == 1) "config" else "configs"
                             Text(
-                                text = "${game.configCount} $cfgWord · ${game.devices.size} $devWord",
+                                text = CanonicalGame.countsLine(game, result?.userGpu),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = OnSurfaceVariant,
                             )
@@ -3209,7 +3215,7 @@ internal fun CommunityCatalogBrowser(
                                 // shown while the RIGHT (list) zone is active, so focus reads as being in one
                                 // place at a time. A tap also snaps the cursor back to the list.
                                 DpadHighlight(focused = !leftZone && index == gameFocus) {
-                                    CommunityGameRow(game = g, onClick = { leftZone = false; gameFocus = index; selectedIdentity = g.identity })
+                                    CommunityGameRow(game = g, userGpu = userGpu, onClick = { leftZone = false; gameFocus = index; selectedIdentity = g.identity })
                                 }
                             }
                         }
@@ -3448,7 +3454,7 @@ internal fun CommunityConfigEntryCard(entry: WorkerConfigEntry, isMatch: Boolean
 
 // One game card in the catalog browser: name, Steam/Title badge, config + device counts.
 @Composable
-private fun CommunityGameRow(game: CanonicalGame, onClick: () -> Unit) {
+private fun CommunityGameRow(game: CanonicalGame, userGpu: String? = null, onClick: () -> Unit) {
     CommunityCard(onClick = onClick) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -3458,10 +3464,8 @@ private fun CommunityGameRow(game: CanonicalGame, onClick: () -> Unit) {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            val cfgWord = if (game.configCount == 1) "config" else "configs"
-            val devWord = if (game.devices.size == 1) "device" else "devices"
             Text(
-                text = "${game.configCount} $cfgWord · ${game.devices.size} $devWord",
+                text = CanonicalGame.countsLine(game, userGpu),
                 style = MaterialTheme.typography.labelSmall,
                 color = OnSurfaceVariant,
             )
@@ -3539,10 +3543,8 @@ private fun CommunityDevicePanel(
     @Composable
     fun Header() {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            val cfgWord = if (game.configCount == 1) "config" else "configs"
-            val devWord = if (game.devices.size == 1) "device" else "devices"
             Text(
-                "${game.configCount} $cfgWord · ${game.devices.size} $devWord",
+                CanonicalGame.countsLine(game, userGpu),
                 style = MaterialTheme.typography.bodySmall,
                 color = OnSurfaceVariant,
                 modifier = Modifier.weight(1f),
@@ -5211,6 +5213,142 @@ private fun DpCheck(dp: SettingsDpad, id: String, checked: Boolean, onCheckedCha
     DpadHighlight(focused = dp.isFocused(id), modifier = Modifier.dpadBringIntoView(dp, id)) { Checkbox(checked = checked, onCheckedChange = onCheckedChange) }
 }
 
+/**
+ * Game settings > General > Mods (core.GameMods): the mods this game's EXE can take, each one's per-game
+ * switch (off by default), Special K's DLL name ("" = picked from the EXE) and a program to start with the
+ * game (GameMods.EXTRA_START_WITH, a Windows path; "" = none). Switching a mod on
+ * downloads it from its release if this device does not have it yet; switching it off removes the file we
+ * placed in the game folder right away (GameMods.remove, for Special K also its logs; the launch does the
+ * same). Lives outside the settings screen (D8 8.8.18 crashed dexing it with state inline).
+ */
+private class GameModsSetting(
+    val mods: List<GameMods.Mod>, val machine: Int, val imports: Set<String>,
+    initialOn: Map<String, Boolean>, initialSkDll: String, initialStartWith: String,
+    private val gameDir: File?,
+) {
+    val on = mutableStateMapOf<String, Boolean>().apply { putAll(initialOn) }
+    var skDll by mutableStateOf(initialSkDll)
+    var startWith by mutableStateOf(initialStartWith)
+    /** Per mod id: "" or a short download state ("40 %", "ready", "download failed"). */
+    val status = mutableStateMapOf<String, String>()
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+
+    fun write(putExtra: (String, String?) -> Unit) {
+        for (m in mods) putExtra(m.extra, if (on[m.id] == true) "1" else null)
+        if (GameMods.SPECIAL_K in mods) putExtra(GameMods.EXTRA_SPECIALK_DLL, skDll.ifEmpty { null })
+        putExtra(GameMods.EXTRA_START_WITH, startWith.trim().ifEmpty { null })
+    }
+
+    fun nextSkDll() {
+        val names = listOf("") + GameMods.SPECIALK_DLLS
+        skDll = names[(names.indexOf(skDll).coerceAtLeast(0) + 1) % names.size]
+    }
+
+    fun removeNow(mod: GameMods.Mod) {
+        val dir = gameDir ?: return
+        Thread {
+            try {
+                GameMods.remove(dir, mod)?.let { android.util.Log.i("GameMods", "${mod.name} off: $it") }
+            } catch (e: Exception) {
+                android.util.Log.w("GameMods", "${mod.name} off: remove failed", e)
+            }
+        }.apply { isDaemon = true }.start()
+    }
+
+    fun download(filesDir: File, mod: GameMods.Mod) {
+        val asset = GameMods.asset(mod, machine) ?: return
+        if (GameModCache.cached(filesDir, asset) != null) { status[mod.id] = ""; return }
+        status[mod.id] = "0 %"
+        Thread {
+            val done = try {
+                GameModCache.get(filesDir, asset) { f -> main.post { status[mod.id] = "${(f * 100).toInt()} %" } }
+                "ready"
+            } catch (e: Exception) {
+                "download failed"
+            }
+            main.post { status[mod.id] = done }
+        }.apply { isDaemon = true }.start()
+    }
+}
+
+@Composable
+private fun rememberGameModsSetting(shortcut: Shortcut): GameModsSetting = remember(shortcut) {
+    val exe = runCatching { WinePath.resolveAndroidPath(shortcut.container, shortcut.path) }.getOrNull()
+    val machine = GameMods.peMachine(exe)
+    val mods = GameMods.ALL.filter { GameMods.supports(it, shortcut.path, machine) }
+    val imports = if (GameMods.SPECIAL_K in mods) GameMods.peImports(exe) else emptySet()
+    // Same folder the launch uses (XServerDisplayActivity.gameExeFolders).
+    val dir = if (shortcut.path == null || shortcut.path.endsWith(".lnk")) null else runCatching {
+        WinePath.resolveAndroidPath(shortcut.container, FileUtils.getDirname(shortcut.path))
+    }.getOrNull()?.takeIf { it.isDirectory }
+    GameModsSetting(
+        mods, machine, imports,
+        GameMods.ALL.associate { it.id to (shortcut.getExtra(it.extra) == "1") },
+        shortcut.getExtra(GameMods.EXTRA_SPECIALK_DLL) ?: "",
+        shortcut.getExtra(GameMods.EXTRA_START_WITH) ?: "",
+        dir,
+    )
+}
+
+@Composable
+private fun GameModsRow(dp: SettingsDpad, setting: GameModsSetting) {
+    var open by remember { mutableStateOf(false) }
+    val enabled = (setting.mods.filter { setting.on[it.id] == true }.map { it.name } +
+        listOfNotNull(setting.startWith.trim().substringAfterLast('\\').ifEmpty { null })).joinToString()
+    DpButton(dp, "mods", onActivate = { open = true }) {
+        OutlinedButton(onClick = { open = true }) { Text(if (enabled.isEmpty()) "Mods" else "Mods: $enabled") }
+    }
+    if (open) GameModsDialog(setting) { open = false }
+}
+
+@Composable
+private fun GameModsDialog(setting: GameModsSetting, onDismiss: () -> Unit) {
+    val filesDir = LocalContext.current.filesDir
+    OutlinedAlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Mods") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                for (mod in setting.mods) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Switch(
+                            checked = setting.on[mod.id] == true,
+                            onCheckedChange = { checked ->
+                                setting.on[mod.id] = checked
+                                if (checked) setting.download(filesDir, mod) else setting.removeNow(mod)
+                            },
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Text(mod.name, modifier = Modifier.weight(1f))
+                        val state = setting.status[mod.id].orEmpty()
+                        if (state.isNotEmpty()) {
+                            Text(
+                                state, style = MaterialTheme.typography.bodySmall,
+                                color = if (state == "download failed") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    if (mod === GameMods.SPECIAL_K && setting.on[mod.id] == true) {
+                        val auto = GameMods.targetDll(mod, "", setting.imports, setting.machine)
+                        TextButton(onClick = { setting.nextSkDll() }) {
+                            Text(if (setting.skDll.isEmpty()) "$auto (auto)" else setting.skDll)
+                        }
+                    }
+                }
+                OutlinedTextField(
+                    value = setting.startWith,
+                    onValueChange = { setting.startWith = it },
+                    label = { Text("Start with the game") },
+                    placeholder = { Text("F:\\Trainers\\Trainer.exe") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
+    )
+}
+
 // Labels for the six root perf keys (extraData name -> display label), matching PerfRootApplier.KEY_*.
 private val ROOT_PERF_LABELS = mapOf(
     "rootCpuGovernorPerf" to "CPU governor → performance",
@@ -5837,6 +5975,9 @@ internal fun ShortcutSettingsDialogScreen(
     var autoCloseOnExit by remember {
         mutableStateOf(shortcut.getExtra("autoCloseOnExit", shortcut.container.getExtra("autoCloseOnExit", "1")) == "1")
     }
+    // Mods (core.GameMods: REFramework, Special K): the ones this game's EXE can take, off by default. Their
+    // state and row live outside this function (D8 8.8.18 crashed dexing it with them inline).
+    val gameMods = rememberGameModsSetting(shortcut)
     // The container editor's Game Controller and Vibration settings as per-game overrides, tri-state:
     // "" = use the container's setting, else this game's own value under the extra key the container
     // uses. The launch resolvers read the game's value first (DInputVisibility, BannerinXInput,
@@ -6253,6 +6394,7 @@ internal fun ShortcutSettingsDialogScreen(
             putExtra("fullscreenMode", if (fullscreenModeOverride < 0) null else fullscreenModeOverride.toString())
             putExtra("fullscreenStretched", null)
             putExtra("autoCloseOnExit", if (autoCloseOnExit) "1" else "0")
+            gameMods.write(putExtra)
             // Controller and rumble overrides: "" clears the game's own value, so it follows the container.
             // DirectInput visibility goes in the inputType / exclusiveXInput extras older builds read.
             val ownDInput: Boolean? = dinputOwn.ifEmpty { null }?.let { it == "1" }
@@ -6452,6 +6594,7 @@ internal fun ShortcutSettingsDialogScreen(
                 }
                 add("fullscreen")
                 if (!isLinuxEntry) add("autoClose")
+                if (!isLinuxEntry && gameMods.mods.isNotEmpty()) add("mods")
             }
             4 -> { // Controller
                 if (!isLinuxEntry) {
@@ -7988,6 +8131,7 @@ internal fun ShortcutSettingsDialogScreen(
                                 Text("Close when game exits")
                             }
                         }
+                        if (!isLinuxEntry) GameModsRow(dp, gameMods)
                                 }
                                 4 -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         // Game Controller and Vibration: the container editor's sections in the same order
@@ -9722,6 +9866,12 @@ private fun downloadBitmapOrNull(url: String): Bitmap? = try {
 internal fun applySteamCover(container: Container, base: String, appId: Int): Bitmap? {
     val shortcutFile = File(container.getDesktopDir(), "$base.desktop")
     if (!shortcutFile.isFile) return null
+    // A cover the user picked stays (coverSource=user); only the Steam link is recorded. The editor's
+    // "use Steam's art" clears the mark before it calls here.
+    if (runCatching { CustomCover.isCustom(Shortcut(container, shortcutFile)) }.getOrDefault(false)) {
+        recordSteamAppId(container, base, appId)
+        return null
+    }
     // The tall library cover Steam lists for the app (older games name it differently), else the
     // usual cover file, else the header.
     val listed = runCatching { SteamStoreSearch.libraryAssets(appId) }.getOrDefault(LinkedHashMap())
@@ -9732,6 +9882,7 @@ internal fun applySteamCover(container: Container, base: String, appId: Int): Bi
         val shortcut = Shortcut(container, shortcutFile)
         shortcut.putExtra("steamAppId", appId.toString())
         if (bmp != null) {
+            CustomCover.forget(shortcut) // the saved originals of an earlier custom cover no longer apply
             shortcut.saveCustomCoverArt(bmp) // persists cover + saveData() (writes the extra too)
             container.getIconsDir(64)?.let { iconsDir ->
                 if (!iconsDir.exists()) iconsDir.mkdirs()
@@ -9796,7 +9947,11 @@ internal fun launchShortcutNow(activity: Activity, shortcut: Shortcut, preflight
     }
 }
 
-/** Extra Data key holding the wall-clock millis of the game's last launch (absent = never launched from here). */
+/**
+ * Extra Data key holding the wall-clock millis of the game's last launch (absent = never launched from here).
+ * Only a launch writes it; a game that was merely added carries `addedAt` instead (see ShortcutOrder), so
+ * it never passes for played.
+ */
 internal const val EXTRA_LAST_PLAYED = "lastPlayed"
 
 /**

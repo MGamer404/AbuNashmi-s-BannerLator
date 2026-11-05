@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.Help
 import com.winlator.star.R
 import com.winlator.star.core.CopyGameToDriveC
 import com.winlator.star.ui.deck.XmbKeyboardWindow
+import com.winlator.star.ui.deck.xmbSolidBackground
 import com.winlator.star.ui.screens.HelpDialog
 import com.winlator.star.ui.screens.MenuItemDivider
 import com.winlator.star.ui.screens.OutlinedAlertDialog
@@ -1880,7 +1881,7 @@ private fun SteamGameDetailScreen(
                     .align(Alignment.BottomCenter)
                     .background(
                         Brush.verticalGradient(
-                            listOf(Color.Transparent, MaterialTheme.colorScheme.background),
+                            listOf(Color.Transparent, xmbSolidBackground()),
                         ),
                     ),
             )

@@ -41,6 +41,7 @@ add_library(winlator SHARED
         winlator/alsa_client.c
         winlator/vulkan.c
         winlator/perf_turbo.c
+        winlator/mali_counters.cpp
 )
 
 target_compile_options(winlator PRIVATE -Wall -Wextra)
@@ -299,6 +300,13 @@ add_library(steamctrl SHARED
 target_link_libraries(steamctrl
         SDL3::SDL3
         log
+)
+
+# HUD GPU load and clock without root on Adreno devices whose kgsl sysfs is blocked for apps
+# (widget/gpu/KgslGpuFallback.kt). Ported from DroidDeck.
+add_library(gpuclock SHARED
+        gpuclock/kgsl_clock.c
+        gpuclock/kgsl_busy.c
 )
 
 # Embedded Wayland compositor (experimental parallel runtime) — see waylandcomp/CMakeLists.txt.

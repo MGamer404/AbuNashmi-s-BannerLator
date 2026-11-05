@@ -95,6 +95,8 @@ import com.winlator.star.ui.deck.deckFocusRing
 import com.winlator.star.ui.deck.isXmbHome
 import com.winlator.star.ui.deck.rememberScreenScale
 import com.winlator.star.ui.deck.xmbFrame
+import com.winlator.star.ui.deck.XmbWashTheme
+import com.winlator.star.ui.deck.xmbGlowBackground
 import com.winlator.star.ui.theme.LocalAccentDim
 import com.winlator.star.ui.theme.WinlatorTheme
 import java.io.File
@@ -144,20 +146,23 @@ class DownloadManagerActivity : ComponentActivity() {
 
         setContent {
             WinlatorTheme {
-                DownloadManagerScreen(
-                    xmbHome = xmbHome,
-                    onBack = { finish() },
-                    onClear = { clearTerminalAndLibrary() },
-                    onEntryClick = { openDetail(it) },
-                    onLaunch = { launch(it) },
-                    onUninstall = { uninstall(it) },
-                    onCancel = { cancelEntry(it) },
-                    onPauseResume = { it.pause?.invoke() },
-                    onDismiss = { DownloadRegistry.remove(it.key) },
-                    // Queue reorder (Steam-only; a no-op for any id that isn't a live queued Steam appId).
-                    onMoveUp = { it.id.toIntOrNull()?.let { id -> DownloadQueue.moveUp(id) } },
-                    onMoveToTop = { it.id.toIntOrNull()?.let { id -> DownloadQueue.moveToTop(id) } },
-                )
+                // XMB home: the page sits on the theme-colour glow and its cards are glass over it (a no-op in the other styles).
+                XmbWashTheme(xmbHome) {
+                    DownloadManagerScreen(
+                        xmbHome = xmbHome,
+                        onBack = { finish() },
+                        onClear = { clearTerminalAndLibrary() },
+                        onEntryClick = { openDetail(it) },
+                        onLaunch = { launch(it) },
+                        onUninstall = { uninstall(it) },
+                        onCancel = { cancelEntry(it) },
+                        onPauseResume = { it.pause?.invoke() },
+                        onDismiss = { DownloadRegistry.remove(it.key) },
+                        // Queue reorder (Steam-only; a no-op for any id that isn't a live queued Steam appId).
+                        onMoveUp = { it.id.toIntOrNull()?.let { id -> DownloadQueue.moveUp(id) } },
+                        onMoveToTop = { it.id.toIntOrNull()?.let { id -> DownloadQueue.moveToTop(id) } },
+                    )
+                }
 
                 showExePicker?.let { data ->
                     ExePickerDialogDm(
@@ -516,7 +521,7 @@ private fun DownloadManagerScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background)
+                    .xmbGlowBackground()
                     .padding(start = frame, end = frame, top = scale.dp(6f)),
             ) {
                 XmbDownloadsBar(onBack, onClear, look)

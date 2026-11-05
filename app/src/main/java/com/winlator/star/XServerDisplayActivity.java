@@ -357,6 +357,8 @@ public class XServerDisplayActivity extends AppCompatActivity {
     // support the surface, so it's opt-in. Applied via VulkanRenderer.setDriverInfo before nativeInit.
     private String rendererDriverId = "system";
     private HashMap<String, String> graphicsDriverConfig;
+    /** This launch switched the default wrapper to the GameNative one for Faster BCn on Mali. */
+    private boolean fasterBcnWrapperSwap = false;
     private String audioDriver = Container.DEFAULT_AUDIO_DRIVER;
     // Best-effort RECORD_AUDIO request when a mic-enabled DirectAudio game launches (see onCreate).
     private static final int RECORD_AUDIO_REQUEST_CODE = 0xADD;
@@ -494,8 +496,9 @@ public class XServerDisplayActivity extends AppCompatActivity {
     // repacked, so existing/old containers re-extract the updated .so on their next launch instead
     // of silently keeping the stale one. Read the persisted marker at
     // imageFs.getLibDir()/.extra_libs_version; a mismatch (or missing marker => -1) triggers a
-    // re-extract. Value 2 = the 2.2.1 patched Tier-1 libvkbasalt.so (md5 3129127c…).
-    private static final int EXTRA_LIBS_VERSION = 4;
+    // re-extract. Value 2 = the 2.2.1 patched Tier-1 libvkbasalt.so (md5 3129127c…). Value 5 = leegao
+    // compat_layer 22960fb3 (Mali YCbCr fallback, maintenance5, calibrated timestamps).
+    private static final int EXTRA_LIBS_VERSION = 5;
 
     private Handler  timeoutHandler = new Handler(Looper.getMainLooper());
     private Runnable hideControlsRunnable;
@@ -1696,14 +1699,22 @@ public class XServerDisplayActivity extends AppCompatActivity {
     // Wayland mode: Android clipboard <-> guest selection, and the soft keyboard's IME text.
     private com.winlator.star.wayland.WaylandClipboardSync waylandClipboard;
     private com.winlator.star.wayland.WaylandTextInput waylandTextInput;
+    // XMB mode: the game's keyboard is the XMB panel at the bottom of the screen, typing into the session (X11 or Wayland).
+    // Null in every other style, which keeps Android's keyboard.
+    private volatile com.winlator.star.ui.deck.XmbGuestKeyboardHost guestKeyboard;
+    // Select (Back) + X opens and closes that panel in a game; this tracks whether Select is held.
+    private final com.winlator.star.ui.deck.GuestKeyboardCombo guestKeyboardCombo = new com.winlator.star.ui.deck.GuestKeyboardCombo();
     private float waylandCursorX = -1f, waylandCursorY = -1f; // touchpad cursor position (view px)
     // The Wayland pointer is an app-drawn overlay (the compositor never draws one), so nothing was
     // deciding when it should go away: any injected motion made it visible and only a pointer lock
     // ever hid it again. It now hides on its own when idle, and stays hidden while a controller is
     // the thing driving - physical pad or on-screen controls - because then the pointer is not what
-    // the player is looking at.
-    private static final long WAYLAND_CURSOR_IDLE_MS = 2500L;   // no pointer motion -> hide
-    private static final long WAYLAND_CURSOR_PAD_MS  = 1200L;   // recent pad input -> keep hidden
+    // the player is looking at. A finger moving the pointer always shows it: with a pad in hand
+    // (a menu by touch while the game takes the pad) the pad rule kept it hidden. The pad window
+    // is the X11 one (250 ms; 1.2 s left the pointer hidden for a second after the pad).
+    private static final long WAYLAND_CURSOR_IDLE_MS = 2500L;   // no pointer motion -> hide (default)
+    private volatile long cursorIdleMs = WAYLAND_CURSOR_IDLE_MS; // drawer: Controls > Mouse > Hide After
+    private static final long WAYLAND_CURSOR_PAD_MS  = 250L;    // recent pad input -> keep hidden
     /** Session-scoped: on-screen controls live in InputControlsView, which has no activity handle. */
     public static volatile long waylandLastPadInputMs = 0L;
     private final android.os.Handler waylandCursorIdle =
@@ -1755,38 +1766,43 @@ public class XServerDisplayActivity extends AppCompatActivity {
 
     /**
      * Pointer motion happened. Show the overlay and re-arm the idle hide - unless a controller is
-     * driving, in which case keep it hidden. Main thread only.
+     * driving, in which case keep it hidden. {@code finger}: the motion came from a finger on the
+     * screen, which shows the pointer even while a pad is in use. Auto-hide off (drawer Controls >
+     * Mouse, or BANNER_CURSOR_AUTOHIDE=0) turns the idle and pad rules off and keeps the pointer up
+     * when the game hides its cursor; only a pointer lock still hides it. Main thread only.
      */
-    private void waylandCursorPoke() {
+    private void waylandCursorPoke(boolean finger) {
         if (waylandCursorView == null) return;
         waylandSyncGuestCursor();
         waylandCursorIdle.removeCallbacks(waylandCursorHideRunnable);
-        boolean padDriving =
-                android.os.SystemClock.uptimeMillis() - waylandLastPadInputMs < WAYLAND_CURSOR_PAD_MS;
+        boolean padDriving = cursorAutoHide && !finger
+                && android.os.SystemClock.uptimeMillis() - waylandLastPadInputMs < WAYLAND_CURSOR_PAD_MS;
         // The guest asking for no pointer is authoritative - it is what X11 always had and Wayland
         // never did. The idle/controller rules below are only a fallback for when it wants one.
-        if (waylandGuestHidesCursor || padDriving || waylandPointerLocked) {
+        boolean guestHides = waylandGuestHidesCursor && cursorAutoHide;
+        if (guestHides || padDriving || waylandPointerLocked) {
             if (waylandCursorView.getVisibility() != View.GONE)
                 waylandCursorView.setVisibility(View.GONE);
             return;
         }
         if (waylandCursorView.getVisibility() != View.VISIBLE)
             waylandCursorView.setVisibility(View.VISIBLE);
-        waylandCursorIdle.postDelayed(waylandCursorHideRunnable, WAYLAND_CURSOR_IDLE_MS);
+        if (cursorAutoHide) waylandCursorIdle.postDelayed(waylandCursorHideRunnable, cursorIdleMs);
     }
 
     // The X11 pointer gets the same idle / controller rules as the Wayland overlay above. X11 already
     // honours the game's own hide (ASurfaceRenderer.gameCursorVisible); nothing hid it when it was
     // just sitting there or while a controller was driving. The renderer's setCursorVisible is the
     // launch gate (hidden until the first game frame); these rules sit on top of it, so the effective
-    // state is wanted && !autoHidden. BANNER_CURSOR_AUTOHIDE=0 keeps the pointer up as before.
+    // state is wanted && !autoHidden. BANNER_CURSOR_AUTOHIDE=0 keeps the pointer up as before
+    // (Wayland too: see waylandCursorPoke).
     // A held stick marks controller input every tick of the virtual-mouse loop, so a short window
-    // still keeps the pointer hidden while it moves; 1.2 s (the Wayland value) made a touch right
+    // still keeps the pointer hidden while it moves; 1.2 s (the old Wayland value) made a touch right
     // after using the pad wait about a second for the pointer to come back.
     private static final long X11_CURSOR_PAD_MS = 250L;
     private volatile boolean x11CursorWanted = false;   // launch gate
     private boolean x11CursorAutoHidden = false;         // main thread only
-    private volatile boolean x11CursorAutoHide = true;
+    private volatile boolean cursorAutoHide = true;
     private final java.util.concurrent.atomic.AtomicBoolean x11CursorPokePending =
             new java.util.concurrent.atomic.AtomicBoolean();
     private final Runnable x11CursorHideRunnable = () -> setX11CursorAutoHidden(true);
@@ -1807,7 +1823,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
 
     /** X11: the player moved the pointer or pressed a button. Main thread only. */
     private void x11CursorPoke() {
-        if (waylandMode || !x11CursorAutoHide) return;
+        if (waylandMode || !cursorAutoHide) return;
         waylandCursorIdle.removeCallbacks(x11CursorHideRunnable);
         boolean padDriving =
                 android.os.SystemClock.uptimeMillis() - waylandLastPadInputMs < X11_CURSOR_PAD_MS;
@@ -1816,7 +1832,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
             return;
         }
         setX11CursorAutoHidden(false);
-        waylandCursorIdle.postDelayed(x11CursorHideRunnable, WAYLAND_CURSOR_IDLE_MS);
+        waylandCursorIdle.postDelayed(x11CursorHideRunnable, cursorIdleMs);
     }
 
     /**
@@ -1827,7 +1843,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
      * real click). Main thread only.
      */
     private boolean x11TouchOnlyWakesCursor() {
-        if (waylandMode || gamescopeMode || !x11CursorAutoHide || !x11CursorWanted || !x11CursorAutoHidden) {
+        if (waylandMode || gamescopeMode || !cursorAutoHide || !x11CursorWanted || !x11CursorAutoHidden) {
             return false;
         }
         Window pw = xServer != null ? xServer.inputDeviceManager.getPointWindow() : null;
@@ -1837,7 +1853,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
 
     /** X11: a physical pad produced input - hide the pointer now rather than at the idle timeout. */
     private void x11CursorPadInput() {
-        if (waylandMode || !x11CursorAutoHide || x11CursorAutoHidden) return;
+        if (waylandMode || !cursorAutoHide || x11CursorAutoHidden) return;
         waylandCursorIdle.removeCallbacks(x11CursorHideRunnable);
         waylandCursorIdle.post(x11CursorHideRunnable);
     }
@@ -2006,9 +2022,48 @@ public class XServerDisplayActivity extends AppCompatActivity {
     }
 
     protected void showGuestKeyboard() {
+        // XMB mode: the XMB panel types into the game, and pressing the button again closes it.
+        if (guestKeyboard != null) {
+            guestKeyboard.toggle();
+            return;
+        }
         AppUtils.showKeyboard(this);
         // Wayland: a keyboard the user toggled is theirs; text input won't auto-hide it.
         if (waylandTextInput != null) waylandTextInput.onUserToggledKeyboard();
+    }
+
+    /** XMB mode: adds the keyboard panel to the game screen, hidden until the keyboard button or Select + X asks for it. */
+    private void setupXmbGuestKeyboard() {
+        if (guestKeyboard != null || !com.winlator.star.ui.deck.XmbGuestKeyboardHost.isXmbMode(this)) return;
+        if (com.winlator.star.androidgames.AndroidGames.INSTANCE.isAndroidEntry(shortcut)) return;
+        guestKeyboard = new com.winlator.star.ui.deck.XmbGuestKeyboardHost(this, this::createGuestTyper,
+                new com.winlator.star.ui.deck.XmbGuestKeyboardHost.Callbacks() {
+                    @Override public void onOpenChanged(boolean open) {
+                        onGuestKeyboardOpenChanged(open);
+                    }
+                    @Override public void onSystemKeyboard() {
+                        // The panel's key for Android's own keyboard.
+                        AppUtils.showKeyboard(XServerDisplayActivity.this);
+                    }
+                });
+        guestKeyboard.install();
+    }
+
+    /** What types into this session: key presses on the X server, or text and keys for the Wayland compositor. Null when there is nothing to type into yet. */
+    private com.winlator.star.core.GuestTyper createGuestTyper() {
+        if (waylandMode) {
+            return new com.winlator.star.core.GuestWaylandTyper(
+                    () -> waylandTextInput != null && waylandTextInput.acceptsText());
+        }
+        return xServer != null ? new com.winlator.star.core.GuestKeyTyper(xServer) : null;
+    }
+
+    /** The panel came up or went down: the same hand-over of the pad as the menus, and the screen shift Android's keyboard gets. */
+    private void onGuestKeyboardOpenChanged(boolean open) {
+        HostRenderer r = xServerView != null ? xServerView.getRenderer() : null;
+        if (r != null) r.setScreenOffsetYRelativeToCursor(open);
+        onInGameMenuOpenChanged(open);
+        if (!open && touchpadView != null) touchpadView.requestFocus();
     }
 
 
@@ -2496,6 +2551,11 @@ public class XServerDisplayActivity extends AppCompatActivity {
         // (state.reset() above zeroes it, so this has to come after).
         state.setMoveCursorToTouchpoint(preferences.getBoolean("move_cursor_to_touchpoint", false));
         state.onMoveCursorToTouchpoint = () -> MoveCursorToTouchpoint();
+        state.setCursorAutoHide(preferences.getBoolean("cursor_autohide", true));
+        state.setCursorAutoHideMs(Math.max(500, Math.min(10000,
+                preferences.getInt("cursor_autohide_ms", (int) WAYLAND_CURSOR_IDLE_MS))));
+        state.onCursorAutoHideChange = this::onDrawerCursorAutoHideChange;
+        state.onModMenu = this::toggleModMenu;
         // Per-gesture config shown under the Cursor to Touch toggle. Seed from prefs; the push to the
         // touchpad happens in setupUI, which is where that view is actually built.
         state.setGestureDragSelect(preferences.getBoolean("gesture_drag_select", true));
@@ -3070,6 +3130,16 @@ public class XServerDisplayActivity extends AppCompatActivity {
         this.graphicsDriverConfig = GraphicsDriverConfigDialog.parseGraphicsDriverConfig(graphicsDriverConfig);
         this.dxwrapperConfig = DXVKConfigDialog.parseConfig(dxwrapperConfig);
 
+        // Faster BCn on Mali crashes with the default wrapper; use the GameNative wrapper for this launch
+        // only (nothing is saved). See BcnFastLayer.needsGamenativeWrapper.
+        if (com.winlator.star.core.BcnFastLayer.needsGamenativeWrapper(com.winlator.star.core.MaliPanvk.isMaliGpu(),
+                graphicsDriver, this.graphicsDriverConfig,
+                new File(getFilesDir(), "graphics_driver/" + graphicsDriver + ".tzst").isFile())) {
+            graphicsDriver = com.winlator.star.core.BcnFastLayer.GAMENATIVE_WRAPPER;
+            fasterBcnWrapperSwap = true;
+            Log.i("XServerDisplayActivity", "Faster BCn on Mali: Wrapper (GameNative) for this launch");
+        }
+
         if (!wineInfo.isWin64()) {
             onExtractFileListener = (file, size) -> {
                 String path = file.getPath();
@@ -3607,6 +3677,9 @@ public class XServerDisplayActivity extends AppCompatActivity {
         // Nothing may stay held while the guest is frozen: a button still down when the game stops
         // answering comes back pressed. (Deliberately NOT done for a TV session that is only paused —
         // the game is still on screen and the controller is still playing it.)
+        // The keyboard panel goes down too, which lets go of any key it is typing.
+        if (guestKeyboard != null) guestKeyboard.hide();
+        guestKeyboardCombo.reset();
         if (inputControlsView != null) inputControlsView.releaseAllInputs();
         if (touchpadView != null) touchpadView.releaseAllInputs();
         if (winHandler != null && inputControlsView != null) winHandler.releaseAllControllerInputs();
@@ -7430,6 +7503,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
         if (waylandHudThread != null) { waylandHudThread.quitSafely(); waylandHudThread = null; waylandHudSampler = null; }
         if (waylandClipboard != null) { waylandClipboard.stop(); waylandClipboard = null; }
         if (waylandTextInput != null) { waylandTextInput.stop(); waylandTextInput = null; }
+        if (guestKeyboard != null) { guestKeyboard.release(); guestKeyboard = null; }
         super.onDestroy();
         // Power-user perf: stop the thermal watchdog and revert any privileged sysfs writes on game
         // exit (no-op unless a root toggle wrote something this session).
@@ -7568,6 +7642,11 @@ public class XServerDisplayActivity extends AppCompatActivity {
             return;
         }
         if (environment != null) {
+            // The keyboard panel is closed first; the next Back goes on as usual.
+            if (guestKeyboard != null && guestKeyboard.isOpen()) {
+                guestKeyboard.userClose();
+                return;
+            }
             if (deckPanelOpen()) {
                 com.winlator.star.ui.deck.DeckInGameState.INSTANCE.close();
                 return;
@@ -7654,6 +7733,8 @@ public class XServerDisplayActivity extends AppCompatActivity {
      */
     private void onDeckPanelOpenChanged(boolean open) {
         if (deckInGameView == null) return;
+        // The menu and the keyboard panel both own the pad, so only one is up: the panel goes first.
+        if (open && guestKeyboard != null) guestKeyboard.onMenuOpen(true);
         if (open) {
             deckInGameView.setVisibility(View.VISIBLE);
             deckInGameView.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
@@ -7668,6 +7749,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
         }
         updateDeckCornerButton();
         onInGameMenuOpenChanged(open);
+        if (!open && guestKeyboard != null) guestKeyboard.onMenuOpen(false);
     }
 
     private void hideDeckInGameLayer() {
@@ -8046,6 +8128,39 @@ public class XServerDisplayActivity extends AppCompatActivity {
         return true;
     }
 
+    /**
+     * Pad keys while the XMB keyboard panel is up: all of them go to the panel (d-pad and A move and press its keys, B
+     * closes it, the rest are its shortcuts). The Menu button keeps toggling through menuButtonEvent, which opens the Deck
+     * menu and so takes the panel down; Back is left to onBackPressed, which closes the panel.
+     */
+    private boolean guestKeyboardKeyEvent(KeyEvent event) {
+        if (guestKeyboard == null) return false;
+        int kc = event.getKeyCode();
+        if (event.getAction() == KeyEvent.ACTION_DOWN && menuButtonKeyCode > 0 && kc == menuButtonKeyCode
+                && kc != KeyEvent.KEYCODE_BUTTON_B) return false;
+        // Linux Steam: Guide is the Steam button and goes to the client as usual.
+        if (kc == KeyEvent.KEYCODE_BUTTON_MODE && inGameSessionKind == com.winlator.star.ui.deck.InGameSessionKind.LINUX_STEAM) return false;
+        return guestKeyboard.onKeyEvent(event);
+    }
+
+    /**
+     * XMB mode: X pressed while Select (or the pad's Back) is held opens the keyboard panel, and the same combo closes it.
+     * Runs before the panel's own key handling, which uses plain X for Backspace. Select itself is never taken: it goes on
+     * to the game as without the combo. The combo's X, its repeats and its release go no further, so neither the game nor
+     * the panel sees them. It is off while the Deck menu is up (the menu uses X too) and when X is the Menu button.
+     */
+    private boolean guestKeyboardComboEvent(KeyEvent event) {
+        if (guestKeyboard == null) return false;
+        boolean armed = !deckPanelOpen() && menuButtonKeyCode != KeyEvent.KEYCODE_BUTTON_X;
+        // The Back Android makes out of an unhandled B keeps B's scan code; only the pad's own Back is Select.
+        boolean madeFromB = (event.getFlags() & KeyEvent.FLAG_FALLBACK) != 0
+                || (event.getScanCode() >= 0x130 && event.getScanCode() <= 0x13f);
+        com.winlator.star.ui.deck.GuestKeyboardCombo.Verdict verdict = guestKeyboardCombo.onKey(event.getKeyCode(),
+                event.getAction(), event.getRepeatCount(), ExternalController.isGameController(event.getDevice()), madeFromB, armed);
+        if (verdict == com.winlator.star.ui.deck.GuestKeyboardCombo.Verdict.TOGGLE) guestKeyboard.toggle();
+        return verdict != com.winlator.star.ui.deck.GuestKeyboardCombo.Verdict.PASS;
+    }
+
     /** Hands a d-pad or A event to the Deck panel's focus system; A becomes the d-pad centre key, which presses the focused control. */
     private void routeKeyToDeckPanel(KeyEvent event) {
         int kc = event.getKeyCode();
@@ -8111,6 +8226,8 @@ public class XServerDisplayActivity extends AppCompatActivity {
         super.onWindowFocusChanged(hasFocus);
         // Button releases made while another window has focus never reach dispatchKeyEvent, so a press the Deck panel took could leave its release owed.
         if (!hasFocus) deckKeysToPanelUntilUp.clear();
+        // The same goes for a Select held for the keyboard combo: its release would never arrive.
+        if (!hasFocus) guestKeyboardCombo.reset();
         if (hasFocus && waylandClipboard != null) waylandClipboard.refresh();
 
         if (hasFocus && (cursorLock || isRelativeMouseMovement || waylandPointerLocked) && inGameControlsEditor == null) {
@@ -8712,6 +8829,165 @@ public class XServerDisplayActivity extends AppCompatActivity {
     /** Where GameXInputDlls records the game xinput DLLs it moved aside (app files, survives the session). */
     private File gameXInputManifest() {
         return new File(getFilesDir(), com.winlator.star.core.GameXInputDlls.MANIFEST_NAME);
+    }
+
+    // ── Game mods (core.GameMods: REFramework, Special K) ────────────────────────────────────────
+
+    private final Handler modKeyHandler = new Handler(Looper.getMainLooper());
+
+    /** Game mods (launch worker thread, after the user's env vars are merged; Wine sessions): every mod
+     *  switched on for this game (game settings > Mods) and available for its EXE is downloaded from its
+     *  release when this device does not have it yet, placed next to the EXE, and gets its
+     *  WINEDLLOVERRIDES entry (a user's own entry for that DLL is kept); REFramework's menu is set to start
+     *  closed. A mod switched off has only the file we placed removed (for Special K also its logs; its
+     *  .ini settings stay). One "mods" line per mod in the session log; the drawer's Mods tab gets one
+     *  card per mod this EXE can take (on, off or not loaded). */
+    private void applyGameModsEnv(EnvVars envVars) {
+        java.util.List<com.winlator.star.ui.DrawerMod> cards = new ArrayList<>();
+        try {
+            if (shortcut == null || gamescopeMode) return;
+            java.util.List<File> dirs = gameExeFolders();
+            File exe = gameExeFile();
+            int machine = com.winlator.star.core.GameMods.peMachine(exe);
+            java.util.Set<String> imports = null;
+            String bits = machine == com.winlator.star.core.GameMods.MACHINE_X86 ? "32-bit" : "64-bit";
+            for (com.winlator.star.core.GameMods.Mod mod : com.winlator.star.core.GameMods.ALL) {
+                boolean on = "1".equals(shortcut.getExtra(mod.extra));
+                boolean available = com.winlator.star.core.GameMods.supports(mod, shortcut.path, machine);
+                if (available && !on) cards.add(new com.winlator.star.ui.DrawerMod(mod.id, mod.name, false, false, "", "", bits));
+                if (!on || !available) {
+                    for (File dir : dirs) {
+                        String note = com.winlator.star.core.GameMods.remove(dir, mod);
+                        if (note != null) logSessionLine("mods", mod.name + " off: " + note);
+                    }
+                    if (on) logSessionLine("mods", mod.name + " on, but not available for this EXE"
+                            + (machine == 0 ? " (EXE not readable)" : "") + ": not loaded");
+                    continue;
+                }
+                if (dirs.isEmpty()) {
+                    logSessionLine("mods", mod.name + " on, but the game's folder could not be found: not loaded");
+                    cards.add(new com.winlator.star.ui.DrawerMod(mod.id, mod.name, true, false, "", "", bits));
+                    continue;
+                }
+                File dir = dirs.get(0);
+                com.winlator.star.core.GameMods.Asset asset = com.winlator.star.core.GameMods.asset(mod, machine);
+                if (imports == null) imports = com.winlator.star.core.GameMods.peImports(exe);
+                String dll = com.winlator.star.core.GameMods.targetDll(mod,
+                        shortcut.getExtra(com.winlator.star.core.GameMods.EXTRA_SPECIALK_DLL), imports, machine);
+                StringBuilder line = new StringBuilder(mod.name).append(" on (").append(bits).append("): ");
+                File source = null;
+                if (!com.winlator.star.core.GameMods.inPlace(dir, dll, asset.sha256)) {
+                    try {
+                        boolean had = com.winlator.star.core.GameModCache.cached(getFilesDir(), asset) != null;
+                        source = com.winlator.star.core.GameModCache.get(getFilesDir(), asset, null);
+                        if (!had) line.append("downloaded; ");
+                    } catch (Throwable t) {
+                        line.append("download failed (").append(t.getMessage()).append("); ");
+                    }
+                }
+                com.winlator.star.core.GameMods.Result r =
+                        com.winlator.star.core.GameMods.install(dir, mod, dll, source, asset.sha256);
+                line.append(r.note);
+                if (r.present) {
+                    String before = envVars.has("WINEDLLOVERRIDES") ? envVars.get("WINEDLLOVERRIDES") : "";
+                    String after = com.winlator.star.core.GameMods.overrides(before, dll);
+                    if (!after.equals(before)) envVars.put("WINEDLLOVERRIDES", after);
+                    line.append("; WINEDLLOVERRIDES=").append(after);
+                    if (after.equals(before)) line.append(" (yours kept)");
+                }
+                if (mod == com.winlator.star.core.GameMods.REFRAMEWORK && r.ours) {
+                    try {
+                        if (com.winlator.star.core.ReFramework.applyMenuStartsClosed(dir)) line.append("; menu starts closed");
+                    } catch (Throwable t) {
+                        line.append("; menu state not set (").append(t.getMessage()).append(")");
+                    }
+                }
+                logSessionLine("mods", line.toString());
+                cards.add(new com.winlator.star.ui.DrawerMod(mod.id, mod.name, true, r.present,
+                        r.ours ? asset.tag() : "", r.present ? dll : "", bits));
+            }
+        } catch (Throwable t) {
+            Log.w("XServerDisplayActivity", "game mods setup failed", t);
+            logSessionLine("mods", "setup failed: " + t.getMessage());
+        } finally {
+            String startWith = startWithGamePath();
+            if (!startWith.isEmpty()) {
+                cards.add(new com.winlator.star.ui.DrawerMod(START_WITH_GAME_ID, "Start with the game", true, true,
+                        "", startWith.substring(startWith.lastIndexOf('\\') + 1), "", "Start"));
+            }
+            final java.util.List<com.winlator.star.ui.DrawerMod> list = cards;
+            runOnUiThread(() -> XServerDrawerState.INSTANCE.setMods(list));
+        }
+    }
+
+    // ── Game settings > Mods > Start with the game (a trainer, Cheat Engine) ─────────────────────────────
+
+    private static final String START_WITH_GAME_ID = "startwith";
+    private static final long START_WITH_GAME_DELAY_MS = 10_000L;
+
+    /** The program this game starts with (a Windows path), or "". */
+    private String startWithGamePath() {
+        return shortcut != null ? shortcut.getExtra(com.winlator.star.core.GameMods.EXTRA_START_WITH, "").trim() : "";
+    }
+
+    /** Wine sessions: once winhandler.exe is up (it starts the game), start the program 10 s later. Most
+     *  trainers wait for the game's process themselves. */
+    private void scheduleStartWithGame() {
+        if (startWithGamePath().isEmpty()) return;
+        modKeyHandler.postDelayed(this::startWithGame, START_WITH_GAME_DELAY_MS);
+    }
+
+    /** Starts the program in its own folder (WinHandler.execInFolder: the path may be longer than an EXEC
+     *  takes). Also the drawer card's Start button. */
+    private void startWithGame() {
+        String path = startWithGamePath();
+        if (path.isEmpty() || winHandler == null) return;
+        boolean ok = winHandler.execInFolder(path, "");
+        logSessionLine("mods", "Start with the game: " + path + (ok ? "" : " (not started: the batch file could not be written)"));
+    }
+
+    /** The prefix's C: drive (the container's .wine/drive_c), or null without a container. */
+    public File getWineDriveC() {
+        if (container != null) return new File(container.getRootDir(), ".wine/drive_c");
+        return imageFs != null && imageFs.wineprefix != null ? new File(imageFs.wineprefix, "drive_c") : null;
+    }
+
+    /** Drawer > Mods: shows or hides a mod's in-game menu by sending its menu key after the drawer has
+     *  closed, as a press and a release 150 ms later (our REFramework build reads the key's state once
+     *  per frame when the game blocks key messages, so the press has to outlast a frame). REFramework:
+     *  Insert; Special K: Ctrl + Shift + Backspace. */
+    private void toggleModMenu(String id) {
+        if (START_WITH_GAME_ID.equals(id)) { startWithGame(); return; }
+        final XKeycode[] keys = com.winlator.star.core.GameMods.SPECIAL_K.id.equals(id)
+                ? new XKeycode[]{XKeycode.KEY_CTRL_L, XKeycode.KEY_SHIFT_L, XKeycode.KEY_BKSP}
+                : new XKeycode[]{XKeycode.KEY_INSERT};
+        modKeyHandler.postDelayed(() -> {
+            if (xServer == null) return;
+            try {
+                for (XKeycode k : keys) xServer.injectKeyPress(k);
+            } catch (Throwable t) {
+                Log.w("XServerDisplayActivity", "mod menu key", t);
+                return;
+            }
+            modKeyHandler.postDelayed(() -> {
+                try {
+                    if (xServer != null) for (int i = keys.length - 1; i >= 0; i--) xServer.injectKeyRelease(keys[i]);
+                } catch (Throwable t) {
+                    Log.w("XServerDisplayActivity", "mod menu key release", t);
+                }
+            }, 150);
+        }, 200);
+    }
+
+    /** The game EXE on the Android side, or null for a desktop launch, a .lnk or an unmapped drive. */
+    private File gameExeFile() {
+        try {
+            if (shortcut == null || container == null || shortcut.path == null || shortcut.path.endsWith(".lnk")) return null;
+            File f = com.winlator.star.core.WinePath.INSTANCE.resolveAndroidPath(container, shortcut.path);
+            return f != null && f.isFile() ? f : null;
+        } catch (Throwable t) {
+            return null;
+        }
     }
 
     /** The game EXE's folder on the Android side (also its working directory: the launch passes /dir of
@@ -9655,7 +9931,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
                     waylandCursorY = pos[1];
                     waylandCursorView.setX(waylandCursorX - waylandCursorHotX);
                     waylandCursorView.setY(waylandCursorY - waylandCursorHotY);
-                    waylandCursorPoke();
+                    waylandCursorPoke(false);
                 });
             }
             @Override public void onPointerButton(com.winlator.star.xserver.Pointer.Button button, boolean pressed) {
@@ -10048,7 +10324,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
         if (waylandCursorView != null) {
             waylandCursorView.setX(waylandCursorX - waylandCursorHotX);
             waylandCursorView.setY(waylandCursorY - waylandCursorHotY);
-            waylandCursorPoke();
+            waylandCursorPoke(true);   // only the touchpad finger handler calls this
         }
         int ox = (int) (waylandCursorX / vw * 1920f);
         int oy = (int) (waylandCursorY / vh * 1080f);
@@ -11405,6 +11681,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
             applyUnrealHdrEnv(envVars);
             applyBannerinXInputEnv(envVars);
             applyControllerLogEnv(envVars);
+            applyGameModsEnv(envVars);
             if (waylandMode) applyWaylandGpuSpoofEnv(envVars);
 
             // OpenGL safe mode (Wayland only, default ON): GALLIUM_THREAD=0 removes Mesa's
@@ -11446,7 +11723,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
             if (!gamescopeMode && !waylandMode) applyColorCursors();
             // Raw mouse on X11 (XInput 2), same placement rule. BANNER_X11_XINPUT2=0 turns it off.
             if (!gamescopeMode && !waylandMode) applyXInput2();
-            if (!gamescopeMode && !waylandMode) applyX11CursorAutoHide();
+            if (!gamescopeMode) applyCursorAutoHide();
 
             // Keep the lsfg-vk Vulkan layer INERT unless lsfg-vk is actually the engine.
             // Placed AFTER both user env merges (container above, shortcut just here) so
@@ -11667,6 +11944,11 @@ public class XServerDisplayActivity extends AppCompatActivity {
         // environment byte-for-byte unchanged) when the resolved contribution is empty, i.e. the
         // default Auto/no-tokens config on a non-710/720/722 GPU.
         applyTurnipTuDebug();
+        java.util.List<String> turnipGameOpts =
+                com.winlator.star.core.TurnipGameOptions.applyToEnv(envVars, shortcutExeBasename());
+        if (!turnipGameOpts.isEmpty()) {
+            Log.i("XServerDisplayActivity", "Turnip game options: " + String.join(" ", turnipGameOpts));
+        }
 
         // Pass final envVars to the launcher
         guestProgramLauncherComponent.setEnvVars(envVars);
@@ -11808,6 +12090,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
 
         // Start the WinHandler (writes events to the file)
         winHandler.start();
+        scheduleStartWithGame();
         // Steam Controller support (no-op unless the setting is on) — after WinHandler so pads that
         // are already paired seat straight into its slots.
         runOnUiThread(this::startSteamControllerSupport);
@@ -11855,6 +12138,8 @@ public class XServerDisplayActivity extends AppCompatActivity {
         deckSeed.setLaunchedFromShortcut(shortcut != null);
         deckSeed.setHudSavedToShortcut(shortcutOwnsFpsConfig());
         if (isLinuxSteamSession()) setupLinuxSteamDrawerGlue(rootView);
+        // Under the Deck layers, which are added after it, so a menu is always on top of the keyboard.
+        setupXmbGuestKeyboard();
         setupDeckInGame();
         xServerView = new XServerView(this, xServer);
         String rendererType = container != null ? resolvedRenderer() : "vulkan";
@@ -11890,7 +12175,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
         renderer.setCursorVisible(false);
         x11CursorWanted = false;
         if (!waylandMode) {
-            // On/off is decided later, once the user's env vars are merged (applyX11CursorAutoHide);
+            // On/off is decided later, once the user's env vars are merged (applyCursorAutoHide);
             // x11CursorPoke checks it on every call.
             // Called on whichever thread injected the input; coalesce to one UI-thread poke.
             xServer.setPointerActivityListener(() -> {
@@ -14238,6 +14523,14 @@ public class XServerDisplayActivity extends AppCompatActivity {
             }
         }
     }
+
+    // "BCn layer: Fast" (Mali only): after every block above has set the BCn env, swap the bundled
+    // leegao layer for Fcharan's build when it is about to run. No-op unless picked on a Mali GPU.
+    String bcnFastApplied = com.winlator.star.core.BcnFastLayer.applyToLaunchEnv(this, rootDir, envVars,
+            graphicsDriverConfig);
+    if (bcnFastApplied != null && wineDebugWriter != null) wineDebugWriter.println("XServerVulkan: " + bcnFastApplied);
+    if (fasterBcnWrapperSwap && wineDebugWriter != null)
+        wineDebugWriter.println("XServerVulkan: Faster BCn on Mali: Wrapper (GameNative) used for this launch instead of the default wrapper");
 }
     @Override
     public boolean dispatchGenericMotionEvent(MotionEvent event) {
@@ -14267,6 +14560,11 @@ public class XServerDisplayActivity extends AppCompatActivity {
         // Deck panel open: sticks and the hat go to the panel (Android turns them into d-pad moves there), never the game.
         // Closed, nothing here is taken. After the controller test, which a panel can open on top of itself.
         if (deckPanelOpen() && ExternalController.isGameController(event.getDevice())) {
+            return super.dispatchGenericMotionEvent(event);
+        }
+        // Keyboard panel up: the sticks and the hat move over its keys (Android turns them into d-pad moves) and the
+        // triggers are its Shift and action keys; none of it reaches the game.
+        if (guestKeyboard != null && guestKeyboard.onMotionEvent(event)) {
             return super.dispatchGenericMotionEvent(event);
         }
         boolean handledByWinHandler = false;
@@ -14328,8 +14626,14 @@ public class XServerDisplayActivity extends AppCompatActivity {
             return true;
         }
 
+        // XMB mode: Select + X toggles the keyboard panel. First, so it sees Select whichever of the layers below takes it.
+        if (guestKeyboardComboEvent(event)) return true;
+
         // Deck style, panel open: the pad drives the panel (and a release follows its press there). Closed: nothing taken.
         if (deckPanelKeyEvent(event)) return true;
+
+        // XMB mode, keyboard panel up: the pad types on it (and a release follows its press there). Closed: nothing taken.
+        if (guestKeyboardKeyEvent(event)) return true;
 
         if (menuButtonEvent(event)) return true;
 
@@ -16821,17 +17125,51 @@ return true;
     }
 
     // After both user env merges (container + shortcut), unlike the renderer setup, which runs first.
-    private void applyX11CursorAutoHide() {
+    private volatile boolean cursorAutoHideEnvOff;   // BANNER_CURSOR_AUTOHIDE=0 beats the drawer setting
+    private void applyCursorAutoHide() {
         String v = envVars.has("BANNER_CURSOR_AUTOHIDE") ? envVars.get("BANNER_CURSOR_AUTOHIDE").trim() : "";
-        boolean on = !(v.equals("0") || v.equalsIgnoreCase("false"));
-        x11CursorAutoHide = on;
-        Log.i("XServerDisplayActivity", "x11 cursor auto-hide: " + (on ? "on" : "off (BANNER_CURSOR_AUTOHIDE=" + v + ")"));
-        if (!on) {
-            runOnUiThread(() -> {
-                waylandCursorIdle.removeCallbacks(x11CursorHideRunnable);
+        cursorAutoHideEnvOff = v.equals("0") || v.equalsIgnoreCase("false");
+        applyCursorAutoHidePrefs(false);
+    }
+
+    /**
+     * Drawer Controls > Mouse: "Auto-hide Cursor" + "Hide After (ms)", global prefs. Any thread.
+     * {@code live}: changed from the drawer mid-game, so the pointer follows right away.
+     */
+    private void applyCursorAutoHidePrefs(boolean live) {
+        boolean pref = preferences == null || preferences.getBoolean("cursor_autohide", true);
+        int ms = preferences != null ? preferences.getInt("cursor_autohide_ms", (int) WAYLAND_CURSOR_IDLE_MS)
+                : (int) WAYLAND_CURSOR_IDLE_MS;
+        cursorIdleMs = Math.max(500, Math.min(10000, ms));
+        boolean on = pref && !cursorAutoHideEnvOff;
+        cursorAutoHide = on;
+        Log.i("XServerDisplayActivity", (waylandMode ? "wayland" : "x11") + " cursor auto-hide: "
+                + (on ? "on, " + cursorIdleMs + " ms" : (cursorAutoHideEnvOff ? "off (BANNER_CURSOR_AUTOHIDE=0)" : "off (drawer)")));
+        if (!live && on) return;
+        runOnUiThread(() -> {
+            waylandCursorIdle.removeCallbacks(x11CursorHideRunnable);
+            if (waylandMode) {
+                // Only once the pointer has a place (a finger has moved it); shows it and re-arms
+                // the idle hide with the new delay.
+                if (waylandCursorX >= 0) waylandCursorPoke(true);
+            } else if (on) {
+                x11CursorPoke();
+            } else {
                 setX11CursorAutoHidden(false);
-            });
+            }
+        });
+    }
+
+    /** Drawer chip / slider changed: persist, then apply to the live pointer. */
+    private void onDrawerCursorAutoHideChange() {
+        XServerDrawerState st = XServerDrawerState.INSTANCE;
+        if (preferences != null) {
+            preferences.edit()
+                    .putBoolean("cursor_autohide", st.getCursorAutoHideValue())
+                    .putInt("cursor_autohide_ms", st.getCursorAutoHideMsValue())
+                    .apply();
         }
+        applyCursorAutoHidePrefs(true);
     }
 
     // Raw mouse for Wine on X11: games that read the mouse through raw input (usually mouse-look)

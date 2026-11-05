@@ -9,6 +9,7 @@ import android.os.Build;
 import android.os.SystemClock;
 
 import com.winlator.star.core.GPUInformation;
+import com.winlator.star.widget.gpu.KgslGpuFallback;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -130,7 +131,10 @@ public class HudMetrics {
             Integer p = readGpuUsageSample(path);
             if (p != null) return p;
         }
-        return null;
+        // Adreno with its kgsl load nodes SELinux-blocked for apps (e.g. Retroid Pocket Duo).
+        if (KgslGpuFallback.loadBlocked()) return KgslGpuFallback.busyPercent();
+        // Every sysfs node failed: on a CSF-generation Mali, read the GPU's hardware counters instead.
+        return MaliGpuCounters.usagePercent();
     }
 
     /** Legacy non-null accessor (0 when unavailable). Kept for {@code PerfHudView}. */
@@ -191,6 +195,10 @@ public class HudMetrics {
             }
         }
 
+        for (String p : GPU_USAGE_LATE_PATHS) {
+            if (new File(p).canRead()) candidates.add(p);
+        }
+
         gpuUsagePathsCache = new ArrayList<>(candidates);
         return gpuUsagePathsCache;
     }
@@ -217,6 +225,13 @@ public class HudMetrics {
         //    misses, so a device that already resolves — e.g. Adreno kgsl — never reaches these). ──
         "/sys/kernel/ged/hal/gpu_utilization",       // MediaTek GED: "<loading> <block> <idle>" → loading%
         "/sys/module/ged/parameters/gpu_loading",    // MediaTek GED module param, plain percent
+    };
+    // Tried after every path above AND the platform/devfreq scans, so a GPU that already resolves keeps
+    // its node. From WinlatorMali's HUD (GunaCharanTeja), for MediaTek Mali phones whose mali0 and
+    // platform nodes are blocked.
+    private static final String[] GPU_USAGE_LATE_PATHS = {
+        "/sys/class/devfreq/mtk-dvfs-gpu/gpu_loading",            // MediaTek GPU devfreq, plain percent
+        "/sys/module/mali_kbase/parameters/mali_gpu_utilization", // MediaTek kbase module param, percent
     };
     // Percent-bearing filenames scanned under each devfreq / platform GPU node.
     private static final String[] GPU_USAGE_FILES = {
@@ -637,6 +652,7 @@ public class HudMetrics {
         "/sys/class/power_supply/battery/voltage_now",
         "/sys/class/power_supply/bms/voltage_now",
         "/sys/class/power_supply/main/voltage_now",
+        "/sys/class/power_supply/maxfg/voltage_now",   // Pixel / Tensor fuel gauge (from WinlatorMali)
     };
     /** power_supply power_now channels (µW) — last-resort direct power reading when neither the
      *  BatteryManager voltage nor {@code voltage_now} is available. */
@@ -923,7 +939,10 @@ public class HudMetrics {
             else mhz = raw;                                      // already MHz
             if (mhz >= 1 && mhz <= 3000) return (int) mhz;
         }
-        return null;
+        // Adreno with its kgsl clock nodes SELinux-blocked for apps.
+        if (KgslGpuFallback.clockBlocked()) return KgslGpuFallback.clockMhz();
+        // No readable clock node: on a CSF-generation Mali, the hardware counters' cycle counter.
+        return MaliGpuCounters.clockMhz();
     }
 
     // =======================================================================
@@ -1232,7 +1251,9 @@ public class HudMetrics {
         final Context ctx = ctxIn != null ? ctxIn : this.context;
         // Prime the delta-based readers, wait, then take a live sample.
         snapshot();
-        try { Thread.sleep(350L); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+        // The no-root GPU readers need about a second of samples before their first value.
+        long primeMs = KgslGpuFallback.loadBlocked() || KgslGpuFallback.clockBlocked() ? 1200L : 350L;
+        try { Thread.sleep(primeMs); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
         Snapshot s = snapshot();
 
         StringBuilder sb = new StringBuilder();
@@ -1298,14 +1319,21 @@ public class HudMetrics {
         String gpuUsagePath = firstReadableGpuUsagePath();
         if (s.gpuPercent != null && gpuUsagePath != null)
             metricHit(sb, "GPU %", s.gpuPercent + "%", gpuUsagePath);
+        else if (s.gpuPercent != null && KgslGpuFallback.loadBlocked())
+            metricHit(sb, "GPU %", s.gpuPercent + "%", KgslGpuFallback.loadSource());
         else
             metricMissList(sb, "GPU %", discoverGpuUsagePaths(), GPU_USAGE_STATIC_PATHS);
 
         String gpuClockPath = firstReadableGpuClockPath();
         if (s.gpuClockMhz != null && gpuClockPath != null)
             metricHit(sb, "GPU clock", s.gpuClockMhz + "MHz", gpuClockPath);
+        else if (s.gpuClockMhz != null && KgslGpuFallback.clockBlocked())
+            metricHit(sb, "GPU clock", s.gpuClockMhz + "MHz", KgslGpuFallback.clockSource());
         else
             metricMissList(sb, "GPU clock", discoverGpuClockPaths(), GPU_CLOCK_PATHS);
+
+        String noRootGpu = KgslGpuFallback.status();
+        if (!noRootGpu.isEmpty()) sb.append("GPU readers without root: ").append(noRootGpu).append('\n');
 
         String gpuTempPath = resolveTempPath(discoverPrioritizedGpuTempPaths());
         if (s.gpuTempC != null)

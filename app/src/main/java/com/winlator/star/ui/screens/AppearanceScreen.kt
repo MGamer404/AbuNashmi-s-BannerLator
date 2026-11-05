@@ -59,6 +59,8 @@ import androidx.compose.ui.unit.sp
 import androidx.core.graphics.ColorUtils
 import kotlin.math.roundToInt
 import com.winlator.star.ui.components.ColorPicker
+import com.winlator.star.ui.deck.xmbGlowDraw
+import com.winlator.star.ui.deck.xmbGlowFor
 import com.winlator.star.ui.theme.AppThemeState
 import com.winlator.star.ui.theme.CUSTOM_PRESET_INDEX
 import com.winlator.star.ui.theme.Divider
@@ -121,6 +123,13 @@ fun AppearanceScreen() {
 
         // ── Preset themes ────────────────────────────────────────────────
         SectionLabel("Theme Presets")
+        if (xmbHome) {
+            Text(
+                text = "XMB washes the theme color softly and evenly behind every screen; the swatches show that look.",
+                color = OnSurfaceVariant,
+                fontSize = 12.sp,
+            )
+        }
 
         val rows = themePresets.chunked(4)
         rows.forEach { row ->
@@ -133,6 +142,7 @@ fun AppearanceScreen() {
                         isSelected = isSelected,
                         isCustomSlot = index == CUSTOM_PRESET_INDEX,
                         customAccent = customAccent,
+                        xmbWash = xmbHome,
                         onClick = { AppThemeState.setPreset(index) },
                         modifier = Modifier.weight(1f)
                     )
@@ -357,10 +367,17 @@ private fun PresetSwatch(
     isSelected: Boolean,
     isCustomSlot: Boolean,
     customAccent: Color,
+    xmbWash: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val accent = if (isCustomSlot) customAccent else preset.primary
+    // XMB: the swatch shows the glow the app would paint with this preset (the same maths and drawing as the real backdrop),
+    // not the preset's flat background colour, and its mock-up bars are glass over it.
+    val glow = remember(preset, accent, xmbWash) {
+        if (xmbWash) xmbGlowFor(preset.background, accent, preset.onBackground, preset.onSurface, preset.onSurfaceVariant) else null
+    }
+    val glass = glow?.let { it.frost.tint.copy(alpha = 0.22f) }
     Column(
         modifier = modifier.clickable(onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -370,7 +387,7 @@ private fun PresetSwatch(
             modifier = Modifier
                 .size(56.dp)
                 .clip(RoundedCornerShape(12.dp))
-                .background(preset.background)
+                .then(if (glow != null) xmbGlowDraw(glow) else Modifier.background(preset.background))
                 .border(
                     width = if (isSelected) 2.dp else 1.dp,
                     color = if (isSelected) MaterialTheme.colorScheme.primary else Divider,
@@ -383,10 +400,10 @@ private fun PresetSwatch(
                 modifier = Modifier.fillMaxSize().padding(6.dp),
                 verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
-                Box(Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(2.dp)).background(preset.surface))
+                Box(Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(2.dp)).background(glass ?: preset.surface))
                 Box(Modifier.width(28.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(accent))
-                Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(preset.surfaceVariant))
-                Box(Modifier.width(20.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(preset.surfaceVariant))
+                Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(glass ?: preset.surfaceVariant))
+                Box(Modifier.width(20.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(glass ?: preset.surfaceVariant))
             }
             if (isSelected) {
                 Box(
