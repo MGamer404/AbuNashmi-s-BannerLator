@@ -1,0 +1,470 @@
+package com.winlator.star.ui.screens
+
+import android.content.Context
+import androidx.activity.compose.BackHandler
+import androidx.annotation.StringRes
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.filled.ViewDay
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.preference.PreferenceManager
+import com.winlator.star.R
+import com.winlator.star.container.Shortcut
+import com.winlator.star.ui.LocalTopBarOverlayInset
+import com.winlator.star.ui.deck.LibrarySort
+import com.winlator.star.ui.deck.PlayStats
+import com.winlator.star.ui.deck.XmbStoreMark
+import com.winlator.star.ui.deck.gameSortKeyOf
+import com.winlator.star.ui.deck.isDeckCompact
+import com.winlator.star.ui.deck.lastPlayedLabel
+import com.winlator.star.ui.deck.playtimeLabel
+import com.winlator.star.ui.deck.readPlayStats
+import com.winlator.star.ui.deck.rememberScreenScale
+import com.winlator.star.ui.deck.sortGames
+import com.winlator.star.ui.deck.storeLabelOf
+import com.winlator.star.ui.deck.storeMarkOf
+import com.winlator.star.ui.deck.warmStoreMarks
+import com.winlator.star.ui.deck.xmbFrame
+import com.winlator.star.ui.deck.xmbWashBackground
+
+/** [shortcuts] newest first, for a host whose list is in some other order (the row takes the first [XMB_ROW_LIMIT]). */
+internal fun xmbRecentFirst(context: Context, shortcuts: List<Shortcut>): List<Shortcut> {
+    val stats = readPlayStats(context, shortcuts)
+    return sortGames(shortcuts, LibrarySort.RECENT) { gameSortKeyOf(it, stats) }
+}
+
+private const val PREF_VIEW = "xmb_all_games_view"
+private const val PREF_SORT = "xmb_all_games_sort"
+
+private enum class AllView(val pref: String, @StringRes val label: Int, val icon: ImageVector) {
+    GRID("grid", R.string.xmb_all_view_grid, Icons.Filled.GridView),
+    LIST("list", R.string.xmb_all_view_list, Icons.AutoMirrored.Filled.List),
+    BIG("big", R.string.xmb_all_view_big, Icons.Filled.ViewDay);
+
+    fun next(): AllView = entries[(ordinal + 1) % entries.size]
+}
+
+// The sorts the page offers, in menu order. The names are LibrarySort's, which is what is saved.
+private val ALL_SORTS = listOf(
+    LibrarySort.RECENT, LibrarySort.NAME, LibrarySort.NAME_DESC, LibrarySort.PLAYTIME, LibrarySort.STORE, LibrarySort.CONTAINER,
+)
+
+@StringRes
+private fun LibrarySort.labelRes(): Int = when (this) {
+    LibrarySort.RECENT -> R.string.xmb_all_sort_recent
+    LibrarySort.NAME -> R.string.xmb_all_sort_name
+    LibrarySort.NAME_DESC -> R.string.xmb_all_sort_name_desc
+    LibrarySort.PLAYTIME -> R.string.xmb_all_sort_playtime
+    LibrarySort.STORE -> R.string.xmb_all_sort_store
+    LibrarySort.CONTAINER -> R.string.xmb_all_sort_container
+}
+
+private val PAGE_TEXT = Color(0xFFEDEDED)
+private val PAGE_MUTED = Color(0xFFB4B4B4)
+
+/**
+ * Every game, on one full-screen page in the XMB's look (the backdrop wash, white type, the accent ring). It opens from the
+ * All Games card at the left of the games row and closes with Back / B onto the same card. The cursor is one index into the
+ * sorted list, moved by the D-pad and by taps; the page owns the keys while it is up. Three views ([AllView]) and the sorts in
+ * [ALL_SORTS] are kept between visits. A game runs through [onPlay], the same launch the games row uses.
+ *
+ * [inDeckShell]: the Deck shell floats its tab bar over the top and its Search over the bottom-right corner, so the page
+ * keeps clear of them.
+ */
+@Composable
+internal fun XmbAllGamesPage(
+    games: List<Shortcut>,
+    inDeckShell: Boolean,
+    onPlay: (Shortcut) -> Unit,
+    onClose: () -> Unit,
+) {
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    val accent = MaterialTheme.colorScheme.primary
+    val ss = rememberScreenScale()
+    val prefs = remember { PreferenceManager.getDefaultSharedPreferences(context) }
+    var view by remember { mutableStateOf(AllView.entries.firstOrNull { it.pref == prefs.getString(PREF_VIEW, null) } ?: AllView.GRID) }
+    var sort by remember { mutableStateOf(ALL_SORTS.firstOrNull { it.name == prefs.getString(PREF_SORT, null) } ?: LibrarySort.RECENT) }
+    var menuOpen by remember { mutableStateOf(false) }
+    var menuSel by remember { mutableIntStateOf(0) }
+    // The cursor is kept by path, so it follows its game through a re-sort, a view change and a refreshed list.
+    var selPath by rememberSaveable { mutableStateOf<String?>(null) }
+
+    val stats = remember(games) { readPlayStats(context, games) }
+    val sorted = remember(games, stats, sort) { sortGames(games, sort) { gameSortKeyOf(it, stats) } }
+    val sel = remember(sorted, selPath) { sorted.indexOfFirst { it.file.path == selPath }.coerceAtLeast(0) }
+
+    val setView = { v: AllView -> view = v; prefs.edit().putString(PREF_VIEW, v.pref).apply() }
+    val setSort = { s: LibrarySort -> sort = s; menuOpen = false; prefs.edit().putString(PREF_SORT, s.name).apply() }
+    val openMenu = { menuSel = ALL_SORTS.indexOf(sort).coerceAtLeast(0); menuOpen = true }
+
+    LaunchedEffect(Unit) { warmStoreMarks(context) }
+    BackHandler { if (menuOpen) menuOpen = false else onClose() }
+
+    // The page owns the keys: it takes focus when it opens and again whenever the app comes back to it (after a game exits).
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { withFrameNanos { }; runCatching { focusRequester.requestFocus() } }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) runCatching { focusRequester.requestFocus() }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val hasPad = rememberGamepadConnected()
+
+    val cfg = LocalConfiguration.current
+    val topInset = LocalTopBarOverlayInset.current
+    val floating = inDeckShell && !isDeckCompact(cfg)
+    val frame = if (inDeckShell) xmbFrame() else 0.dp
+    val padH = ss.dp(16f) + frame
+    val gap = ss.dp(12f)
+    // Clear of the shell's floating tab bar (see XMB_PEEK_CLIP) or of the see-through top bar of the classic Games screen.
+    val topPad = (if (floating) ss.dp(XMB_PEEK_CLIP * 1.3f) else topInset) + 8.dp
+    val bottomPad = if (floating) ss.dp(56f) else 16.dp
+
+    val gridState = rememberLazyGridState()
+    val moveSel: (Int) -> Unit = { i -> sorted.getOrNull(i)?.let { selPath = it.file.path } }
+
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val avail = maxWidth - padH * 2
+        val cell = when (view) {
+            AllView.GRID -> ss.dp(104f)
+            AllView.BIG -> ss.dp(176f)
+            AllView.LIST -> avail
+        }
+        val cols = if (view == AllView.LIST) 1 else ((avail + gap) / (cell + gap)).toInt().coerceAtLeast(1)
+        val wide = maxWidth >= 600.dp
+
+        val marginPx = with(density) { (bottomPad - 8.dp).coerceAtLeast(0.dp).toPx() }
+        LaunchedEffect(sel, view, sorted) {
+            // The new columns are laid out a frame after this runs.
+            withFrameNanos { }
+            gridState.reveal(sel, marginPx)
+        }
+
+        Box(
+            Modifier
+                .fillMaxSize()
+                // The XMB wash as one opaque fill: the page covers the row, so a see-through wash would show it.
+                .xmbWashBackground()
+                .focusRequester(focusRequester)
+                .focusable()
+                .onPreviewKeyEvent { e ->
+                    if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    if (menuOpen) {
+                        return@onPreviewKeyEvent when (e.key) {
+                            Key.DirectionUp -> { menuSel = (menuSel - 1).coerceAtLeast(0); true }
+                            Key.DirectionDown -> { menuSel = (menuSel + 1).coerceAtMost(ALL_SORTS.lastIndex); true }
+                            Key.ButtonA, Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> { setSort(ALL_SORTS[menuSel]); true }
+                            Key.ButtonB, Key.Escape, Key.ButtonY -> { menuOpen = false; true }
+                            else -> false
+                        }
+                    }
+                    val page = cols * 3
+                    when (e.key) {
+                        Key.DirectionLeft -> { moveSel(xmbGridMove(sel, XmbMove.LEFT, cols, sorted.size, page)); true }
+                        Key.DirectionRight -> { moveSel(xmbGridMove(sel, XmbMove.RIGHT, cols, sorted.size, page)); true }
+                        Key.DirectionUp -> { moveSel(xmbGridMove(sel, XmbMove.UP, cols, sorted.size, page)); true }
+                        Key.DirectionDown -> { moveSel(xmbGridMove(sel, XmbMove.DOWN, cols, sorted.size, page)); true }
+                        // In the Deck shell L1/R1 move its tabs, as on every page.
+                        Key.ButtonL1 -> if (inDeckShell) false else { moveSel(xmbGridMove(sel, XmbMove.PAGE_UP, cols, sorted.size, page)); true }
+                        Key.ButtonR1 -> if (inDeckShell) false else { moveSel(xmbGridMove(sel, XmbMove.PAGE_DOWN, cols, sorted.size, page)); true }
+                        Key.ButtonA, Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> { sorted.getOrNull(sel)?.let(onPlay); true }
+                        Key.ButtonX -> { setView(view.next()); true }
+                        Key.ButtonY -> { openMenu(); true }
+                        Key.ButtonB, Key.Escape -> { onClose(); true }
+                        else -> false
+                    }
+                }
+                // Nothing under the page may react to a touch that lands on it.
+                .pointerInput(Unit) { detectTapGestures { } },
+        ) {
+            Column(Modifier.fillMaxSize()) {
+                Row(
+                    Modifier.fillMaxWidth().padding(start = padH, end = padH, top = topPad, bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    PageButton(Icons.AutoMirrored.Filled.ArrowBack, null, "B".takeIf { hasPad }, stringResource(R.string.xmb_all_back)) { onClose() }
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            stringResource(R.string.xmb_all_games), color = Color.White, fontSize = ss.sp(22f),
+                            fontWeight = FontWeight.Light, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            context.resources.getQuantityString(R.plurals.xmb_all_games_count, sorted.size, sorted.size),
+                            color = PAGE_MUTED, fontSize = ss.sp(12f), maxLines = 1,
+                        )
+                    }
+                    PageButton(view.icon, if (wide) stringResource(view.label) else null, "X".takeIf { hasPad }, stringResource(R.string.xmb_all_view)) { setView(view.next()) }
+                    PageButton(Icons.Filled.SwapVert, if (wide) stringResource(sort.labelRes()) else null, "Y".takeIf { hasPad }, stringResource(R.string.xmb_all_sort)) { openMenu() }
+                }
+
+                LazyVerticalGrid(
+                    state = gridState,
+                    columns = GridCells.Fixed(cols),
+                    contentPadding = PaddingValues(start = padH, end = padH, top = 4.dp, bottom = bottomPad),
+                    horizontalArrangement = Arrangement.spacedBy(gap),
+                    verticalArrangement = Arrangement.spacedBy(gap),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    items(sorted.size, key = { sorted[it].file.path }) { i ->
+                        val s = sorted[i]
+                        val pick = { selPath = s.file.path; onPlay(s) }
+                        val st = stats[s.file.path]
+                        when (view) {
+                            AllView.GRID -> CoverCell(s, i == sel, accent, markSize = ss.dp(20f), big = false, stat = null, onClick = pick)
+                            AllView.BIG -> CoverCell(s, i == sel, accent, markSize = ss.dp(28f), big = true, stat = st, onClick = pick)
+                            AllView.LIST -> ListRow(s, i == sel, accent, st, markSize = ss.dp(18f), onClick = pick)
+                        }
+                    }
+                }
+            }
+
+            if (menuOpen) {
+                // A tap off the menu closes it.
+                val off = remember { MutableInteractionSource() }
+                Box(Modifier.fillMaxSize().xmbClick(off) { menuOpen = false })
+                val shape = RoundedCornerShape(14.dp)
+                Column(
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = topPad + 56.dp, end = padH)
+                        .widthIn(min = 200.dp)
+                        .clip(shape)
+                        .background(Color(0xEE16171B))
+                        .border(1.dp, Color.White.copy(alpha = 0.14f), shape)
+                        .padding(6.dp),
+                ) {
+                    ALL_SORTS.forEachIndexed { i, s ->
+                        val src = remember { MutableInteractionSource() }
+                        val on = i == menuSel
+                        Text(
+                            stringResource(s.labelRes()),
+                            color = if (s == sort) accent else PAGE_TEXT,
+                            fontSize = 15.sp,
+                            fontWeight = if (s == sort) FontWeight.Medium else FontWeight.Normal,
+                            maxLines = 1,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (on) Color.White.copy(alpha = 0.14f) else Color.Transparent)
+                                .xmbClick(src) { setSort(s) }
+                                .heightIn(min = 44.dp)
+                                .padding(horizontal = 14.dp, vertical = 11.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Scrolls just far enough to bring cell [index] fully into view, leaving [bottomMarginPx] clear under it (the shell's floating
+// Search sits there); a cell that isn't composed at all is jumped to.
+private suspend fun LazyGridState.reveal(index: Int, bottomMarginPx: Float) {
+    val info = layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }
+    if (info == null) { scrollToItem(index); return }
+    val cellTop = info.offset.y.toFloat()
+    val cellBottom = cellTop + info.size.height
+    val bottom = layoutInfo.viewportSize.height - bottomMarginPx
+    val d = when {
+        cellTop < 0f -> cellTop
+        cellBottom > bottom -> cellBottom - bottom
+        else -> 0f
+    }
+    if (d != 0f) animateScrollBy(d)
+}
+
+@Composable
+private fun PageButton(icon: ImageVector, label: String?, glyph: String?, description: String, onClick: () -> Unit) {
+    val src = remember { MutableInteractionSource() }
+    val shape = RoundedCornerShape(12.dp)
+    Row(
+        Modifier
+            .clip(shape)
+            .background(Color.White.copy(alpha = 0.10f))
+            .border(1.dp, Color.White.copy(alpha = 0.14f), shape)
+            .xmbClick(src, onClick)
+            .heightIn(min = 48.dp)
+            .widthIn(min = 48.dp)
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+    ) {
+        Icon(icon, contentDescription = description, tint = PAGE_TEXT, modifier = Modifier.size(22.dp))
+        if (label != null) Text(label, color = PAGE_TEXT, fontSize = 13.sp, maxLines = 1)
+        if (glyph != null) {
+            Box(Modifier.size(17.dp).clip(CircleShape).background(Color(0xFFB4B4B4)), contentAlignment = Alignment.Center) {
+                Text(glyph, color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+/** A cover with its name under it, for the grid and the big-art views. */
+@Composable
+private fun CoverCell(s: Shortcut, selected: Boolean, accent: Color, markSize: Dp, big: Boolean, stat: PlayStats?, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(8.dp)
+    val src = remember { MutableInteractionSource() }
+    val mark = remember(s) { storeMarkOf(s) }
+    Column(Modifier.fillMaxWidth()) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .aspectRatio(2f / 3f)
+                .then(if (selected) Modifier.shadow(12.dp, shape, ambientColor = accent, spotColor = accent) else Modifier)
+                .clip(shape)
+                .background(Color(0xFF111111))
+                .then(if (selected) Modifier.border(2.dp, accent, shape) else Modifier)
+                .xmbClick(src, onClick),
+        ) {
+            val bmp = s.icon
+            if (bmp != null) {
+                Image(
+                    bitmap = remember(bmp) { bmp.asImageBitmap() },
+                    contentDescription = s.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                XmbMonogram(s.name, accent)
+            }
+            XmbStoreMark(mark, Modifier.align(Alignment.BottomEnd).padding(5.dp), markSize)
+        }
+        Text(
+            s.name, color = if (selected) Color.White else PAGE_TEXT, fontSize = if (big) 14.sp else 11.sp,
+            fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 5.dp, start = 2.dp, end = 2.dp),
+        )
+        if (big) {
+            val played = remember(stat) { playtimeLabel(stat?.ms ?: 0L) }
+            Text(played, color = PAGE_MUTED, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 2.dp))
+        }
+    }
+}
+
+/** One row of the list view: a small cover, the name, and where it is from and how long it has been played. */
+@Composable
+private fun ListRow(s: Shortcut, selected: Boolean, accent: Color, stat: PlayStats?, markSize: Dp, onClick: () -> Unit) {
+    val context = LocalContext.current
+    val shape = RoundedCornerShape(12.dp)
+    val coverShape = RoundedCornerShape(6.dp)
+    val src = remember { MutableInteractionSource() }
+    val mark = remember(s) { storeMarkOf(s) }
+    val subtitle = remember(s, stat) {
+        listOfNotNull(storeLabelOf(s), playtimeLabel(stat?.ms ?: 0L), lastPlayedLabel(context, stat?.lastPlayed ?: 0L)).joinToString(" · ")
+    }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(if (selected) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.05f))
+            .then(if (selected) Modifier.border(2.dp, accent, shape) else Modifier)
+            .xmbClick(src, onClick)
+            .padding(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.width(48.dp).aspectRatio(2f / 3f).clip(coverShape).background(Color(0xFF111111))) {
+            val bmp = s.icon
+            if (bmp != null) {
+                Image(
+                    bitmap = remember(bmp) { bmp.asImageBitmap() },
+                    contentDescription = s.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Box(
+                    Modifier.fillMaxSize().background(Brush.linearGradient(listOf(accent.copy(alpha = 0.55f), Color(0xFF0A0A0A)))),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(xmbInitials(s.name), color = Color.White.copy(alpha = 0.92f), fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                }
+            }
+            XmbStoreMark(mark, Modifier.align(Alignment.BottomEnd).padding(2.dp), markSize)
+        }
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                s.name, color = if (selected) Color.White else PAGE_TEXT, fontSize = 16.sp,
+                fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+            Text(subtitle, color = PAGE_MUTED, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}

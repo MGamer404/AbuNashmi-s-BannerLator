@@ -87,6 +87,7 @@ import com.winlator.star.ui.deck.ScreenScale
 import com.winlator.star.ui.deck.XmbEditTapCatcher
 import com.winlator.star.ui.deck.XmbKeyboardHost
 import com.winlator.star.ui.deck.XmbTriggerGuard
+import com.winlator.star.ui.deck.XmbWashTheme
 import com.winlator.star.ui.deck.XmbScreenWindow
 import com.winlator.star.ui.deck.rememberXmbEdit
 import com.winlator.star.ui.deck.xmbEditField
@@ -114,17 +115,20 @@ internal fun StoreXmbScreen(content: @Composable () -> Unit) {
     XmbScreenWindow(xmb)
     // XMB home: the XMB keyboard replaces Android's for every text field on the screen.
     val hosted: @Composable () -> Unit = { XmbKeyboardHost(xmb, content) }
-    CompositionLocalProvider(LocalStoreXmb provides xmb) {
-        if (!xmb) {
-            hosted()
-        } else {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background)
-                    .windowInsetsPadding(WindowInsets.ime)
-                    .padding(horizontal = xmbFrame()),
-            ) { hosted() }
+    // XMB home: the theme's background is the wash, so this fill and every rail, tab row and page inside it share one tone.
+    XmbWashTheme(xmb) {
+        CompositionLocalProvider(LocalStoreXmb provides xmb) {
+            if (!xmb) {
+                hosted()
+            } else {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.background)
+                        .windowInsetsPadding(WindowInsets.ime)
+                        .padding(horizontal = xmbFrame()),
+                ) { hosted() }
+            }
         }
     }
 }
@@ -135,7 +139,9 @@ internal fun StoreXmbScreen(content: @Composable () -> Unit) {
  */
 @Composable
 internal fun StoreKeyboardTheme(content: @Composable () -> Unit) {
-    com.winlator.star.ui.theme.WinlatorTheme { XmbKeyboardHost(content = content) }
+    com.winlator.star.ui.theme.WinlatorTheme {
+        XmbWashTheme(rememberXmbHome()) { XmbKeyboardHost(content = content) }
+    }
 }
 
 /**

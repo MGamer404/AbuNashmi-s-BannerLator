@@ -23,4 +23,8 @@ abstract class RequestCodes {
      *  flags u32 LE, pid u32 LE, build u8; 21 bytes with the code. Sent when a control-block change
      *  (Direct / forward / hidden) has been applied in a process. */
     public static final byte XINPUT_STATUS = 16;
+    /** Text field focus: "BTF1", active u8, editStyle i32 LE, caret x/y/w/h i32 LE (screen coordinates), pid i32 LE;
+     *  30 bytes with the code. Sent by the guest bltextfocus.exe (app/src/main/cpp/bltextfocus) when the focused
+     *  Windows control becomes or stops being a text field, plus a repeat every 2 s while it is. */
+    public static final byte TEXT_FOCUS = 17;
 }

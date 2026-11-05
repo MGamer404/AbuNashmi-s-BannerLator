@@ -217,8 +217,11 @@ internal fun DeckShell(
     // The XMB mode can be switched on and off while the shell is up, so the keyboard host follows the live setting.
     val xmbHome by AppThemeState.deckXmbHome.collectAsState()
     DeckTheme {
-        XmbKeyboardHost(xmbHome) {
-            DeckShellContent(startRoute, pendingRoute, onPendingRouteConsumed, onAbout, onLaunchStore)
+        // XMB mode: every page's own `colorScheme.background` fill is the wash too, not a flat patch of the plain preset colour.
+        XmbWashTheme(xmbHome) {
+            XmbKeyboardHost(xmbHome) {
+                DeckShellContent(startRoute, pendingRoute, onPendingRouteConsumed, onAbout, onLaunchStore)
+            }
         }
     }
 }
@@ -453,6 +456,7 @@ private fun DeckShellContent(
 
     // Backdrop: the theme background, washed with two soft glows.
     // On Home they follow the focused game's cover; elsewhere they are the accent.
+    // XMB mode has no glows: its backdrop is one even wash of the theme colour, the same on every page and from edge to edge.
     val tints = ambient.value
     val glow1 by animateColorAsState(tints?.first ?: cs.primary, tween(900), label = "deckGlow1")
     val glow2 by animateColorAsState(tints?.second ?: lerp(cs.primary, cs.background, 0.35f), tween(900), label = "deckGlow2")
@@ -467,23 +471,27 @@ private fun DeckShellContent(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(cs.background)
-                .drawBehind {
-                    drawRect(
-                        Brush.radialGradient(
-                            colors = listOf(glow1.copy(alpha = 0.30f), Color.Transparent),
-                            center = Offset(size.width * 0.88f, -size.height * 0.10f),
-                            radius = size.maxDimension * 0.75f,
-                        )
-                    )
-                    drawRect(
-                        Brush.radialGradient(
-                            colors = listOf(glow2.copy(alpha = 0.20f), Color.Transparent),
-                            center = Offset(-size.width * 0.05f, size.height * 1.05f),
-                            radius = size.maxDimension * 0.65f,
-                        )
-                    )
-                },
+                .then(
+                    if (xmbHome) Modifier.xmbWashBackground()
+                    else Modifier
+                        .background(cs.background)
+                        .drawBehind {
+                            drawRect(
+                                Brush.radialGradient(
+                                    colors = listOf(glow1.copy(alpha = 0.30f), Color.Transparent),
+                                    center = Offset(size.width * 0.88f, -size.height * 0.10f),
+                                    radius = size.maxDimension * 0.75f,
+                                )
+                            )
+                            drawRect(
+                                Brush.radialGradient(
+                                    colors = listOf(glow2.copy(alpha = 0.20f), Color.Transparent),
+                                    center = Offset(-size.width * 0.05f, size.height * 1.05f),
+                                    radius = size.maxDimension * 0.65f,
+                                )
+                            )
+                        }
+                ),
         ) {
             // Landscape: a camera hole on a short edge is not left as an empty strip. The side rail's glass runs under it with its
             // icons clear of it; on the other side the page background runs under it and only the page, not the legend, keeps clear.

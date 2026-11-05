@@ -133,6 +133,7 @@ import com.winlator.star.ui.screens.ShortcutLaunchDialogs
 import com.winlator.star.ui.screens.ShortcutsViewModel
 import com.winlator.star.ui.screens.rememberShortcutActions
 import com.winlator.star.ui.screens.ShortcutsXmbView
+import com.winlator.star.ui.screens.xmbRowOf
 import com.winlator.star.ui.screens.WrapperManagerDialog
 import com.winlator.star.ui.screens.XmbAction
 import com.winlator.star.ui.screens.XmbCardArt
@@ -154,14 +155,6 @@ private enum class LibraryMode(val label: String, val icon: ImageVector) {
     LIST("List", Icons.AutoMirrored.Filled.List),
     // The Games screen's XMB (cover row + options column), drawn in Home's library area.
     XMB("XMB", Icons.Filled.ViewCarousel),
-}
-
-private enum class LibrarySort(val label: String) {
-    NAME("Name A–Z"),
-    NAME_DESC("Name Z–A"),
-    RECENT("Last played"),
-    PLAYTIME("Most played"),
-    CONTAINER("Container"),
 }
 
 private enum class PlayedFilter(val label: String) { ANY("Any"), PLAYED("Played"), NEVER("Never played") }
@@ -193,13 +186,7 @@ private fun applyFilter(list: List<Shortcut>, f: LibraryFilter, stats: Map<Strin
                 PlayedFilter.NEVER -> (stats[s.file.path]?.ms ?: 0L) <= 0L && (stats[s.file.path]?.lastPlayed ?: 0L) <= 0L
             }
     }
-    return when (f.sort) {
-        LibrarySort.NAME -> filtered.sortedBy { it.name.lowercase() }
-        LibrarySort.NAME_DESC -> filtered.sortedByDescending { it.name.lowercase() }
-        LibrarySort.RECENT -> filtered.sortedWith(compareByDescending<Shortcut> { stats[it.file.path]?.lastPlayed ?: 0L }.thenBy { it.name.lowercase() })
-        LibrarySort.PLAYTIME -> filtered.sortedWith(compareByDescending<Shortcut> { stats[it.file.path]?.ms ?: 0L }.thenBy { it.name.lowercase() })
-        LibrarySort.CONTAINER -> filtered.sortedWith(compareBy<Shortcut> { it.container.name.lowercase() }.thenBy { it.name.lowercase() })
-    }
+    return sortGames(filtered, f.sort) { gameSortKeyOf(it, stats) }
 }
 
 /**
@@ -307,11 +294,15 @@ internal fun DeckHome(
     val recentlyAdded = remember(shortcuts) {
         shortcuts.sortedByDescending { runCatching { it.file.lastModified() }.getOrDefault(0L) }.take(12)
     }
-    // The XMB home always runs from the last game played (far left) back; never-played games follow by name.
+    // The XMB (home or full screen) always runs from the last game played (far left) back; never-played games follow by name.
     // The saved sort is left alone for the other views.
-    val visible = remember(shortcuts, stats, filter, xmbHome) {
-        applyFilter(shortcuts, if (xmbHome) filter.copy(sort = LibrarySort.RECENT) else filter, stats)
+    val xmbOrder = xmbHome || mode == LibraryMode.XMB
+    val visible = remember(shortcuts, stats, filter, xmbOrder) {
+        applyFilter(shortcuts, if (xmbOrder) filter.copy(sort = LibrarySort.RECENT) else filter, stats)
     }
+    // The XMB's games row holds only the latest XMB_ROW_LIMIT games, the rest are on its All Games page. A filter in use
+    // shows its matches in full.
+    val xmbRow = remember(visible, filter, xmbOrder) { xmbRowOf(visible, enabled = xmbOrder && filter.activeCount == 0) }
     val storeShelves = remember(visible) {
         STORE_SHELVES.map { (label, test) -> label to visible.filter(test) }
             .filter { (_, list) -> list.isNotEmpty() && list.size < visible.size }
@@ -561,7 +552,8 @@ internal fun DeckHome(
         } else {
             Box(modifier = Modifier.fillMaxSize()) {
                 ShortcutsXmbView(
-                    shortcuts = visible,
+                    shortcuts = xmbRow,
+                    allShortcuts = visible,
                     selectionMode = false,
                     selectedPaths = emptySet(),
                     onToggleSelect = {},

@@ -692,6 +692,17 @@ jobs:
           -o app/src/main/assets/xbox/bxsaveup.exe app/src/main/cpp/xbox-saveup/bxsaveup.c
         ls -l app/src/main/assets/xbox/bxsaveup.exe
 
+    # bltextfocus.exe (app/src/main/cpp/bltextfocus): the guest helper that tells the app when a text field in the
+    # running Windows app gets the keyboard focus (winhandler/TextFocusHelper stages it into the prefix). x86_64
+    # like bxsaveup, a GUI-subsystem exe (no console window) over winsock. Lands in assets/ itself, not assets/xbox
+    # (the Xbox step above recreates that folder); never committed, and the app treats a missing asset as "no helper".
+    - name: Build the text focus helper into assets
+      run: |
+        set -euo pipefail
+        "$HOME/.cache/llvm-mingw-bylaws-20250920/bin/x86_64-w64-mingw32-clang" -std=gnu11 -O2 -Wall -Wextra -s -mwindows \
+          -o app/src/main/assets/bltextfocus.exe app/src/main/cpp/bltextfocus/bltextfocus.c -lws2_32
+        ls -l app/src/main/assets/bltextfocus.exe
+
     - name: Restore Galaxy Performance SDK jar (optional, from secret)
       # Decodes the proprietary Samsung jar from the encrypted secret into the git-ignored
       # drop-point so app/build.gradle bundles it. No secret => no jar => feature dormant.
