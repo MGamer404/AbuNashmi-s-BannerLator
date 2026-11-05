@@ -96,7 +96,7 @@ import com.winlator.star.ui.deck.isXmbHome
 import com.winlator.star.ui.deck.rememberScreenScale
 import com.winlator.star.ui.deck.xmbFrame
 import com.winlator.star.ui.deck.XmbWashTheme
-import com.winlator.star.ui.deck.xmbGlowBackground
+import com.winlator.star.ui.deck.xmbGlassBackground
 import com.winlator.star.ui.theme.LocalAccentDim
 import com.winlator.star.ui.theme.WinlatorTheme
 import java.io.File
@@ -146,7 +146,7 @@ class DownloadManagerActivity : ComponentActivity() {
 
         setContent {
             WinlatorTheme {
-                // XMB home: the page sits on the theme-colour glow and its cards are glass over it (a no-op in the other styles).
+                // XMB home: the page sits on the charcoal glass and its cards are glass over it (a no-op in the other styles).
                 XmbWashTheme(xmbHome) {
                     DownloadManagerScreen(
                         xmbHome = xmbHome,
@@ -521,7 +521,7 @@ private fun DownloadManagerScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .xmbGlowBackground()
+                    .xmbGlassBackground()
                     .padding(start = frame, end = frame, top = scale.dp(6f)),
             ) {
                 XmbDownloadsBar(onBack, onClear, look)

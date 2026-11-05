@@ -221,8 +221,8 @@ internal fun DeckShell(
     val route by navController.currentBackStackEntryAsState()
     val onHome = (route?.destination?.route ?: DeckRoutes.HOME) == DeckRoutes.HOME
     DeckTheme {
-        // XMB mode: every page but Home sits on the glow, so its own `colorScheme.background` fill goes clear; Home keeps the flat wash.
-        XmbWashTheme(xmbHome, glow = !onHome) {
+        // XMB mode: every page but Home sits on the charcoal glass, so its own `colorScheme.background` fill goes clear; Home is plain black under its own backdrop.
+        XmbWashTheme(xmbHome, glass = !onHome) {
             XmbKeyboardHost(xmbHome) {
                 DeckShellContent(navController, startRoute, pendingRoute, onPendingRouteConsumed, onAbout, onLaunchStore)
             }
@@ -460,8 +460,8 @@ private fun DeckShellContent(
 
     // Backdrop: the theme background, washed with two soft glows.
     // On Home they follow the focused game's cover; elsewhere they are the accent.
-    // XMB mode has no ambient glows: Home sits on one even wash of the theme colour, every other page on the soft theme-colour glow
-    // (XmbGlowBackdrop), the same for all of them and from edge to edge.
+    // XMB mode has no ambient glows: Home sits on plain black (the preset never tints it), every other page on the neutral charcoal glass
+    // (XmbGlassBackdrop), the same for all of them and from edge to edge.
     val tints = ambient.value
     val glow1 by animateColorAsState(tints?.first ?: cs.primary, tween(900), label = "deckGlow1")
     val glow2 by animateColorAsState(tints?.second ?: lerp(cs.primary, cs.background, 0.35f), tween(900), label = "deckGlow2")
@@ -477,7 +477,7 @@ private fun DeckShellContent(
             modifier = Modifier
                 .fillMaxSize()
                 .then(
-                    if (xmbHome) { if (currentRoute == DeckRoutes.HOME) Modifier.xmbWashBackground() else Modifier }
+                    if (xmbHome) { if (currentRoute == DeckRoutes.HOME) Modifier.background(Color.Black) else Modifier }
                     else Modifier
                         .background(cs.background)
                         .drawBehind {
@@ -498,8 +498,8 @@ private fun DeckShellContent(
                         }
                 ),
         ) {
-            // XMB mode, every page but Home (which paints its own over the wash): the glow, behind the page and the bars.
-            if (xmbHome && currentRoute != DeckRoutes.HOME) XmbGlowBackdrop(Modifier.matchParentSize())
+            // XMB mode, every page but Home (which paints its own over the black): the glass, behind the page and the bars.
+            if (xmbHome && currentRoute != DeckRoutes.HOME) XmbGlassBackdrop(Modifier.matchParentSize())
             // Landscape: a camera hole on a short edge is not left as an empty strip. The side rail's glass runs under it with its
             // icons clear of it; on the other side the page background runs under it and only the page, not the legend, keeps clear.
             val dir = LocalLayoutDirection.current

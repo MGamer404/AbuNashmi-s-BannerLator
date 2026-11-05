@@ -76,7 +76,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
@@ -84,12 +83,12 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -429,8 +428,6 @@ internal fun ShortcutsXmbView(
         val rowScale = { 1f + (homeK - 1f) * cT * (1f - upT) }
         val pitchPx = with(density) { m.pitch.dp.toPx() }
         val rowPx = with(density) { m.rowH.dp.toPx() }
-        val wPx = with(density) { maxWidth.toPx() }
-        val hPx = with(density) { maxHeight.toPx() }
 
         var swipe by remember { mutableFloatStateOf(0f) }
         val swipeBackPx = with(density) { 60.dp.toPx() }
@@ -571,33 +568,34 @@ internal fun ShortcutsXmbView(
                 )
                 .draggable(swipeDrag, Orientation.Vertical, onDragStarted = { swipeAcc = 0f; swipeDone = false }),
         ) {
-            // Background: accent glow → the focused cover (with the cards up, the chosen card's art), blurred → shade. The All
-            // Games card has no art, so on it only the glow and the shade show.
-            Box(
-                Modifier.fillMaxSize().background(
-                    Brush.radialGradient(
-                        0f to accent.copy(alpha = 0.50f), 0.48f to accent.copy(alpha = 0.10f), 0.85f to Color.Black,
-                        center = Offset(wPx * 0.18f, 0f), radius = max(wPx, hPx) * 1.1f,
-                    )
-                )
-            )
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                val card = if (upperOpen) upperRow.getOrNull(upIdx) else null
-                // Keyed on the card's art and icon (not the card itself, whose lambdas change every recomposition).
-                val picture: Any? = card?.let { c -> c.art?.let { XmbBackdropArt(it, c.icon) } } ?: focused?.icon
-                Crossfade(targetState = picture, animationSpec = tween(600), label = "xmbBackdrop") { pic ->
-                    when (pic) {
-                        is Bitmap -> Image(
-                            bitmap = remember(pic) { pic.asImageBitmap() },
+            // Background: black, the focused cover (with the cards up, the chosen card's art) blurred at full brightness, one flat
+            // veil for the text. Nothing else (no accent glow, no scrims, no preset colour), so the home looks the same under
+            // every preset. The All Games card has no art, so on it only the black shows.
+            Box(Modifier.fillMaxSize().background(Color.Black))
+            val card = if (upperOpen) upperRow.getOrNull(upIdx) else null
+            // Keyed on the card's art and icon (not the card itself, whose lambdas change every recomposition).
+            val picture: Any? = card?.let { c -> c.art?.let { XmbBackdropArt(it, c.icon) } } ?: focused?.icon
+            // Modifier.blur does nothing below API 31, where the art is drawn pre-shrunk and scaled up instead.
+            val nativeBlur = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+            Crossfade(targetState = picture, animationSpec = tween(600), label = "xmbBackdrop") { pic ->
+                when (pic) {
+                    is Bitmap -> {
+                        val art = remember(pic, nativeBlur) { if (nativeBlur) pic else xmbBackdropSoftBitmap(pic) }
+                        if (art != null) Image(
+                            bitmap = remember(art) { art.asImageBitmap() },
                             contentDescription = null,
                             contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize().blur(14.dp).alpha(0.34f),
+                            filterQuality = if (nativeBlur) FilterQuality.Low else FilterQuality.Medium,
+                            modifier = Modifier.fillMaxSize().blur(XMB_BACKDROP_BLUR),
                         )
-                        is XmbBackdropArt -> Box(
-                            Modifier.fillMaxSize().blur(14.dp).alpha(0.34f).background(Brush.linearGradient(pic.art.colors)),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            val logo = pic.art.logo
+                    }
+                    is XmbBackdropArt -> Box(
+                        Modifier.fillMaxSize().blur(XMB_BACKDROP_BLUR).background(Brush.linearGradient(pic.art.colors)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        val logo = pic.art.logo
+                        // Below API 31 the logo would stay sharp, so only the card's colours show there.
+                        if (nativeBlur) {
                             if (logo != null) {
                                 rememberXmbLogo(logo)?.let { bmp ->
                                     Image(
@@ -613,8 +611,7 @@ internal fun ShortcutsXmbView(
                     }
                 }
             }
-            Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Color.Black.copy(alpha = 0.55f), 0.55f to Color.Black.copy(alpha = 0.1f), 1f to Color.Black.copy(alpha = 0.45f))))
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.4f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.9f))))
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = XMB_BACKDROP_VEIL)))
             // Faint shade behind a see-through top bar so its title and buttons stay readable.
             if (topInset > 0.dp) {
                 Box(Modifier.fillMaxWidth().height(topInset + 24.dp).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.35f), Color.Transparent))))
@@ -1223,6 +1220,31 @@ private fun XmbUpperCard(
 
 /** What the backdrop shows for a chosen upper-row card: its [art], with [icon] standing in for a missing logo. */
 private data class XmbBackdropArt(val art: XmbCardArt, val icon: ImageVector)
+
+/** The home backdrop's blur: a medium one, so the art stays recognisable (the old Big Picture hero used 40 dp as "heavy"). */
+private val XMB_BACKDROP_BLUR = 16.dp
+
+/** The one flat black veil over the home backdrop's art, just enough for the text on top to stay readable. */
+internal const val XMB_BACKDROP_VEIL = 0.30f
+
+/** Below API 31 the backdrop art is shrunk to 1/this of its size and scaled back up, which looks blurred. */
+internal const val XMB_BACKDROP_SOFT_DIV = 16
+
+/** The size [xmbBackdropSoftBitmap] shrinks a [w] x [h] picture to; never below 1 px. */
+internal fun xmbBackdropSoftSize(w: Int, h: Int): Pair<Int, Int> =
+    max(1, w / XMB_BACKDROP_SOFT_DIV) to max(1, h / XMB_BACKDROP_SOFT_DIV)
+
+/**
+ * A tiny copy of [src] for the backdrop below API 31, where Modifier.blur does nothing: drawn scaled up with filtering it
+ * looks blurred. Halved step by step, as one big filtered jump skips pixels and aliases. Null if the bitmap can't be scaled
+ * (the backdrop then shows only its black base).
+ */
+private fun xmbBackdropSoftBitmap(src: Bitmap): Bitmap? = runCatching {
+    val (w, h) = xmbBackdropSoftSize(src.width, src.height)
+    var cur = src
+    while (cur.width / 2 > w && cur.height / 2 > h) cur = Bitmap.createScaledBitmap(cur, cur.width / 2, cur.height / 2, true)
+    Bitmap.createScaledBitmap(cur, w, h, true)
+}.getOrNull()
 
 // Right / lower pane: store badges, the same spec chips as the list card, playtime and Game Details.
 @OptIn(ExperimentalLayoutApi::class)

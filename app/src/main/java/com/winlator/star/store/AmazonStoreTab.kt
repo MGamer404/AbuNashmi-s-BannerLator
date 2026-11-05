@@ -35,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.winlator.star.ui.deck.xmbCardFill
 import com.winlator.star.ui.deck.xmbCardLine
+import com.winlator.star.ui.deck.xmbSheen
 
 /**
  * The Amazon **Store** tab.
@@ -188,7 +189,7 @@ private fun PrimeGamingCard(onOpenWeb: (url: String, title: String) -> Unit, mod
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(xmbCardFill(MaterialTheme.colorScheme.surfaceContainer))
+            .background(xmbCardFill(MaterialTheme.colorScheme.surfaceContainer)).xmbSheen()
             .border(1.dp, xmbCardLine(MaterialTheme.colorScheme.outline), shape)
             .padding(16.dp),
     ) {

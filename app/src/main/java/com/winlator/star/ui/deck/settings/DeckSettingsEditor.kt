@@ -101,6 +101,7 @@ import com.winlator.star.ui.deck.SoraFamily
 import com.winlator.star.ui.deck.deckCardFill
 import com.winlator.star.ui.deck.deckFocusRing
 import com.winlator.star.ui.deck.deckGlass
+import com.winlator.star.ui.deck.xmbSheen
 import com.winlator.star.ui.deck.deckLine
 import com.winlator.star.ui.screens.OutlinedAlertDialog
 import com.winlator.star.ui.screens.UnsavedChangesDialog
@@ -901,6 +902,8 @@ internal fun GroupCard(first: Boolean, last: Boolean, highlight: Boolean, conten
             .fillMaxWidth()
             .clip(shape)
             .background(deckCardFill())
+            // The sheen is the light on the top of the whole group card, so only its first slice carries it.
+            .then(if (first) Modifier.xmbSheen() else Modifier)
             .background(if (highlight) cs.primary.copy(alpha = 0.12f) else Color.Transparent),
     ) {
         if (!first) HorizontalDivider(thickness = 1.dp, color = deckLine().copy(alpha = 0.6f))
@@ -1555,6 +1558,7 @@ private fun SearchResult(title: String, path: String, value: String?, badge: Str
             .deckFocusRing(shape, scaleTo = 1.01f)
             .clip(shape)
             .background(deckCardFill())
+            .xmbSheen()
             .clickable(onClick = onClick)
             .padding(horizontal = 18.dp, vertical = 12.dp),
     ) {

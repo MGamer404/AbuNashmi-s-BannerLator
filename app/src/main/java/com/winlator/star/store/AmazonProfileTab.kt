@@ -26,6 +26,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.winlator.star.ui.deck.xmbCardFill
 import com.winlator.star.ui.deck.xmbCardLine
+import com.winlator.star.ui.deck.xmbSheen
 import com.winlator.star.store.download.StoreSection
 import com.winlator.star.store.download.StoreStatusText
 
@@ -50,7 +51,7 @@ fun AmazonProfileTab(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(12.dp))
-                .background(xmbCardFill(MaterialTheme.colorScheme.surfaceContainer))
+                .background(xmbCardFill(MaterialTheme.colorScheme.surfaceContainer)).xmbSheen()
                 .border(1.dp, xmbCardLine(MaterialTheme.colorScheme.outline), RoundedCornerShape(12.dp))
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,

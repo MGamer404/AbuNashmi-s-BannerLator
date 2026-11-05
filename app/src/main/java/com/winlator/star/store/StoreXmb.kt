@@ -85,7 +85,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import kotlinx.coroutines.launch
 import com.winlator.star.ui.deck.ScreenScale
 import com.winlator.star.ui.deck.XmbEditTapCatcher
-import com.winlator.star.ui.deck.XmbGlowBackdrop
+import com.winlator.star.ui.deck.XmbGlassBackdrop
 import com.winlator.star.ui.deck.XmbKeyboardHost
 import com.winlator.star.ui.deck.XmbTriggerGuard
 import com.winlator.star.ui.deck.XmbWashTheme
@@ -99,6 +99,7 @@ import com.winlator.star.ui.deck.rememberXmbHome
 import com.winlator.star.ui.deck.xmbChipOverArt
 import com.winlator.star.ui.deck.xmbFrame
 import com.winlator.star.ui.deck.xmbPageFrost
+import com.winlator.star.ui.deck.xmbSheen
 import com.winlator.star.ui.theme.LocalAccentDim
 
 // The store screens in the Deck interface's XMB-home mode: edge to edge in an even frame, a slim rail, a compact search
@@ -118,7 +119,7 @@ internal fun StoreXmbScreen(content: @Composable () -> Unit) {
     XmbScreenWindow(xmb)
     // XMB home: the XMB keyboard replaces Android's for every text field on the screen.
     val hosted: @Composable () -> Unit = { XmbKeyboardHost(xmb, content) }
-    // XMB home: the screen sits on the theme-colour glow and the theme's own background is clear, so the glow shows through every
+    // XMB home: the screen sits on the charcoal glass and the theme's own background is clear, so the glass shows through every
     // rail, tab row and page inside it, and their cards are glass over it.
     XmbWashTheme(xmb) {
         CompositionLocalProvider(LocalStoreXmb provides xmb) {
@@ -126,7 +127,7 @@ internal fun StoreXmbScreen(content: @Composable () -> Unit) {
                 hosted()
             } else {
                 Box(Modifier.fillMaxSize()) {
-                    XmbGlowBackdrop(Modifier.matchParentSize())
+                    XmbGlassBackdrop(Modifier.matchParentSize())
                     Box(
                         Modifier
                             .fillMaxSize()
@@ -151,9 +152,9 @@ internal fun StoreKeyboardTheme(content: @Composable () -> Unit) {
             if (!xmb) {
                 XmbKeyboardHost(content = content)
             } else {
-                // These screens paint no backdrop of their own, and their `background` fills are clear on the glow.
+                // These screens paint no backdrop of their own, and their `background` fills are clear on the glass.
                 Box(Modifier.fillMaxSize()) {
-                    XmbGlowBackdrop(Modifier.matchParentSize())
+                    XmbGlassBackdrop(Modifier.matchParentSize())
                     XmbKeyboardHost(content = content)
                 }
             }
@@ -599,7 +600,7 @@ internal fun XmbFeatureCard(
     val s = rememberScreenScale()
     val cs = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(s.dp(12f))
-    // On the glow the card is frosted glass over it (a thin light fill and hairline); elsewhere the opaque card, as before.
+    // On the glass pages the card is frosted glass (a light fill, a thin border and the sheen); elsewhere the opaque card, as before.
     val frost = xmbPageFrost()
     Row(
         modifier = modifier
@@ -607,6 +608,7 @@ internal fun XmbFeatureCard(
             .deckFocusRing(shape, scaleTo = 1.03f)
             .clip(shape)
             .background(frost?.card ?: cs.surfaceContainer)
+            .xmbSheen()
             .border(1.dp, frost?.line ?: cs.outline, shape)
             .clickable(onClick = onClick)
             .padding(s.dp(8f)),

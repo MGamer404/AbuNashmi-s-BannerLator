@@ -104,8 +104,9 @@ internal fun DeckTheme(content: @Composable () -> Unit) {
 /** How much smaller the Deck style draws than the rest of the app. */
 internal const val DECK_UI_SCALE = 0.8f
 
-// On an XMB glow page (see XmbBackdrop.kt) the three below turn to frosted glass: a thin light fill and hairline over the
-// glow, and a veil of the glow's base for the bars. Everywhere else, including Home and the dialogs, they are as they were.
+// On an XMB glass page (see XmbBackdrop.kt) the three below turn to frosted glass: a slightly lighter translucent fill and a thin
+// light border over the charcoal base, and a veil of the base for the bars. A card also gets the sheen at its top (xmbSheen,
+// right after its background). Everywhere else, including Home and the dialogs, they are as they were.
 
 /** Translucent bar fill (top strip, legend, bottom bar): the theme background at 72%. */
 @Composable

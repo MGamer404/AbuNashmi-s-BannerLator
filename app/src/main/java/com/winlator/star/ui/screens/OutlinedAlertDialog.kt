@@ -13,7 +13,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import com.winlator.star.ui.DeckDialogBars
 import com.winlator.star.ui.DeckDialogScaled
-import com.winlator.star.ui.deck.xmbOnGlow
+import com.winlator.star.ui.deck.xmbOnGlass
 import com.winlator.star.ui.deck.xmbPanel
 
 // Single source of truth for the app's AlertDialogs: a drop-in wrapper around the Material3
@@ -42,9 +42,9 @@ internal fun OutlinedAlertDialog(
     tonalElevation: Dp = AlertDialogDefaults.TonalElevation,
     properties: DialogProperties = DialogProperties()
 ) {
-    // XMB glow pages: the stock container is replaced by a frosted panel over its own glow (see xmbPanel). A dialog that asks
+    // XMB glass pages: the stock container is replaced by a frosted panel of its own (see xmbPanel). A dialog that asks
     // for a colour of its own keeps it.
-    val glass = xmbOnGlow() && containerColor == AlertDialogDefaults.containerColor
+    val glass = xmbOnGlass() && containerColor == AlertDialogDefaults.containerColor
     AlertDialog(
         onDismissRequest = onDismissRequest,
         confirmButton = {

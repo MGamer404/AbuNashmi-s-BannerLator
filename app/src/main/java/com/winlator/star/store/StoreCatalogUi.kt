@@ -70,6 +70,7 @@ import com.winlator.star.ui.deck.rememberScreenScale
 import com.winlator.star.ui.deck.xmbCardFill
 import com.winlator.star.ui.deck.xmbCardLine
 import com.winlator.star.ui.deck.xmbChipOverArt
+import com.winlator.star.ui.deck.xmbSheen
 import com.winlator.star.ui.theme.StoreDiscountBg
 import com.winlator.star.ui.theme.StoreDiscountInk
 import com.winlator.star.ui.theme.StoreFreeGreen
@@ -367,7 +368,7 @@ fun CatalogRailCard(
             .width(StoreCardWidth)
             .steamFocusRing(shape)
             .clip(shape)
-            .background(xmbCardFill(MaterialTheme.colorScheme.surfaceContainer))
+            .background(xmbCardFill(MaterialTheme.colorScheme.surfaceContainer)).xmbSheen()
             .border(1.dp, xmbCardLine(MaterialTheme.colorScheme.outline), shape)
             .clickable(onClick = onOpen),
     ) {
@@ -427,7 +428,7 @@ fun CatalogResultRow(
             .fillMaxWidth()
             .steamFocusRing(shape)
             .clip(shape)
-            .background(xmbCardFill(MaterialTheme.colorScheme.surfaceContainer))
+            .background(xmbCardFill(MaterialTheme.colorScheme.surfaceContainer)).xmbSheen()
             .border(1.dp, xmbCardLine(MaterialTheme.colorScheme.outline), shape)
             .clickable(onClick = onOpen)
             .padding(9.dp),
@@ -501,7 +502,7 @@ fun CatalogHeroCard(
             .fillMaxWidth()
             .steamFocusRing(shape)
             .clip(shape)
-            .background(xmbCardFill(MaterialTheme.colorScheme.surfaceContainer))
+            .background(xmbCardFill(MaterialTheme.colorScheme.surfaceContainer)).xmbSheen()
             .border(1.dp, xmbCardLine(MaterialTheme.colorScheme.outline), shape)
             .clickable(onClick = onOpen),
     ) {
@@ -620,7 +621,7 @@ fun CatalogLibraryTile(
             .fillMaxWidth()
             .steamFocusRing(shape)
             .clip(shape)
-            .background(xmbCardFill(MaterialTheme.colorScheme.surfaceContainer))
+            .background(xmbCardFill(MaterialTheme.colorScheme.surfaceContainer)).xmbSheen()
             .border(1.dp, xmbCardLine(MaterialTheme.colorScheme.outline), shape)
             .clickable(onClick = onOpen),
     ) {

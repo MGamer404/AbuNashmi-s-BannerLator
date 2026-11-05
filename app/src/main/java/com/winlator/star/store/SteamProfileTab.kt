@@ -73,6 +73,7 @@ import com.winlator.star.store.blsteam.BlPlayerProfile
 import com.winlator.star.store.blsteam.BlSteamEngine
 import com.winlator.star.ui.deck.xmbCardFill
 import com.winlator.star.ui.deck.xmbCardLine
+import com.winlator.star.ui.deck.xmbSheen
 import com.winlator.star.ui.theme.LocalAccentDim
 import `in`.dragonbra.javasteam.enums.EPersonaState
 import java.util.Locale
@@ -323,7 +324,7 @@ private fun IdentityCard(c: ProfileTabContent) {
             .padding(horizontal = 14.dp, vertical = 12.dp)
             .fillMaxWidth()
             .clip(shape)
-            .background(xmbCardFill(MaterialTheme.colorScheme.surfaceContainer))
+            .background(xmbCardFill(MaterialTheme.colorScheme.surfaceContainer)).xmbSheen()
             .border(1.dp, xmbCardLine(MaterialTheme.colorScheme.outline), shape),
     ) {
         // Banner: an accent wash, the same gradient treatment ProfileHero uses. When the account has
@@ -735,7 +736,7 @@ private fun StatTile(
         modifier = modifier
             .then(if (onClick != null) Modifier.steamFocusRing(shape) else Modifier)
             .clip(shape)
-            .background(xmbCardFill(MaterialTheme.colorScheme.surfaceContainer))
+            .background(xmbCardFill(MaterialTheme.colorScheme.surfaceContainer)).xmbSheen()
             .border(1.dp, xmbCardLine(MaterialTheme.colorScheme.outline), shape)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(vertical = 10.dp, horizontal = 6.dp),
@@ -945,7 +946,7 @@ private fun RecentRow(game: SteamFriendsStore.RecentGame, onClick: () -> Unit) {
             .fillMaxWidth()
             .steamFocusRing(shape)
             .clip(shape)
-            .background(xmbCardFill(MaterialTheme.colorScheme.surfaceContainer))
+            .background(xmbCardFill(MaterialTheme.colorScheme.surfaceContainer)).xmbSheen()
             .border(1.dp, xmbCardLine(MaterialTheme.colorScheme.outline), shape)
             .clickable(onClick = onClick)
             .padding(8.dp),

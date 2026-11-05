@@ -125,7 +125,7 @@ internal fun DeckSearchOverlay(
     onAbout: () -> Unit,
     vm: ShortcutsViewModel = viewModel(),
 ) {
-    // XMB mode: the panel is frosted glass over its own glow, so its text is the lifted colour the glow was tuned for, also over Home.
+    // XMB mode: the panel is frosted glass with its own opaque colour, so its text is the one the glass was tuned for, also over Home.
     XmbPanelTheme { DeckSearchPanel(onDismiss, onOpenGame, onOpenRoute, onLaunchStore, onAbout, vm) }
 }
 

@@ -422,6 +422,7 @@ internal fun DeckCard(modifier: Modifier = Modifier, content: @Composable Column
             .fillMaxWidth()
             .clip(shape)
             .background(deckCardFill())
+            .xmbSheen()
             .border(1.dp, deckLine(), shape),
         content = content,
     )
@@ -503,6 +504,7 @@ internal fun DeckStat(value: String, label: String, modifier: Modifier = Modifie
         modifier = modifier
             .clip(shape)
             .background(deckCardFill())
+            .xmbSheen()
             .border(1.dp, deckLine(), shape)
             .padding(horizontal = 18.dp, vertical = 14.dp),
     ) {
@@ -539,6 +541,7 @@ internal fun DeckStatStrip(stats: List<Pair<String, String>>, modifier: Modifier
             .height(IntrinsicSize.Min)
             .clip(shape)
             .background(deckCardFill())
+            .xmbSheen()
             .border(1.dp, deckLine(), shape),
     ) {
         stats.forEachIndexed { i, (value, label) ->

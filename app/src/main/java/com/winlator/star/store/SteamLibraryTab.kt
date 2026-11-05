@@ -75,6 +75,7 @@ import com.winlator.star.R
 import com.winlator.star.ui.deck.rememberScreenScale
 import com.winlator.star.ui.deck.xmbCardFill
 import com.winlator.star.ui.deck.xmbCardLine
+import com.winlator.star.ui.deck.xmbSheen
 import com.winlator.star.store.compose.AddResultDialog
 import com.winlator.star.store.compose.AddShortcutResult
 import com.winlator.star.store.compose.AddToShortcutsRequest
@@ -1014,7 +1015,7 @@ private fun LibraryCapsuleCard(
             .fillMaxWidth()
             .steamFocusRing(shape)
             .clip(shape)
-            .background(xmbCardFill(MaterialTheme.colorScheme.surfaceContainer))
+            .background(xmbCardFill(MaterialTheme.colorScheme.surfaceContainer)).xmbSheen()
             .border(1.dp, xmbCardLine(MaterialTheme.colorScheme.outline), shape)
             .clickable(onClick = onOpen),
     ) {

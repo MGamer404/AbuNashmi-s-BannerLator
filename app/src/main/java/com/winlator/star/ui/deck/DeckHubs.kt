@@ -150,6 +150,7 @@ internal fun HubTileCard(tile: HubTile, focusFirst: Boolean) {
             .deckFocusRing(shape, scaleTo = 1.03f)
             .clip(shape)
             .background(deckCardFill())
+            .xmbSheen()
             .border(1.dp, deckLine(), shape)
             .clickable(onClick = tile.onClick)
             .heightIn(min = 76.dp)
