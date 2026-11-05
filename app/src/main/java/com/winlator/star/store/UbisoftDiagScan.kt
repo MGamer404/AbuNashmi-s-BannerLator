@@ -1,7 +1,9 @@
 package com.winlator.star.store
 
+import com.winlator.star.core.LogRedactor
 import java.io.BufferedReader
 import java.io.File
+import java.io.InputStream
 import java.io.RandomAccessFile
 import java.nio.file.Files
 import java.nio.file.LinkOption
@@ -10,6 +12,7 @@ import java.nio.file.attribute.PosixFileAttributes
 import java.nio.file.attribute.PosixFilePermissions
 import java.security.MessageDigest
 import java.time.Instant
+import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
@@ -19,16 +22,34 @@ import java.time.format.DateTimeFormatter
  * rules that decide which files are copied. No Android classes and no logging here, so all of it is unit tested.
  *
  * Everything that can meet a secret redacts by NAME (a value whose name says password, token, secret, exchange,
- * auth, cookie or session), never by looking at the value.
+ * auth, cookie, session or ticket, or names a person or an account), never by looking at the value; e-mail
+ * addresses, GUIDs and the Epic / Ubisoft launch arguments that carry an account are masked by their shape.
  */
 object UbisoftDiagScan {
     const val REDACTED = "<redacted>"
 
-    private val SECRET_NAME = Regex("password|token|secret|exchange|auth|cookie|session", RegexOption.IGNORE_CASE)
-    private val SECRET_YAML_KEY = Regex("password|token|secret|exchange|auth|cookie|session|username", RegexOption.IGNORE_CASE)
+    /** A line longer than this is cut before any redaction regex runs, so a hostile or binary-looking line costs bounded time. */
+    const val MAX_LINE_CHARS = 8 * 1024
 
-    /** A file name that suggests a credential store: never copied, only listed with its hash. */
-    private val SENSITIVE_FILE = Regex("user|credential|token|ticket|session|cookie|login|password|secret|auth|account|wallet", RegexOption.IGNORE_CASE)
+    /** Command lines in the process tables are cut to this many characters (after redaction). */
+    private const val CMD_LIMIT = 200
+
+    /** Names whose value is a credential. ONE list: the registry, YAML, key=value and file-name rules are all built from it. */
+    private val SECRET_WORDS = listOf("password", "passwd", "token", "secret", "exchange", "auth", "cookie", "session", "ticket")
+
+    /** Names that identify a person or an account (`user` also covers username and userid). Masked in fields and lines, not in registry value names. */
+    private val IDENTITY_WORDS = listOf("email", "mail", "user", "account", "profile", "owner", "nickname", "nameOnPlatform", "displayname")
+
+    /** Extra words that make a FILE name look like a credential or identity store. */
+    private val FILE_ONLY_WORDS = listOf("secure", "storage", "store", "key", "cert", "pfx", "cache", "ownership", "credential", "login", "wallet")
+
+    private val SECRET_ALT = SECRET_WORDS.joinToString("|")
+    private val FIELD_ALT = (SECRET_WORDS + IDENTITY_WORDS).joinToString("|")
+    private val SECRET_NAME = Regex(SECRET_ALT, RegexOption.IGNORE_CASE)
+    private val SECRET_YAML_KEY = Regex(FIELD_ALT, RegexOption.IGNORE_CASE)
+
+    /** A file name that suggests a credential or identity store: never copied, only listed with its hash. */
+    private val SENSITIVE_FILE = Regex((SECRET_WORDS + IDENTITY_WORDS + FILE_ONLY_WORDS).joinToString("|"), RegexOption.IGNORE_CASE)
 
     /** True when a registry value or setting called [name] must not be shown. */
     @JvmStatic
@@ -39,19 +60,29 @@ object UbisoftDiagScan {
     private val YAML_LINE = Regex("""^(\s*(?:-\s+)?)([^:#\s][^:]*):(\s*)(.*)$""")
     private val AUTH_SCHEME = Regex("""(?i)\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}""")
     private val JWT = Regex("""eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]*""")
+    private val EMAIL = Regex("""[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}""")
+    private val GUID = Regex("""\b[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\b""")
+
+    /** The Epic launch arguments that carry an account (`-epicusername=..`, `-epicovt=..`) and Ubisoft-style `-AUTH_*=..`, quoted or bare. */
+    private val LAUNCH_ARG = Regex(
+        """(?i)(-(?:epic(?:username|userid|ovt|deploymentid|sandboxid)|auth_\w+))\s*=\s*("[^"]*"|\S+)""",
+    )
+
+    /** `name: value` / `name=value` / `"name": "value"` where the name holds a secret or identity word; the value is quoted or a bare run. */
     private val KEY_VALUE = Regex(
-        """(?i)\b([\w.-]*(?:password|passwd|token|secret|exchange|auth|cookie|session|ticket)[\w.-]*)(["']?\s*[:=]\s*["']?)([^\s"',;&}]{3,})""",
+        """(?i)\b([\w.-]*(?:$FIELD_ALT)[\w.-]*)(["']?\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s"',;&}]{3,})""",
     )
 
     /**
-     * [text] of a `settings.yaml`: the value of every key whose name matches password|token|secret|exchange|auth|
-     * cookie|session|username is replaced, and so is everything nested under such a key. Layout and comments stay.
+     * [text] of a `settings.yaml`: the value of every key whose name matches a secret or identity word (see
+     * [SECRET_WORDS], [IDENTITY_WORDS]) is replaced, and so is everything nested under such a key. Layout and comments stay.
      */
     @JvmStatic
     fun redactYaml(text: String): String {
         val out = ArrayList<String>()
         var hiddenIndent = -1
-        for (line in text.split('\n')) {
+        for (raw in text.split('\n')) {
+            val line = capLine(raw)
             val indent = line.length - line.trimStart().length
             if (hiddenIndent >= 0) {
                 if (line.isBlank()) { out += line; continue }
@@ -73,19 +104,52 @@ object UbisoftDiagScan {
         return out.joinToString("\n")
     }
 
-    /** One line of a log or config file with the values of secret-looking keys and bearer / basic / JWT tokens replaced. */
+    private fun capLine(line: String): String =
+        if (line.length > MAX_LINE_CHARS) line.substring(0, MAX_LINE_CHARS) + " [line cut at $MAX_LINE_CHARS chars]" else line
+
+    /** [line] with e-mail addresses replaced; registry values go through this only (a GUID or a path is data there). */
+    private fun maskEmails(line: String): String = if (line.indexOf('@') >= 0) EMAIL.replace(line, REDACTED) else line
+
+    /**
+     * One line of a log, command line or config file made safe to share: cut at [MAX_LINE_CHARS], then launch
+     * arguments, bearer / basic / JWT tokens, e-mail addresses, GUIDs and the values of secret- or identity-named fields
+     * replaced, then the app's own scrubbers ([SteamLogRedactor] for the secrets this app registered, [LogRedactor] for
+     * the device's own addresses and account names). A line the scrubbers fail on is withheld.
+     */
     @JvmStatic
     fun redactLine(line: String): String {
         if (line.length < 8) return line
-        var s = line
-        if (s.contains("eyJ")) s = JWT.replace(s, REDACTED)
-        if (s.contains("earer", ignoreCase = true) || s.contains("asic", ignoreCase = true)) s = AUTH_SCHEME.replace(s) { it.groupValues[1] + " " + REDACTED }
-        return KEY_VALUE.replace(s) { it.groupValues[1] + it.groupValues[2] + REDACTED }
+        return try {
+            var s = capLine(line)
+            if (s.contains("-epic", ignoreCase = true) || s.contains("-auth_", ignoreCase = true)) {
+                s = LAUNCH_ARG.replace(s) { it.groupValues[1] + "=" + REDACTED }
+            }
+            if (s.contains("eyJ")) s = JWT.replace(s, REDACTED)
+            if (s.contains("earer", ignoreCase = true) || s.contains("asic", ignoreCase = true)) s = AUTH_SCHEME.replace(s) { it.groupValues[1] + " " + REDACTED }
+            s = maskEmails(s)
+            if (s.length >= 36 && s.indexOf('-') >= 0) s = GUID.replace(s, REDACTED)
+            s = KEY_VALUE.replace(s) { m ->
+                val v = m.groupValues[3]
+                val q = v[0]
+                val shown = if (v.length >= 2 && (q == '"' || q == '\'') && v.last() == q) "$q$REDACTED$q" else REDACTED
+                m.groupValues[1] + m.groupValues[2] + shown
+            }
+            LogRedactor.redact(SteamLogRedactor.redact(s))
+        } catch (t: Throwable) {
+            "<redaction failed; line withheld>"
+        }
     }
 
     /** [redactLine] over every line of [text]. */
     @JvmStatic
     fun redactText(text: String): String = text.split('\n').joinToString("\n") { redactLine(it) }
+
+    /** The text of the file called [name] made safe to share: a YAML file by structure first, then every line. */
+    @JvmStatic
+    fun redactFile(name: String, text: String): String {
+        val yaml = name.endsWith(".yaml", ignoreCase = true) || name.endsWith(".yml", ignoreCase = true)
+        return redactText(if (yaml) redactYaml(text) else text)
+    }
 
     // ---- Registry sections ----------------------------------------------------------------------
 
@@ -143,46 +207,10 @@ object UbisoftDiagScan {
                 out.append(line, 0, m.range.last + 1).append(REDACTED).append('\n')
                 hideContinuation = line.endsWith("\\")
             } else if (line.isNotEmpty()) {
-                out.append(line).append('\n')
+                out.append(maskEmails(line)).append('\n')
             }
         }
         return RegSections(out.toString(), keys, truncated)
-    }
-
-    /** What [copyRegistry] did: bytes written, secret-named values replaced, and whether it stopped at the size limit. */
-    class RegCopy(val bytes: Long, val redacted: Int, val truncated: Boolean)
-
-    /**
-     * Copies a whole `.reg` file line by line from [reader] to [writer] (both should be ISO-8859-1 so every byte is kept
-     * as it is), replacing the data of values whose name is secret-looking ([isSecretName]). Stops after about [maxBytes].
-     */
-    @JvmStatic
-    fun copyRegistry(reader: BufferedReader, writer: java.io.Writer, maxBytes: Long): RegCopy {
-        var bytes = 0L
-        var redacted = 0
-        var hideContinuation = false
-        while (true) {
-            val line = reader.readLine() ?: break
-            if (bytes >= maxBytes) return RegCopy(bytes, redacted, true)
-            val out: String
-            if (hideContinuation) {
-                hideContinuation = line.endsWith("\\")
-                out = "  $REDACTED"
-            } else {
-                val m = if (line.startsWith("\"")) REG_VALUE_NAME.find(line) else null
-                if (m != null && isSecretName(m.groupValues[1])) {
-                    redacted++
-                    hideContinuation = line.endsWith("\\")
-                    out = line.substring(0, m.range.last + 1) + REDACTED
-                } else {
-                    out = line
-                }
-            }
-            writer.write(out)
-            writer.write("\n")
-            bytes += out.length + 1
-        }
-        return RegCopy(bytes, redacted, false)
     }
 
     /** True when [keys] (from [registrySections]) has [key] (single backslashes), ignoring case. */
@@ -203,6 +231,7 @@ object UbisoftDiagScan {
         var timedOut = false
     }
 
+    /** The one timestamp format of the report, for writing (UTC) and for reading a listing back. */
     private val TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneOffset.UTC)
 
     /** [ms] since the epoch as `yyyy-MM-dd HH:mm:ss` (UTC). */
@@ -229,8 +258,7 @@ object UbisoftDiagScan {
         if (kind != 'd' && kind != 'f' && kind != 'l') return null
         val size = if (kind == 'd') 0L else line.substring(12, 22).trim().toLongOrNull() ?: return null
         val mtime = try {
-            java.time.LocalDateTime.parse(line.substring(23, 42), java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
-                .toInstant(ZoneOffset.UTC).toEpochMilli()
+            LocalDateTime.parse(line.substring(23, 42), TIME_FORMAT).toInstant(ZoneOffset.UTC).toEpochMilli()
         } catch (e: Exception) {
             return null
         }
@@ -440,30 +468,41 @@ object UbisoftDiagScan {
         return control * 10 > n
     }
 
-    /** What to do with a file found under Ubisoft's folders. */
-    enum class CopyAction { TEXT_REDACTED, RAW, HASH_BINARY, HASH_SENSITIVE, HASH_LARGE }
+    /** What to do with a file found under Ubisoft's folders: only an allow-listed text file is ever copied, always redacted. */
+    enum class CopyAction { TEXT_REDACTED, HASH_OTHER, HASH_SENSITIVE, HASH_LARGE }
 
-    private val BINARY_EXT = setOf(
-        "exe", "dll", "sys", "pak", "png", "jpg", "jpeg", "gif", "ico", "bmp", "ttf", "otf", "woff", "woff2", "mui", "lib",
-        "so", "node", "wav", "ogg", "mp3", "mp4", "webm", "bik", "bk2", "zip", "7z", "cab", "msi", "pdb", "ocx", "cur", "tga", "dds",
-    )
-    private val TEXT_EXT = setOf(
-        "yaml", "yml", "log", "txt", "ini", "json", "cfg", "conf", "xml", "manifest", "html", "htm", "js", "css", "csv", "md", "properties", "settings", "lua",
-    )
+    /** The only extensions copied (as redacted text). Anything else, including no extension, `.dat`, `.db`, `.sqlite`, `.bin` and `.pak`, is hash only. */
+    private val TEXT_EXT = setOf("txt", "log", "yaml", "yml", "ini", "cfg", "conf", "json", "xml", "manifest", "html", "md")
 
     /** Files at or over this size are listed with a hash only. */
     const val MAX_COPY_BYTES = 2L * 1024 * 1024
 
-    /** The rule for [relPath] of [size] bytes: small text is copied with secrets redacted, other small files raw, the rest hash only. */
+    /** `settings.yaml` is read at most this far; Connect's real one is a few KB. */
+    const val YAML_READ_BYTES = 1_000_000
+
+    /**
+     * The rule for [relPath] of [size] bytes: a small allow-listed text file whose NAME does not suggest a credential
+     * or identity store is copied with secrets redacted; every other file is listed with its hash only.
+     */
     @JvmStatic
     fun copyAction(relPath: String, size: Long): CopyAction {
         if (size >= MAX_COPY_BYTES) return CopyAction.HASH_LARGE
         val name = relPath.substringAfterLast('/')
-        val ext = name.substringAfterLast('.', "").lowercase()
-        if (ext in BINARY_EXT) return CopyAction.HASH_BINARY
-        if (ext in TEXT_EXT) return CopyAction.TEXT_REDACTED
         if (SENSITIVE_FILE.containsMatchIn(name)) return CopyAction.HASH_SENSITIVE
-        return CopyAction.RAW
+        return if (name.substringAfterLast('.', "").lowercase() in TEXT_EXT) CopyAction.TEXT_REDACTED else CopyAction.HASH_OTHER
+    }
+
+    /** Up to [maxBytes] of [input] as UTF-8 text (reads until the limit or the end). */
+    @JvmStatic
+    fun readUpTo(input: InputStream, maxBytes: Int): String {
+        val buf = ByteArray(maxBytes)
+        var n = 0
+        while (n < maxBytes) {
+            val r = input.read(buf, n, maxBytes - n)
+            if (r < 0) break
+            n += r
+        }
+        return String(buf, 0, n, Charsets.UTF_8)
     }
 
     // ---- Logcat ---------------------------------------------------------------------------------
@@ -508,15 +547,16 @@ object UbisoftDiagScan {
     @JvmStatic
     fun formatProc(s: ProcStat, cmdline: String): String =
         "pid=${s.pid} ppid=${s.ppid} state=${s.state} threads=${s.threads} utime=${s.utime} stime=${s.stime} " +
-            "rss=${s.rssPages * 4}kB vsize=${s.vsizeBytes / 1024}kB name=${s.comm} cmd=${cmdline.take(200)}"
+            "rss=${s.rssPages * 4}kB vsize=${s.vsizeBytes / 1024}kB name=${s.comm} cmd=${redactLine(cmdline).take(CMD_LIMIT)}"
+
+    private val STATUS_KEYS = setOf("State", "Tgid", "PPid", "Threads", "VmSize", "VmRSS", "VmSwap", "voluntary_ctxt_switches", "nonvoluntary_ctxt_switches", "SigBlk", "SigCgt")
+    private val WHITESPACE = Regex("\\s+")
 
     /** The selected lines of a `/proc/<pid>/status` text worth keeping in every sample. */
     @JvmStatic
-    fun statusSummary(status: String): String {
-        val wanted = setOf("State", "Tgid", "PPid", "Threads", "VmSize", "VmRSS", "VmSwap", "voluntary_ctxt_switches", "nonvoluntary_ctxt_switches", "SigBlk", "SigCgt")
-        return status.lineSequence().filter { l -> wanted.contains(l.substringBefore(':')) }
-            .joinToString("; ") { l -> l.substringBefore(':') + "=" + l.substringAfter(':').trim().replace(Regex("\\s+"), " ") }
-    }
+    fun statusSummary(status: String): String =
+        status.lineSequence().filter { l -> l.substringBefore(':') in STATUS_KEYS }
+            .joinToString("; ") { l -> l.substringBefore(':') + "=" + l.substringAfter(':').trim().replace(WHITESPACE, " ") }
 
     // ---- Size limits ----------------------------------------------------------------------------
 

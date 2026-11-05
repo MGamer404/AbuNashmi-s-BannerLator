@@ -4,16 +4,14 @@ import java.io.File
 
 /**
  * What Ubisoft Connect records about a game it installed, read from the `uplay_install.state` file it leaves in the
- * game's folder (Epic Games Store builds of Ubisoft titles ship that file too). Connect reads the same data when the
- * user picks "Locate installed game": the product id and the install language are what it writes into the registry
- * (see [UbisoftInstallRegistry]). The per-language registry values (field 15) are only read for the diagnostics
- * report: Locate does not write the game's own language value, Connect's first-launch step does, much later.
+ * game's folder (Epic Games Store builds of Ubisoft titles ship that file too). The product id and the install
+ * language are what Connect writes into the registry when the user picks "Locate installed game" (see
+ * [UbisoftInstallRegistry]). The per-language registry values (field 15) are only read for the diagnostics report.
  *
- * The file is Ubisoft's own protobuf (no schema is published; these are the fields seen in Assassin's Creed
- * Syndicate's file, field number first): 1 install hash, 3 install language (`en-US`), 13 game name (a message
- * holding the name as its field 1), 15 (repeated) one registry value per language `{1 registry path, 2 language
- * code, 3 value}`, 22 display name with the trademark sign, 26 language again, **28 product id** (1875 for that
- * game, the number in Connect's `Installs\1875` key). Everything else is skipped.
+ * The file is Ubisoft's own protobuf (no schema is published; field number first): 1 install hash, 3 install language
+ * (`en-US`), 13 game name (a message holding the name as its field 1), 15 (repeated) one registry value per language
+ * `{1 registry path, 2 language code, 3 value}`, 22 display name with the trademark sign, 26 language again,
+ * **28 product id** (the number in Connect's `Installs\<id>` key). Everything else is skipped.
  *
  * The reader is defensive on purpose, the file comes from a game folder: it never throws, gives up on a file over
  * [MAX_BYTES] or one that is not whole protobuf (a length that runs past the end, a truncated varint, a group

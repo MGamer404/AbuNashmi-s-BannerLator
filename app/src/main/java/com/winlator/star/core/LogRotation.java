@@ -127,7 +127,7 @@ public final class LogRotation {
         if (n.equals(com.winlator.star.core.ControllerLog.OUTPUT_NAME)) return true;
         // Goldberg launch report: a fixed name WE write on every Goldberg launch (see GoldbergDiag).
         if (n.equals(com.winlator.star.store.GoldbergDiag.OUTPUT_NAME)) return true;
-        // Ubisoft launch report: the index file WE write on every Ubisoft launch (see UbisoftDiag); the
+        // Ubisoft launch report: the index file WE write on a Ubisoft launch with the report switched on (see UbisoftDiag); the
         // ubisoft_diag_files/ folder beside it is replaced by the next launch and is a folder, not a file.
         if (n.equals(com.winlator.star.store.UbisoftDiag.OUTPUT_NAME)) return true;
         // Ubisoft launch decisions note: a fixed name WE write on every Epic-like / Ubisoft launch (see UbisoftSupport).

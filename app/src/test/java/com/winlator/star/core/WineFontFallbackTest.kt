@@ -1,11 +1,32 @@
 package com.winlator.star.core
 
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import java.io.File
 
-/** The pure half of [WineFontFallback]: when a `user.reg` already has a "Tahoma" font replacement. */
+/** The file-light half of [WineFontFallback]: when a `user.reg` already has a "Tahoma" font replacement, and when the prefix has the real font. */
 class WineFontFallbackTest {
+
+    @get:Rule
+    val tmp = TemporaryFolder()
+
+    @Test
+    fun aPrefixWithTheRealFontIsLeftAloneWithoutReadingTheRegistry() {
+        val prefix = tmp.newFolder("prefix")
+        val text = "WINE REGISTRY Version 2\n"
+        val userReg = File(prefix, "user.reg").apply { writeText(text) }
+        assertFalse(WineFontFallback.hasTahomaFont(userReg))
+        File(prefix, "drive_c/windows/Fonts").mkdirs()
+        File(prefix, "drive_c/windows/Fonts/tahoma.ttf").writeText("x")
+        assertTrue(WineFontFallback.hasTahomaFont(userReg))
+        // With the font there, the registry is not even opened: false and the file as it was.
+        assertFalse(WineFontFallback.ensureTahomaReplacement(userReg))
+        assertEquals(text, userReg.readText())
+    }
 
     private val replacementsKey = "[Software\\\\Wine\\\\Fonts\\\\Replacements] 1700000000\n#time=1dc0000000000000\n"
 

@@ -17,7 +17,7 @@ import javax.net.ssl.SSLSocketFactory
  * credentials): the socket is closed as soon as the certificate has been read. Run on a background thread.
  */
 object UbisoftDiagNet {
-    /** The Ubisoft hosts seen in the Wine logs of Connect and the games. */
+    /** The Ubisoft hosts seen in the Wine logs of Connect and the games. Named in the `ubisoft_diag_report_info` text of the Log Manager: keep both in step. */
     val HOSTS = listOf(
         "public-ubiservices.ubi.com",
         "public-ws-ubiservices.ubi.com",
@@ -33,7 +33,13 @@ object UbisoftDiagNet {
 
     private const val STEP_TIMEOUT_MS = 4000
 
-    /** Runs [block] on a daemon thread and waits at most [ms]; null when it did not finish (or threw, see [lastError]). */
+    /** How much of an exception message goes into the report, and how many addresses of a host are listed / tried. */
+    private const val ERROR_CHARS = 160
+    private const val ADDRS_LISTED = 6
+    private const val ADDRS_TRIED = 3
+    private const val MAX_PARALLEL = 8
+
+    /** Runs [block] on a daemon thread and waits at most [ms]; null when it did not finish. A throw comes back as a failed [Result]. */
     private fun <T> withTimeout(ms: Long, block: () -> T): Result<T>? {
         var result: Result<T>? = null
         val t = Thread({ result = runCatching(block) }, "ubisoft-diag-probe")
@@ -43,7 +49,7 @@ object UbisoftDiagNet {
         return result
     }
 
-    private fun short(e: Throwable): String = e.javaClass.simpleName + (e.message?.let { ": " + it.take(160) } ?: "")
+    private fun short(e: Throwable): String = e.javaClass.simpleName + (e.message?.let { ": " + it.take(ERROR_CHARS) } ?: "")
 
     /** One host's result as report lines (never throws). */
     @JvmStatic
@@ -59,7 +65,7 @@ object UbisoftDiagNet {
         out += "dns: " + when {
             dns == null -> "TIMEOUT after ${ms(dnsStart)} ms"
             addrs == null -> "FAILED ${short(dns.exceptionOrNull()!!)} (${ms(dnsStart)} ms)"
-            else -> "OK ${ms(dnsStart)} ms -> " + addrs.take(6).joinToString(", ") { it.hostAddress ?: "?" }
+            else -> "OK ${ms(dnsStart)} ms -> " + addrs.take(ADDRS_LISTED).joinToString(", ") { it.hostAddress ?: "?" }
         }
         if (addrs.isNullOrEmpty()) return render(host, out, ms(started))
 
@@ -67,7 +73,7 @@ object UbisoftDiagNet {
         var socket: Socket? = null
         val tcpStart = System.nanoTime()
         var tcpNote = ""
-        for (a in addrs.take(3)) {
+        for (a in addrs.take(ADDRS_TRIED)) {
             val s = Socket()
             try {
                 s.connect(InetSocketAddress(a, 443), STEP_TIMEOUT_MS)
@@ -111,7 +117,7 @@ object UbisoftDiagNet {
     /** [probe] for every host of [hosts] in parallel; waits at most [totalMs] for all of them. Result in the order of [hosts]. */
     @JvmStatic
     fun probeAll(hosts: List<String>, totalMs: Long): List<String> {
-        val pool = Executors.newFixedThreadPool(minOf(hosts.size, 8).coerceAtLeast(1)) { r ->
+        val pool = Executors.newFixedThreadPool(minOf(hosts.size, MAX_PARALLEL).coerceAtLeast(1)) { r ->
             Thread(r, "ubisoft-diag-net").also { it.isDaemon = true }
         }
         val out = ArrayList<String>()

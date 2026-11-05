@@ -11,7 +11,6 @@ import org.junit.rules.TemporaryFolder
 import java.io.BufferedReader
 import java.io.File
 import java.io.StringReader
-import java.io.StringWriter
 
 /**
  * [UbisoftDiagScan] and the small pure parts of the Ubisoft report: redaction, registry sections, folder walks and
@@ -44,11 +43,11 @@ WINE REGISTRY Version 2
 
     @Test
     fun yamlSecretsAreReplacedAndTheRestIsKept() {
-        val yaml = "user:\n  username: bob\n  password: hunter2\n  rememberMe: true\noverlay:\n  enabled: false\n" +
+        val yaml = "login:\n  username: bob\n  password: hunter2\n  rememberMe: true\noverlay:\n  enabled: false\n" +
             "session:\n  id: abc\n  more:\n    x: 1\nlanguage: en\n"
         val out = UbisoftDiagScan.redactYaml(yaml)
         assertEquals(
-            "user:\n  username: <redacted>\n  password: <redacted>\n  rememberMe: true\noverlay:\n  enabled: false\n" +
+            "login:\n  username: <redacted>\n  password: <redacted>\n  rememberMe: true\noverlay:\n  enabled: false\n" +
                 "session:\n  <redacted>\n  <redacted>\n    <redacted>\nlanguage: en\n",
             out,
         )
@@ -69,6 +68,66 @@ WINE REGISTRY Version 2
             assertTrue(n, UbisoftDiagScan.isSecretName(n))
         }
         assertFalse(UbisoftDiagScan.isSecretName("InstallDir"))
+    }
+
+    @Test
+    fun yamlFieldsThatNameAPersonAreReplacedWithTheirChildren() {
+        val yaml = "profile:\n  nickname: Big Bob\n  level: 5\nemail: bob@example.com\nlanguage: en\n"
+        assertEquals("profile:\n  <redacted>\n  <redacted>\nemail: <redacted>\nlanguage: en\n", UbisoftDiagScan.redactYaml(yaml))
+    }
+
+    @Test
+    fun epicLaunchArgumentsLoseTheirValuesWhetherQuotedOrBare() {
+        val line = "wine game.exe -epicusername=Bob -epicuserid=abc123 -epicovt=\"tok en\" -AUTH_PASSWORD=pw -AUTH_TYPE=exchangecode " +
+            "-epicdeploymentid=d1 -epicsandboxid=s1 -epiclocale=en"
+        val out = UbisoftDiagScan.redactLine(line)
+        for (secret in listOf("Bob", "abc123", "tok en", "=pw", "exchangecode", "=d1", "=s1")) assertFalse(secret + " in " + out, out.contains(secret))
+        assertTrue(out, out.contains("-epicusername=<redacted>"))
+        assertTrue(out, out.contains("-epicovt=<redacted>"))
+        assertTrue(out, out.contains("-AUTH_TYPE=<redacted>"))
+        assertTrue(out, out.contains("-epiclocale=en"))
+    }
+
+    @Test
+    fun emailsAndGuidsAreMaskedInAnyLine() {
+        val out = UbisoftDiagScan.redactLine("contact a.b@example.com id 123e4567-e89b-12d3-a456-426614174000 end")
+        assertFalse(out, out.contains("example.com"))
+        assertFalse(out, out.contains("426614174000"))
+        assertTrue(out, out.endsWith(" end"))
+    }
+
+    @Test
+    fun jsonFieldsThatNameAPersonKeepTheirQuotesAndLoseTheirValues() {
+        val out = UbisoftDiagScan.redactLine("{\"email\": \"bob@x.com\", \"nickname\": \"Big Bob\", \"nameOnPlatform\": \"Bob\", \"level\": 5}")
+        assertFalse(out, out.contains("Big"))
+        assertFalse(out, out.contains("bob@x.com"))
+        assertFalse(out, out.contains("\"Bob\""))
+        assertTrue(out, out.contains("\"nickname\": \"<redacted>\""))
+        assertTrue(out, out.contains("\"level\": 5"))
+    }
+
+    @Test
+    fun aLineOverEightKilobytesIsCutBeforeTheRegexesRun() {
+        val out = UbisoftDiagScan.redactLine("a".repeat(20_000) + " token=secretvalue1")
+        assertTrue(out.length < UbisoftDiagScan.MAX_LINE_CHARS + 64)
+        assertTrue(out.endsWith("[line cut at ${UbisoftDiagScan.MAX_LINE_CHARS} chars]"))
+        assertFalse(out.contains("secretvalue1"))
+    }
+
+    @Test
+    fun aCommandLineIsRedactedBeforeItIsCutTo200Characters() {
+        val stat = UbisoftDiagScan.ProcStat(1, "wine", 'S', 0, 0, 0, 1, 0, 0)
+        // The value would start at character 196, inside the cut, if the cut came first.
+        val out = UbisoftDiagScan.formatProc(stat, "ab ".repeat(62) + "-epicovt=abcdefgh")
+        assertFalse(out, out.contains("abc"))
+        assertTrue(out, out.contains("-epicovt=<re"))
+        assertTrue(UbisoftDiagScan.formatProc(stat, "wine -epicovt=abcdefgh").contains("-epicovt=<redacted>"))
+    }
+
+    @Test
+    fun aTextFileIsRedactedByItsKind() {
+        assertEquals("login:\n  username: <redacted>\n", UbisoftDiagScan.redactFile("settings.yaml", "login:\n  username: bob\n"))
+        assertEquals("started\ntoken=<redacted>\n", UbisoftDiagScan.redactFile("launcher.log", "started\ntoken=abc12345\n"))
     }
 
     // ---- Registry -------------------------------------------------------------------------------
@@ -107,20 +166,11 @@ WINE REGISTRY Version 2
     }
 
     @Test
-    fun registryCopyKeepsEverythingButSecretValues() {
-        val text = "[A\\\\Ubisoft] 1\n#time=1\n\"Token\"=hex(7):41,00,\\\n  42,00,00,00\n\"Other\"=\"x\"\n"
-        val w = StringWriter()
-        val c = UbisoftDiagScan.copyRegistry(BufferedReader(StringReader(text)), w, 1_000_000)
-        assertEquals(1, c.redacted)
-        assertFalse(c.truncated)
-        assertEquals("[A\\\\Ubisoft] 1\n#time=1\n\"Token\"=<redacted>\n  <redacted>\n\"Other\"=\"x\"\n", w.toString())
-    }
-
-    @Test
-    fun registryCopyStopsAtTheLimit() {
-        val text = (1..100).joinToString("\n") { "\"v$it\"=\"x\"" } + "\n"
-        val c = UbisoftDiagScan.copyRegistry(BufferedReader(StringReader(text)), StringWriter(), 50)
-        assertTrue(c.truncated)
+    fun registryValuesLoseEmailAddressesButKeepGuidsAndPaths() {
+        val text = "[Software\\\\Ubisoft\\\\Launcher] 1\n\"Mail\"=\"bob@example.com\"\n\"Id\"=\"123e4567-e89b-12d3-a456-426614174000\"\n"
+        val r = UbisoftDiagScan.registrySections(BufferedReader(StringReader(text)), 100_000)
+        assertFalse(r.text, r.text.contains("example.com"))
+        assertTrue(r.text, r.text.contains("426614174000"))
     }
 
     // ---- Walks and the comparison ---------------------------------------------------------------
@@ -202,15 +252,33 @@ WINE REGISTRY Version 2
     // ---- Files ----------------------------------------------------------------------------------
 
     @Test
-    fun theCopyRulesSeparateTextBinaryAndCredentialFiles() {
-        val a = UbisoftDiagScan.CopyAction.values()
-        assertEquals(5, a.size)
-        assertEquals(UbisoftDiagScan.CopyAction.HASH_BINARY, UbisoftDiagScan.copyAction("x/y/upc.dll", 10))
-        assertEquals(UbisoftDiagScan.CopyAction.TEXT_REDACTED, UbisoftDiagScan.copyAction("x/settings.yaml", 100))
-        assertEquals(UbisoftDiagScan.CopyAction.TEXT_REDACTED, UbisoftDiagScan.copyAction("x/logs/launcher_session.log", 100))
-        assertEquals(UbisoftDiagScan.CopyAction.HASH_SENSITIVE, UbisoftDiagScan.copyAction("x/users.dat", 100))
-        assertEquals(UbisoftDiagScan.CopyAction.RAW, UbisoftDiagScan.copyAction("x/cache/store.db", 100))
+    fun onlyAllowListedTextFilesAreCopiedAndTheRestIsHashedOnly() {
+        val text = UbisoftDiagScan.CopyAction.TEXT_REDACTED
+        assertEquals(text, UbisoftDiagScan.copyAction("x/settings.yaml", 100))
+        assertEquals(text, UbisoftDiagScan.copyAction("x/logs/launcher_log.txt", 100))
+        assertEquals(text, UbisoftDiagScan.copyAction("x/readme.md", 100))
+        // Only the file NAME counts, not the folders above it.
+        assertEquals(text, UbisoftDiagScan.copyAction("x/user/launcher.log", 100))
+        for (other in listOf("x/y/upc.dll", "x/data.bin", "x/config.sqlite", "x/noextension", "x/uplay_install.state", "x/game.pak", "x/stuff.dat")) {
+            assertEquals(other, UbisoftDiagScan.CopyAction.HASH_OTHER, UbisoftDiagScan.copyAction(other, 100))
+        }
         assertEquals(UbisoftDiagScan.CopyAction.HASH_LARGE, UbisoftDiagScan.copyAction("x/big.log", 3L * 1024 * 1024))
+    }
+
+    @Test
+    fun aNameThatSuggestsACredentialOrIdentityStoreIsNeverCopiedEvenAsText() {
+        for (n in listOf(
+            "users.dat", "launcher_session.log", "store.json", "profile.json", "ownership.txt", "my_key.txt", "cert.xml", "cache.log",
+            "login.ini", "wallet.cfg", "account.yaml", "Password.txt", "tickets.json", "cookies.txt", "secure_storage.xml", "auth.conf",
+        )) {
+            assertEquals(n, UbisoftDiagScan.CopyAction.HASH_SENSITIVE, UbisoftDiagScan.copyAction("x/$n", 100))
+        }
+    }
+
+    @Test
+    fun readUpToStopsAtTheLimit() {
+        assertEquals("abc", UbisoftDiagScan.readUpTo("abcdef".byteInputStream(), 3))
+        assertEquals("ab", UbisoftDiagScan.readUpTo("ab".byteInputStream(), 10))
     }
 
     @Test
@@ -281,30 +349,22 @@ WINE REGISTRY Version 2
     }
 
     @Test
-    fun theRegistrationOutcomeReadsInWords() {
-        val done = UbisoftInstallRegistry.Outcome(UbisoftInstallRegistry.Result.REGISTERED, "11 of 11 value(s) written")
-        assertTrue(done.changed)
-        assertEquals("REGISTERED: 11 of 11 value(s) written", done.toString())
-        val already = UbisoftInstallRegistry.Outcome(UbisoftInstallRegistry.Result.ALREADY_PRESENT, "")
-        assertFalse(already.changed)
-        assertEquals("ALREADY_PRESENT", already.toString())
-        val skipped = UbisoftInstallRegistry.Outcome(UbisoftInstallRegistry.Result.SKIPPED_NOT_UBISOFT, "no shortcut")
-        assertEquals(skipped, UbisoftInstallRegistry.record(skipped))
-        assertEquals(skipped, UbisoftInstallRegistry.last())
+    fun aSwitchIsOnOnlyFromThePreferenceOrTheContainerExtra() {
+        assertFalse(UbisoftDiag.switchOn(false, null))
+        assertFalse(UbisoftDiag.switchOn(false, ""))
+        assertFalse(UbisoftDiag.switchOn(false, "0"))
+        assertFalse(UbisoftDiag.switchOn(false, "true"))
+        assertTrue(UbisoftDiag.switchOn(true, null))
+        assertTrue(UbisoftDiag.switchOn(false, "1"))
+        assertTrue(UbisoftDiag.switchOn(false, " 1 "))
     }
 
     @Test
-    fun theSteamChainIsRecognisedFromThePlanEnv() {
-        assertTrue(UbisoftSupport.steamChainArmed(mapOf(EaSupport.CHAIN_ENV to UbisoftSupport.CHAIN_VALUE)))
-        assertFalse(UbisoftSupport.steamChainArmed(mapOf(EaSupport.CHAIN_ENV to EaSupport.CHAIN_VALUE)))
-        assertFalse(UbisoftSupport.steamChainArmed(emptyMap()))
-        assertFalse(UbisoftSupport.steamChainArmed(null))
-    }
-
-    @Test
-    fun theInstallHashIsFieldOneAsTextOrHex() {
-        assertEquals("abc", UbisoftInstallState.installHash(byteArrayOf(0x0A, 3, 'a'.code.toByte(), 'b'.code.toByte(), 'c'.code.toByte())))
-        assertEquals("01ff", UbisoftInstallState.installHash(byteArrayOf(0x0A, 2, 0x01, 0xFF.toByte())))
-        assertNull(UbisoftInstallState.installHash(byteArrayOf(0x10, 1)))
+    fun theDecisionsNoteSaysWhetherTheReportRuns() {
+        assertTrue(UbisoftDiag.reportNote(true).startsWith("Ubisoft diagnostics report: ON"))
+        val off = UbisoftDiag.reportNote(false)
+        assertTrue(off, off.startsWith("Ubisoft diagnostics report: OFF"))
+        assertTrue(off, off.contains("container extra ubisoftDiagReport=1"))
+        assertTrue(off.endsWith("\n"))
     }
 }

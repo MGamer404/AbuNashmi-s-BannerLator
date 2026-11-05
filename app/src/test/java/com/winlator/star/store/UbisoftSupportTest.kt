@@ -6,19 +6,24 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
 
 /**
- * Ubisoft support: the launcher's `settings.yaml` overlay edit ([UbisoftSupport.overlayOff]), Steam's
- * `<appId>_install.vdf` script name, finding the installer a depot bundles.
+ * [UbisoftSupport]: installer names and the depot search (and what it costs a game that is not Ubisoft's), the Epic and
+ * Steam setup decisions, the stamp, the launch decisions note, the overlay edit of `settings.yaml`.
  */
 class UbisoftSupportTest {
 
     @get:Rule
     val tmp = TemporaryFolder()
+
+    /** The depot scans are remembered for a while; the next test must not see this one's folders. */
+    @After
+    fun forgetTheDepotScans() = UbisoftSupport.forgetScans()
 
     @Test
     fun overlayOffCreatesTheSectionInAnEmptyFile() {
@@ -138,29 +143,155 @@ class UbisoftSupportTest {
         assertEquals(listOf(connect, uplay, redist), UbisoftSupport.installerFirst(listOf(redist, uplay, connect)))
     }
 
+    private val ubisoftScript = "\"InstallScript\" { \"Run Process\" { \"Ubisoft Connect PC Client\" " +
+        "{ \"process 1\" \"%INSTALLDIR%/Support/Uplay/UbisoftConnectInstaller.exe\" \"command 1\" \"/S\" } } }"
+
     @Test
-    fun needsSomethingInstallableToSetUp() {
-        val loaderOnly = tmp.newFolder("loaderOnly")
-        File(loaderOnly, "uplay_r1_loader.dll").writeText("x")
-        assertTrue(UbisoftSupport.detect(loaderOnly))
-        assertFalse(UbisoftSupport.hasInstallableLauncher(loaderOnly))
+    fun theDepotsInstallerIsAddedOnlyWhenTheScriptRunsNone() {
+        val redist = InstallScriptModel.RunProcess("Redist", "%INSTALLDIR%\\redist\\vcredist_x86.exe", "/q", null, null, null)
+        val legacy = InstallScriptModel.RunProcess("Uplay", "%INSTALLDIR%\\UplayInstaller.exe", "/S", null, null, null)
 
-        val bundled = tmp.newFolder("bundledInstallable")
-        File(bundled, "UbisoftConnectInstaller.exe").writeText("x")
-        assertTrue(UbisoftSupport.hasInstallableLauncher(bundled))
-
-        val scripted = tmp.newFolder("scriptedInstallable")
-        File(scripted, "uplay_r1_loader.dll").writeText("x")
-        File(scripted, "installScript.vdf").writeText(
-            "\"InstallScript\" { \"Run Process\" { \"Ubisoft Connect PC Client\" " +
-                "{ \"process 1\" \"%INSTALLDIR%/UbisoftConnectInstaller.exe\" \"command 1\" \"/S\" } } }"
+        val ubisoft = tmp.newFolder("withBundled")
+        File(ubisoft, "UbisoftConnectInstaller.exe").writeText("x")
+        assertEquals(
+            listOf(redist.process, "%INSTALLDIR%\\UbisoftConnectInstaller.exe"),
+            UbisoftSupport.withBundledInstaller(listOf(redist), ubisoft).map { it.process },
         )
-        assertTrue(UbisoftSupport.hasInstallableLauncher(scripted))
+        assertEquals(
+            listOf(redist.process, legacy.process),
+            UbisoftSupport.withBundledInstaller(listOf(redist, legacy), ubisoft).map { it.process },
+        )
+        // A depot that bundles no Ubisoft installer (EA...) keeps exactly the script's steps.
+        val other = tmp.newFolder("withoutBundled")
+        File(other, "game.exe").writeText("x")
+        assertEquals(listOf(redist.process), UbisoftSupport.withBundledInstaller(listOf(redist), other).map { it.process })
+        assertTrue(UbisoftSupport.withBundledInstaller(emptyList(), other).isEmpty())
+    }
+
+    // ---- What the depot search costs a game that is not Ubisoft's ---------------------------------
+
+    @Test
+    fun aDepotWithoutAUbisoftHintIsSearchedOneFolderDownOnly() {
+        val dir = tmp.newFolder("noHint")
+        File(dir, "game.exe").writeText("x")
+        File(dir, "Support/Uplay").mkdirs()
+        File(dir, "Support/Uplay/UplayInstaller.exe").writeText("x")
+        UbisoftSupport.forgetScans()
+        assertNull(UbisoftSupport.bundledInstaller(dir))
+        assertFalse(UbisoftSupport.hasLauncherFiles(dir))
+        assertFalse(UbisoftSupport.detect(dir))
+        // One folder below the root is still looked at (an Epic build's Uplay folder).
+        File(dir, "Uplay").mkdirs()
+        val oneDown = File(dir, "Uplay/UplayInstaller.exe").apply { writeText("x") }
+        UbisoftSupport.forgetScans()
+        assertEquals(oneDown, UbisoftSupport.bundledInstaller(dir))
+    }
+
+    @Test
+    fun aLoaderInTheRootLetsTheSearchGoDeep() {
+        val dir = tmp.newFolder("loaderHint")
+        File(dir, "uplay_r1_loader.dll").writeText("x")
+        File(dir, "Support/Uplay").mkdirs()
+        val deep = File(dir, "Support/Uplay/UplayInstaller.exe").apply { writeText("x") }
+        UbisoftSupport.forgetScans()
+        assertEquals(deep, UbisoftSupport.bundledInstaller(dir))
+    }
+
+    @Test
+    fun anInstallScriptThatNamesUbisoftLetsTheSearchGoDeep() {
+        val dir = tmp.newFolder("scriptHint")
+        File(dir, "installScript.vdf").writeText(ubisoftScript)
+        File(dir, "Support/Uplay").mkdirs()
+        val deep = File(dir, "Support/Uplay/UbisoftConnectInstaller.exe").apply { writeText("x") }
+        UbisoftSupport.forgetScans()
+        assertEquals(deep, UbisoftSupport.bundledInstaller(dir))
+
+        // The same layout with a script that says nothing about Ubisoft stays unsearched.
+        val quiet = tmp.newFolder("quietScript")
+        File(quiet, "installScript.vdf").writeText("\"InstallScript\" { }")
+        File(quiet, "Support/Uplay").mkdirs()
+        File(quiet, "Support/Uplay/UbisoftConnectInstaller.exe").writeText("x")
+        UbisoftSupport.forgetScans()
+        assertNull(UbisoftSupport.bundledInstaller(quiet))
+    }
+
+    @Test
+    fun theLoaderHintIsReadFromTheNamesAlone() {
+        val dir = tmp.newFolder("rootNames")
+        // A folder with a loader's name is no loader; a file in a sub folder is not in the root.
+        File(dir, "uplay_r1_loader.dll").mkdirs()
+        File(dir, "Bin").mkdirs()
+        File(dir, "Bin/uplay_r1_loader64.dll").writeText("x")
+        assertFalse(UbisoftSupport.rootHasLoader(dir, dir.list()!!))
+        File(dir, "UPC_R2_LOADER64.dll").writeText("x")
+        assertTrue(UbisoftSupport.rootHasLoader(dir, dir.list()!!))
+        assertFalse(UbisoftSupport.rootHasLoader(dir, arrayOf("game.exe", "readme.txt")))
+    }
+
+    @Test
+    fun theSearchStopsAfterTheFolderCap() {
+        val dir = tmp.newFolder("chain")
+        File(dir, "a/b/c").mkdirs()
+        val hit = File(dir, "a/b/c/UplayInstaller.exe").apply { writeText("x") }
+        // The root, a, b and c are four listings: a cap of three stops before c is read.
+        assertNull(UbisoftSupport.searchInstaller(dir, UbisoftSupport.DEEP_LEVELS, maxDirs = 3))
+        assertEquals(hit, UbisoftSupport.searchInstaller(dir, UbisoftSupport.DEEP_LEVELS, maxDirs = 4))
+    }
+
+    @Test
+    fun theKnownLayoutsStillResolve() {
+        // Black Flag / Freedom Cry on Steam: loader in the root, the installer in the root or below.
+        val steam = tmp.newFolder("blackFlag")
+        File(steam, "uplay_r1_loader64.dll").writeText("x")
+        File(steam, "Support/Uplay").mkdirs()
+        val steamInstaller = File(steam, "Support/Uplay/UbisoftConnectInstaller.exe").apply { writeText("x") }
+        UbisoftSupport.forgetScans()
+        assertTrue(UbisoftSupport.hasLauncherFiles(steam))
+        assertEquals(steamInstaller, UbisoftSupport.bundledInstaller(steam))
+        // Syndicate on Epic: Uplay\UplayInstaller.exe one folder below the root, loader and install record in the root.
+        val epic = tmp.newFolder("syndicate")
+        File(epic, "uplay_r1_loader64.dll").writeText("x")
+        File(epic, "uplay_install.state").writeText("x")
+        File(epic, "Uplay").mkdirs()
+        val epicInstaller = File(epic, "Uplay/UplayInstaller.exe").apply { writeText("x") }
+        UbisoftSupport.forgetScans()
+        assertTrue(UbisoftSupport.hasLauncherFiles(epic))
+        assertEquals(epicInstaller, UbisoftSupport.bundledInstaller(epic))
+    }
+
+    // ---- A Steam depot's setup decision -----------------------------------------------------------
+
+    @Test
+    fun aSteamDepotWithALegacyScriptStepGetsTheDownloadEvenWithAModernFileBesideIt() {
+        // The name the Steam gate judges is the script step's: that is what the Run Process stage runs first.
+        val dir = tmp.newFolder("legacyStep")
+        File(dir, "uplay_r1_loader.dll").writeText("x")
+        File(dir, "UbisoftConnectInstaller.exe").writeText("x")
+        File(dir, "installScript.vdf").writeText(
+            "\"InstallScript\" { \"Run Process\" { \"Uplay\" { \"process 1\" \"%INSTALLDIR%/UplayInstaller.exe\" \"command 1\" \"/S\" } } }"
+        )
+        UbisoftSupport.forgetScans()
+        assertDecision(UbisoftSupport.EpicSetup.DOWNLOAD, UbisoftSupport.EpicSetupReason.LEGACY_BUNDLED, UbisoftSupport.steamDecisionFor(dir))
+    }
+
+    @Test
+    fun aSteamDepotIsJudgedByItsFiles() {
+        val modern = tmp.newFolder("steamModern")
+        File(modern, "UbisoftConnectInstaller.exe").writeText("x")
+        val loaderOnly = tmp.newFolder("steamLoaderOnly")
+        File(loaderOnly, "uplay_r1_loader.dll").writeText("x")
+        val plain = tmp.newFolder("steamPlain")
+        File(plain, "game.exe").writeText("x")
+        UbisoftSupport.forgetScans()
+        assertDecision(UbisoftSupport.EpicSetup.BUNDLED, UbisoftSupport.EpicSetupReason.MODERN_BUNDLED, UbisoftSupport.steamDecisionFor(modern))
+        assertDecision(UbisoftSupport.EpicSetup.DOWNLOAD, UbisoftSupport.EpicSetupReason.NO_INSTALLER, UbisoftSupport.steamDecisionFor(loaderOnly))
+        assertDecision(UbisoftSupport.EpicSetup.NONE, UbisoftSupport.EpicSetupReason.NOT_APPLICABLE, UbisoftSupport.steamDecisionFor(plain))
     }
 
     @Test
     fun findsTheBundledInstallerInTheRootOrBelowIt() {
         val dir = tmp.newFolder("game2")
+        File(dir, "uplay_r1_loader.dll").writeText("x")
         assertNull(UbisoftSupport.bundledInstaller(dir))
         val nested = File(dir, "Support/Uplay").apply { mkdirs() }
         val old = File(nested, "UplayInstaller.exe").apply { writeText("x") }
@@ -174,6 +305,7 @@ class UbisoftSupportTest {
     @Test
     fun theShallowestInstallerWinsOverADeeperOne() {
         val dir = tmp.newFolder("depth")
+        File(dir, "uplay_r1_loader.dll").writeText("x")
         File(dir, "A/B/C").mkdirs()
         File(dir, "Support").mkdirs()
         File(dir, "A/B/C/UbisoftConnectInstaller.exe").writeText("x")
@@ -206,6 +338,7 @@ class UbisoftSupportTest {
     @Test
     fun theInstallerSearchGoesThreeFoldersDeepAndNoFurther() {
         val dir = tmp.newFolder("limit")
+        File(dir, "uplay_r1_loader.dll").writeText("x")
         File(dir, "a/b/c/d").mkdirs()
         File(dir, "a/b/c/d/UplayInstaller.exe").writeText("x")
         UbisoftSupport.forgetScans()
@@ -244,6 +377,7 @@ class UbisoftSupportTest {
     @Test
     fun fallbackRunProcessUsesTheBundledInstallerSilently() {
         val dir = tmp.newFolder("game3")
+        File(dir, "uplay_r1_loader.dll").writeText("x")
         assertTrue(UbisoftSupport.fallbackRunProcesses(dir).isEmpty())
         File(dir, "Support/Uplay").mkdirs()
         File(dir, "Support/Uplay/UplayInstaller.exe").writeText("x")
@@ -476,16 +610,16 @@ class UbisoftSupportTest {
     }
 
     @Test
-    fun aLaunchGetsANoteOnlyWhenSomethingUbisoftOrEpicLikeApplies() {
-        assertNull(UbisoftSupport.decisionsTrigger(false, false, false, false, null))
-        assertEquals("Epic-like shortcut", UbisoftSupport.decisionsTrigger(true, false, false, false, null))
-        assertEquals("storeSource=epic", UbisoftSupport.decisionsTrigger(false, true, false, false, null))
-        assertEquals("Ubisoft launcher chain armed", UbisoftSupport.decisionsTrigger(false, false, true, false, null))
-        assertEquals("Ubisoft file name in the exe path", UbisoftSupport.decisionsTrigger(false, false, false, true, null))
-        assertEquals("Ubisoft launch report route 'steam'", UbisoftSupport.decisionsTrigger(false, false, false, false, "steam"))
+    fun aLaunchGetsANoteOnlyWhenSomethingUbisoftApplies() {
+        // A plain Epic game (stamp 0 or unset), a Steam game without the chain, a custom exe: nothing.
+        assertNull(UbisoftSupport.decisionsTrigger(false, false, false, null))
+        assertEquals("Epic-like shortcut stamped Ubisoft", UbisoftSupport.decisionsTrigger(true, false, false, null))
+        assertEquals("Ubisoft launcher chain armed", UbisoftSupport.decisionsTrigger(false, true, false, null))
+        assertEquals("Ubisoft file name in the exe path", UbisoftSupport.decisionsTrigger(false, false, true, null))
+        assertEquals("Ubisoft launch report route 'steam'", UbisoftSupport.decisionsTrigger(false, false, false, "steam"))
         assertEquals(
-            "Epic-like shortcut, storeSource=epic, Ubisoft launch report route 'epic'",
-            UbisoftSupport.decisionsTrigger(true, true, false, false, "epic"),
+            "Epic-like shortcut stamped Ubisoft, Ubisoft launch report route 'epic'",
+            UbisoftSupport.decisionsTrigger(true, false, false, "epic"),
         )
     }
 
@@ -507,14 +641,18 @@ class UbisoftSupportTest {
     }
 
     private fun facts(route: String?) = UbisoftSupport.LaunchFacts(
-        timestamp = "2026-11-03 14:02:11", trigger = "Epic-like shortcut",
-        app = "3.1.8 (versionCode 318)", flavor = "standard", debug = false, commit = "none",
+        timestamp = "2026-11-03 14:02:11", trigger = "Epic-like shortcut stamped Ubisoft",
+        app = "3.1.8 (versionCode 318)", flavor = "standard", debug = false,
         shortcutFile = "/c/desktop/Assassins Creed Syndicate.desktop", name = "Assassins Creed Syndicate", exe = epicExe,
         storeSource = "custom", epicAppName = "", epicSandboxId = "", epicEos = "", ubisoft = "", launchMode = "", steamAppId = "",
         strictEpic = false, epicLike = true, epicLikeWhy = "storeSource is custom and the exe path is under epic_games (game folder 'Assassins Creed Syndicate')",
         installDir = "/imagefs/epic_games/Assassins Creed Syndicate", installRoute = "the game folder below epic_games on the exe path",
         hasLauncherFiles = "true", stateFile = "present, product id 1875 (Assassin's Creed Syndicate)",
-        launcherInstalled = "launcherInstalled=false (upc.exe=missing)", registration = "REGISTERED: 11 of 11 value(s) written",
+        launcherInstalled = "launcherInstalled=true (upc.exe=present)",
+        connectBuild = UbisoftSupport.connectBuildText(7178),
+        bundledInstaller = UbisoftSupport.bundledInstallerText("/imagefs/epic_games/Assassins Creed Syndicate/Uplay/UplayInstaller.exe", 128714248L),
+        setupDecision = "Epic gate: " + UbisoftSupport.epicSetupDecision(false, "UplayInstaller.exe"),
+        registration = "REGISTERED: 11 of 11 value(s) written",
         route = route, routeWhy = "not needed",
     )
 
@@ -522,16 +660,218 @@ class UbisoftSupportTest {
     fun theDecisionsNoteListsEveryFact() {
         val text = UbisoftSupport.launchDecisionsText(facts("epic"))
         for (part in listOf(
-            "timestamp: 2026-11-03 14:02:11", "written because: Epic-like shortcut", "app: 3.1.8 (versionCode 318) flavor=standard debug=false",
-            "commit: none", "shortcut file: /c/desktop/Assassins Creed Syndicate.desktop",
+            "timestamp: 2026-11-03 14:02:11", "written because: Epic-like shortcut stamped Ubisoft", "app: 3.1.8 (versionCode 318) flavor=standard debug=false",
+            "shortcut file: /c/desktop/Assassins Creed Syndicate.desktop",
             "storeSource='custom'  epicAppName=''  epicSandboxId=''  epicEos=''  ubisoft=''  launchMode=''  steamAppId=''",
-            "(storeSource=epic, the old isEpicShortcut): false", "): true - storeSource is custom and the exe path is under epic_games",
+            "storeSource is exactly epic: false", "): true - storeSource is custom and the exe path is under epic_games",
             "install folder: /imagefs/epic_games/Assassins Creed Syndicate  (found by: the game folder below epic_games on the exe path)",
             "hasLauncherFiles(install folder): true", "uplay_install.state: present, product id 1875",
-            "Ubisoft Connect in the prefix: launcherInstalled=false", "install record (UbisoftInstallRegistry.last): REGISTERED: 11 of 11",
+            "Ubisoft Connect in the prefix: launcherInstalled=true", "install record (UbisoftInstallRegistry.last): REGISTERED: 11 of 11",
+            "Ubisoft Connect build (version.txt): 7178\n",
+            "bundled installer: /imagefs/epic_games/Assassins Creed Syndicate/Uplay/UplayInstaller.exe (128714248 bytes, current-client name: false)\n",
+            "Ubisoft Connect setup decision (read-only, as the launch gate would answer now): Epic gate: DOWNLOAD (LEGACY_BUNDLED)\n",
             "Ubisoft launch report route: epic\n",
         )) assertTrue("missing '$part' in:\n$text", text.contains(part))
         assertFalse(text.contains("not needed"))
+    }
+
+    @Test
+    fun connectBuildFromReadsAPlainNumber() {
+        assertEquals(7178, UbisoftSupport.connectBuildFrom("7178"))
+        assertEquals(13393, UbisoftSupport.connectBuildFrom(" 13393\r\n"))
+        assertEquals(13393, UbisoftSupport.connectBuildFrom("\uFEFF13393\n"))
+    }
+
+    @Test
+    fun connectBuildFromRefusesAnythingElse() {
+        assertNull(UbisoftSupport.connectBuildFrom(""))
+        assertNull(UbisoftSupport.connectBuildFrom("   \n"))
+        assertNull(UbisoftSupport.connectBuildFrom("v175"))
+        assertNull(UbisoftSupport.connectBuildFrom("7178 13393"))
+        assertNull(UbisoftSupport.connectBuildFrom("7178\n13393"))
+        assertNull(UbisoftSupport.connectBuildFrom("0"))
+        assertNull(UbisoftSupport.connectBuildFrom("-5"))
+        assertNull(UbisoftSupport.connectBuildFrom("99999999999999999999"))
+        assertNull(UbisoftSupport.connectBuildFrom("1000000"))
+    }
+
+    @Test
+    fun connectBuildReadsTheFileInThePrefix() {
+        val root = tmp.newFolder("c1")
+        assertNull(UbisoftSupport.connectBuildAt(root))
+        val dir = File(root, ".wine/drive_c/Program Files (x86)/Ubisoft/Ubisoft Game Launcher")
+        dir.mkdirs()
+        val file = File(dir, "version.txt")
+        file.writeText("7178")
+        assertEquals(7178, UbisoftSupport.connectBuildAt(root))
+        file.writeText("13393\n")
+        assertEquals(13393, UbisoftSupport.connectBuildAt(root))
+        file.writeText("x".repeat(500))
+        assertNull(UbisoftSupport.connectBuildAt(root))
+    }
+
+    @Test
+    fun onlyTheCurrentClientNameIsModern() {
+        assertTrue(UbisoftSupport.isModernInstallerName("UbisoftConnectInstaller.exe"))
+        assertTrue(UbisoftSupport.isModernInstallerName("Ubisoft Connect Installer.exe"))
+        assertFalse(UbisoftSupport.isModernInstallerName("UplayInstaller.exe"))
+        assertFalse(UbisoftSupport.isModernInstallerName("Uplay_Installer.exe"))
+        assertFalse(UbisoftSupport.isModernInstallerName("UbisoftGameLauncherInstaller.exe"))
+        assertFalse(UbisoftSupport.isModernInstallerName("upcinstaller.exe"))
+        assertFalse(UbisoftSupport.isModernInstallerName("UbisoftConnectUninstaller.exe"))
+        assertFalse(UbisoftSupport.isModernInstallerName("DXSETUP.exe"))
+        assertFalse(UbisoftSupport.isModernInstallerName(null))
+    }
+
+    @Test
+    fun theProcessFormOfTheModernCheckJudgesTheFileNameOnly() {
+        assertTrue(UbisoftSupport.isModernInstaller("%INSTALLDIR%\\Support\\Uplay\\UbisoftConnectInstaller.exe"))
+        assertTrue(UbisoftSupport.isModernInstaller("\"C:\\bl_installscript\\ubisoft_installer\\UbisoftConnectInstaller.exe\""))
+        assertFalse(UbisoftSupport.isModernInstaller("%INSTALLDIR%\\Support\\Uplay\\UplayInstaller.exe"))
+        assertFalse(UbisoftSupport.isModernInstaller("%INSTALLDIR%\\DirectX\\DXSETUP.exe"))
+    }
+
+    @Test
+    fun theBestInstallerNameIsTheLowestRankAndTheFirstOfEquals() {
+        assertNull(UbisoftSupport.bestInstallerName(emptyList()))
+        assertEquals("UbisoftConnectInstaller.exe", UbisoftSupport.bestInstallerName(listOf("UplayInstaller.exe", "UbisoftConnectInstaller.exe")))
+        assertEquals("UbisoftGameLauncherInstaller.exe", UbisoftSupport.bestInstallerName(listOf("UbisoftGameLauncherInstaller.exe", "UplayInstaller.exe")))
+        assertEquals("Uplay_Installer.exe", UbisoftSupport.bestInstallerName(listOf("Uplay_Installer.exe", "UplayInstaller.exe")))
+    }
+
+    private fun epic(installed: Boolean, bundled: String?) = UbisoftSupport.epicSetupDecision(installed, bundled)
+
+    private fun assertDecision(setup: UbisoftSupport.EpicSetup, reason: UbisoftSupport.EpicSetupReason, actual: UbisoftSupport.EpicDecision) =
+        assertEquals(UbisoftSupport.EpicDecision(setup, reason), actual)
+
+    @Test
+    fun epicConnectMissingWithACurrentBundledInstallerRunsIt() {
+        assertDecision(UbisoftSupport.EpicSetup.BUNDLED, UbisoftSupport.EpicSetupReason.MODERN_BUNDLED, epic(false, "UbisoftConnectInstaller.exe"))
+    }
+
+    @Test
+    fun epicConnectMissingWithALegacyBundledInstallerDownloadsTheCurrentOne() {
+        for (name in listOf("UplayInstaller.exe", "Uplay_Installer.exe", "UbisoftGameLauncherInstaller.exe", "upcinstaller_x64.exe")) {
+            assertDecision(UbisoftSupport.EpicSetup.DOWNLOAD, UbisoftSupport.EpicSetupReason.LEGACY_BUNDLED, epic(false, name))
+        }
+    }
+
+    @Test
+    fun epicConnectMissingWithNoBundledInstallerDownloads() {
+        assertDecision(UbisoftSupport.EpicSetup.DOWNLOAD, UbisoftSupport.EpicSetupReason.NO_INSTALLER, epic(false, null))
+    }
+
+    @Test
+    fun epicConnectInstalledNeedsNothingWhateverTheGameBundles() {
+        for (name in listOf(null, "UbisoftConnectInstaller.exe", "UplayInstaller.exe")) {
+            assertDecision(UbisoftSupport.EpicSetup.NONE, UbisoftSupport.EpicSetupReason.CURRENT, epic(true, name))
+        }
+    }
+
+    private fun steam(installed: Boolean, ubisoft: Boolean, installer: String?, launcherFiles: Boolean) =
+        UbisoftSupport.steamSetupDecision(installed, ubisoft, installer, launcherFiles)
+
+    @Test
+    fun steamConnectInstalledNeedsNothing() {
+        assertDecision(UbisoftSupport.EpicSetup.NONE, UbisoftSupport.EpicSetupReason.CURRENT, steam(true, true, "UplayInstaller.exe", true))
+        assertDecision(UbisoftSupport.EpicSetup.NONE, UbisoftSupport.EpicSetupReason.CURRENT, steam(true, false, null, false))
+    }
+
+    @Test
+    fun steamNonUbisoftGameNeedsNothing() {
+        assertDecision(UbisoftSupport.EpicSetup.NONE, UbisoftSupport.EpicSetupReason.NOT_APPLICABLE, steam(false, false, null, false))
+        assertDecision(UbisoftSupport.EpicSetup.NONE, UbisoftSupport.EpicSetupReason.NOT_APPLICABLE, steam(false, false, "UbisoftConnectInstaller.exe", true))
+    }
+
+    @Test
+    fun steamModernInstallerRunsAsBefore() {
+        assertDecision(UbisoftSupport.EpicSetup.BUNDLED, UbisoftSupport.EpicSetupReason.MODERN_BUNDLED, steam(false, true, "UbisoftConnectInstaller.exe", true))
+        assertDecision(UbisoftSupport.EpicSetup.BUNDLED, UbisoftSupport.EpicSetupReason.MODERN_BUNDLED, steam(false, true, "UbisoftConnectInstaller.exe", false))
+    }
+
+    @Test
+    fun steamLegacyInstallerIsNeverRunAndTheCurrentOneIsDownloaded() {
+        for (name in listOf("UplayInstaller.exe", "Uplay_Installer.exe", "UbisoftGameLauncherInstaller.exe")) {
+            assertDecision(UbisoftSupport.EpicSetup.DOWNLOAD, UbisoftSupport.EpicSetupReason.LEGACY_BUNDLED, steam(false, true, name, true))
+            assertDecision(UbisoftSupport.EpicSetup.DOWNLOAD, UbisoftSupport.EpicSetupReason.LEGACY_BUNDLED, steam(false, true, name, false))
+        }
+    }
+
+    @Test
+    fun steamLauncherFilesWithoutAnyInstallerDownloads() {
+        assertDecision(UbisoftSupport.EpicSetup.DOWNLOAD, UbisoftSupport.EpicSetupReason.NO_INSTALLER, steam(false, true, null, true))
+    }
+
+    @Test
+    fun steamUbisoftScriptWithoutLauncherFilesOrInstallerHasNothingToSetUp() {
+        assertDecision(UbisoftSupport.EpicSetup.NONE, UbisoftSupport.EpicSetupReason.NOT_APPLICABLE, steam(false, true, null, false))
+    }
+
+    @Test
+    fun theBundledInstallerTextSaysSizeAndWhetherItIsCurrent() {
+        assertEquals("none", UbisoftSupport.bundledInstallerText(null, 0L))
+        assertEquals(
+            "/g/UbisoftConnectInstaller.exe (262918936 bytes, current-client name: true)",
+            UbisoftSupport.bundledInstallerText("/g/UbisoftConnectInstaller.exe", 262918936L),
+        )
+    }
+
+    @Test
+    fun theSteamChainIsRecognisedFromThePlanEnv() {
+        assertTrue(UbisoftSupport.steamChainArmed(mapOf(EaSupport.CHAIN_ENV to UbisoftSupport.CHAIN_VALUE)))
+        assertFalse(UbisoftSupport.steamChainArmed(mapOf(EaSupport.CHAIN_ENV to EaSupport.CHAIN_VALUE)))
+        assertFalse(UbisoftSupport.steamChainArmed(emptyMap()))
+        assertFalse(UbisoftSupport.steamChainArmed(null))
+    }
+
+    @Test
+    fun anInstallScriptIsFoundByNameWithoutLookingAtTheDepot() {
+        val dir = tmp.newFolder("byName")
+        assertNull(InstallScriptExecutor.locateScriptByName(dir))
+        val app = File(dir, "242050_install.vdf").apply { writeText("x") }
+        // The app-named script is returned by name alone; locateScript is the one that asks the depot's files.
+        assertEquals(app, InstallScriptExecutor.locateScriptByName(dir))
+        assertNull(InstallScriptExecutor.locateScript(dir))
+        val classic = File(dir, "installScript.vdf").apply { writeText("x") }
+        assertEquals(classic, InstallScriptExecutor.locateScriptByName(dir))
+        File(dir, "Folder_installscript.vdf").mkdirs()
+        assertEquals(classic, InstallScriptExecutor.locateScript(dir))
+    }
+
+    @Test
+    fun aScriptNameBecomesOneSafeFileName() {
+        assertEquals("Ubisoft_Connect_PC_Client", InstallScriptExecutor.safeFileName("Ubisoft Connect PC Client"))
+        assertEquals("a_b_c_d_e", InstallScriptExecutor.safeFileName("a/b\\c:d*e"))
+        assertEquals("Need_for_Speed__Payback", InstallScriptExecutor.safeFileName("Need for Speed™ Payback"))
+        assertEquals("x_1_y", InstallScriptExecutor.safeFileName("x\"1&y"))
+        assertEquals("EA-app_1.0", InstallScriptExecutor.safeFileName("EA-app_1.0"))
+        assertEquals("installscript", InstallScriptExecutor.safeFileName(""))
+    }
+
+    @Test
+    fun aCopyTargetMustStayBelowItsAliasRoot() {
+        val root = File(tmp.root, "bl_installscript").apply { mkdirs() }
+        assertTrue(InstallScriptExecutor.isUnder(root, File(root, "Game/Support/x.exe")))
+        assertFalse(InstallScriptExecutor.isUnder(root, File(root, "Game/../../outside/x.exe")))
+        assertFalse(InstallScriptExecutor.isUnder(root, root))
+        assertFalse(InstallScriptExecutor.isUnder(root, File(tmp.root, "bl_installscript_other/x.exe")))
+    }
+
+    @Test
+    fun theSharedSetupCheckOnlyLooksAtUbisoftCandidates() {
+        val none = UbisoftSupport.GateKind.NONE
+        val epic = UbisoftSupport.GateKind.EPIC
+        val steam = UbisoftSupport.GateKind.STEAM
+        // gateKind(androidEntry, epicLike, stamp, stampRechecked, steamOrigin)
+        assertEquals(none, UbisoftSupport.gateKind(false, false, null, false, false))   // custom / GOG / Xbox / Linux
+        assertEquals(none, UbisoftSupport.gateKind(true, true, true, false, true))      // an Android game is never one
+        assertEquals(epic, UbisoftSupport.gateKind(false, true, null, false, false))    // Epic, never looked at
+        assertEquals(epic, UbisoftSupport.gateKind(false, true, true, false, false))    // Epic stamped Ubisoft
+        assertEquals(epic, UbisoftSupport.gateKind(false, true, true, true, false))
+        assertEquals(epic, UbisoftSupport.gateKind(false, true, false, false, false))   // "0" not looked at again yet
+        assertEquals(none, UbisoftSupport.gateKind(false, true, false, true, false))    // "0", looked at again: skip the disk
+        assertEquals(steam, UbisoftSupport.gateKind(false, false, null, false, true))
+        assertEquals(epic, UbisoftSupport.gateKind(false, true, null, false, true))     // Epic wins over a Steam-looking path
     }
 
     @Test

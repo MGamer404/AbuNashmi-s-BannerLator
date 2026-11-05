@@ -293,8 +293,17 @@ public final class LogInventory {
                 || name.startsWith(com.winlator.star.store.UbisoftDiag.FILES_DIR + ".deleting-");
     }
 
+    /**
+     * A link is never followed: the diagnostics folders hold files a game or an installer could have planted, and a
+     * link in there must not lead the delete (or the size count) out of the folder. A link is removed itself.
+     */
+    private static boolean isLink(File f) {
+        return java.nio.file.Files.isSymbolicLink(f.toPath());
+    }
+
     private static int deleteTree(File f) {
         if (f == null) return 0;
+        if (isLink(f)) return f.delete() ? 1 : 0;
         int n = 0;
         File[] kids = f.listFiles();
         if (kids != null) for (File k : kids) n += deleteTree(k);
@@ -306,7 +315,7 @@ public final class LogInventory {
 
     private static int countTree(File f) {
         if (f == null) return 0;
-        if (f.isFile()) return 1;
+        if (isLink(f) || f.isFile()) return 1;
         int n = 0;
         File[] kids = f.listFiles();
         if (kids != null) for (File k : kids) n += countTree(k);
@@ -327,7 +336,7 @@ public final class LogInventory {
     }
 
     private static long sizeOfTree(File f) {
-        if (f == null) return 0;
+        if (f == null || isLink(f)) return 0;
         if (f.isFile()) return f.length();
         File[] kids = f.listFiles();
         long t = 0;

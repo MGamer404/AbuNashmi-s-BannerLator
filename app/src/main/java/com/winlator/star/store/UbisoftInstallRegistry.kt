@@ -9,25 +9,21 @@ import java.io.File
 import java.io.StringReader
 
 /**
- * Tells Ubisoft Connect that a game folder is an installed game, by writing the registry keys Connect itself writes
- * when the user picks "Locate installed game" on a game it offers to download (device-proven with Assassin's Creed
- * Syndicate from the Epic Games Store: after Locate the game launched, and the two keys below were all that Locate
- * itself changed in the prefix's `system.reg`). Without them Connect has no record of the install and offers to
- * download the game again. The product id and the language come from the `uplay_install.state` file in the game's
- * folder ([UbisoftInstallState]).
+ * Tells Ubisoft Connect that a game folder is an installed game, by writing the two registry keys Connect writes when
+ * the user picks "Locate installed game" on a game it offers to download. Without them Connect has no record of the
+ * install and offers to download the game again. The product id and the language come from the
+ * `uplay_install.state` file in the game's folder ([UbisoftInstallState]).
  *
- * What Locate wrote, with the Syndicate values (1875 is the state file's product id):
+ * The keys, with product id 1875 as an example:
  *  - `Software\Wow6432Node\Ubisoft\Launcher\Installs\1875`: `InstallDir` = `Z:/epic_games/<game>/` (forward slashes,
  *    trailing slash), `Language` = `en-US`.
  *  - `Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Uplay Install 1875`: the game's "Add or
  *    remove programs" entry. Its `DisplayIcon` points at a hash-named `.ico` in Connect's `data` folder, which the
  *    state file does not give, so it is left out.
  *
- * The game's own `Software\Wow6432Node\Ubisoft\<game>` `Language` value is NOT part of Locate: it appeared about
- * twelve minutes later, written by Connect's first-launch prerequisite step, so it is not written here.
- *
- * Writing them is harmless while Connect is not installed yet: they are plain keys no one reads, and Connect's
- * installer only adds its own `Software\Wow6432Node\Ubisoft\Launcher` values, it does not clear `Installs`.
+ * The game's own `Software\Wow6432Node\Ubisoft\<game>` `Language` value is Connect's to write on its first launch and
+ * is not written here. Writing the keys is harmless while Connect is not installed yet: its installer only adds its own
+ * `Launcher` values and does not clear `Installs`.
  */
 object UbisoftInstallRegistry {
     private const val TAG = "UbisoftInstallRegistry"
@@ -79,8 +75,8 @@ object UbisoftInstallRegistry {
 
     /**
      * Every write Locate does for [state], [installDirZ] being [zPathOf] of the game folder (see the class
-     * comment). Pure. Values with a control character are left out: the file comes from a game folder and a line
-     * break in a value would corrupt the `.reg` text.
+     * comment). Pure. The state file comes from a game folder, so a write is left out when a key, name or value has a
+     * control character or DEL (a line break would corrupt the `.reg` text) or a value is longer than [MAX_VALUE_CHARS].
      */
     @JvmStatic
     fun installWrites(state: UbisoftInstallState, installDirZ: String): List<RegWrite> {
@@ -100,8 +96,13 @@ object UbisoftInstallRegistry {
         out += RegWrite(uninstall, "Publisher", Type.STRING, "Ubisoft")
         out += RegWrite(uninstall, "UninstallString", Type.STRING, "\"$UPC_EXE\" uplay://uninstall/$id")
         out += RegWrite(uninstall, "URLInfoAbout", Type.STRING, "http://www.ubisoft.com/")
-        return out.filter { w -> listOf(w.key, w.name, w.data).none { s -> s.any { it < ' ' } } }.distinct()
+        return out.filter { w -> listOf(w.key, w.name, w.data).none { s -> s.any { it < ' ' || it == DEL } } && w.data.length <= MAX_VALUE_CHARS }.distinct()
     }
+
+    private const val DEL = '\u007F'
+
+    /** Longest value written: the real ones are a path and a game name, the state file is untrusted. */
+    private const val MAX_VALUE_CHARS = 256
 
     // ---- Reading the hive -----------------------------------------------------------------------
 
@@ -159,7 +160,7 @@ object UbisoftInstallRegistry {
 
     // ---- Registering ----------------------------------------------------------------------------
 
-    /** How a [register] call ended, see [Outcome]. */
+    /** How a [registerDetailed] call ended, see [Outcome]. */
     enum class Result {
         /** The keys were written (the detail says how many values). */
         REGISTERED,
@@ -189,11 +190,8 @@ object UbisoftInstallRegistry {
         ERROR,
     }
 
-    /** What [register] did, in words for the diagnostics report and the log: [result] plus a [detail] line. */
+    /** What [registerDetailed] did, in words for the diagnostics report and the log: [result] plus a [detail] line. */
     data class Outcome(val result: Result, val detail: String) {
-        /** True when the registry was changed. */
-        val changed: Boolean get() = result == Result.REGISTERED
-
         override fun toString(): String = if (detail.isEmpty()) result.name else "${result.name}: $detail"
     }
 
@@ -212,27 +210,28 @@ object UbisoftInstallRegistry {
     @JvmStatic
     fun last(): Outcome? = lastOutcome
 
+    /** Forgets the remembered outcome (a test that recorded one leaves no state behind). */
+    internal fun forgetLast() {
+        lastOutcome = null
+    }
+
     /**
-     * Records the game in [installDir] as installed in [container]'s prefix (see the class comment). Call on the
-     * launch worker thread after the prefix is prepared and before any Wine process runs: [WineRegistryEditor]
-     * rewrites `system.reg`, and a running wineserver would overwrite that when it saves its own copy.
+     * Records the game in [installDir] as installed in [container]'s prefix (see the class comment), the answer in words
+     * ([Outcome]), also remembered for the launch report ([last]). Call on the launch worker thread after the prefix is
+     * prepared and before any Wine process runs: [WineRegistryEditor] rewrites `system.reg`, and a running wineserver
+     * would overwrite that when it saves its own copy.
      *
      * Cheap and idempotent: one streamed read of `system.reg`, and a write only for what is missing or different.
      * A folder without a usable [STATE_FILE], one outside the imagefs root, or a prefix without `system.reg` (not
-     * booted yet) changes nothing. Returns true when the registry was changed. Never throws.
+     * booted yet) changes nothing. Never throws.
      */
-    @JvmStatic
-    fun register(container: Container, installDir: File, imageFsRoot: File): Boolean =
-        registerDetailed(container, installDir, imageFsRoot).changed
-
-    /** [register] with the answer in words ([Outcome]); also remembered for the launch report ([last]). Never throws. */
     @JvmStatic
     fun registerDetailed(container: Container, installDir: File, imageFsRoot: File): Outcome =
         record(
             try {
                 doRegister(container, installDir, imageFsRoot)
             } catch (e: Exception) {
-                Log.w(TAG, "could not register the Ubisoft install — left as is", e)
+                Log.w(TAG, "could not register the Ubisoft install - left as is", e)
                 Outcome(Result.ERROR, e.toString())
             },
         )

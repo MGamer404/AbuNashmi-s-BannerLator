@@ -18,11 +18,14 @@ import java.net.URL
  * The file goes to the container's own `C:` drive (`C:\bl_installscript\ubisoft_installer\`): the setup stage can run
  * a `C:` path as it is, with no copy of the 251 MB. It is written as `.part` and only renamed once it checks out, so
  * a file under the final name is always a whole one and is reused instead of downloaded again. [deleteDownloaded]
- * removes it once Connect is installed ([UbisoftSupport.epicSetupFor] does that on the next launch).
+ * removes it. The setup session's own batch file deletes it as soon as the installer has exited, whatever the outcome
+ * ([cleanupBatchLines]); [UbisoftSupport.epicSetupFor] and [UbisoftSupport.steamSetupFor] also call it for a container
+ * that has Connect (one `exists()` check when there is nothing to remove).
  *
- * There is no published hash, so integrity rests on HTTPS to Ubisoft's CDN plus three checks: HTTP 200, the final size
- * equal to Content-Length, and an `MZ` (Windows executable) header. Only [INSTALLER_URL] is ever requested; a redirect is
- * followed only to another https URL on the same host ([redirectTarget]).
+ * There is no published hash, so integrity rests on HTTPS to Ubisoft's CDN plus these checks: HTTP 200, a Content-Length
+ * between [MIN_PLAUSIBLE_BYTES] and [MAX_BYTES], the final size equal to it, and an `MZ` (Windows executable) header.
+ * Only [INSTALLER_URL] is ever requested; a redirect is followed only to another https URL on the same host and port
+ * ([redirectTarget]). One download runs at a time in the process, and none runs longer than [TOTAL_DEADLINE_MS].
  *
  * Blocking: call from a worker thread / `Dispatchers.IO` only. [Handle.cancel] aborts from any thread.
  */
@@ -39,11 +42,24 @@ object UbisoftInstallerDownload {
     private const val DIR_REL = ".wine/drive_c/bl_installscript/ubisoft_installer"
     private const val WIN_DIR = "C:\\bl_installscript\\ubisoft_installer\\"
 
-    /** A file smaller than this under the final name is not the installer (the real one is 251 MB). */
+    /** A file smaller than this under the final name, or announced to be, is not the installer (the real one is 251 MB). */
     private const val MIN_PLAUSIBLE_BYTES = 50L * 1024 * 1024
 
+    /** A download announced to be larger than this is refused before a byte is written. */
+    private const val MAX_BYTES = 1024L * 1024 * 1024
+
+    /** The whole transfer, connecting included, may take this long (the per-read timeout alone lets a trickle run for ever). */
+    private const val TOTAL_DEADLINE_MS = 25L * 60 * 1000
+
+    /** One download at a time: two would write the same `.part` file. */
+    private val downloadLock = java.util.concurrent.locks.ReentrantLock()
+
     /** Free space wanted beyond the file itself, for the installer to unpack into. */
-    private const val SPACE_MARGIN_BYTES = 100L * 1024 * 1024
+    private const val SPACE_MARGIN_MB = 100
+    private const val SPACE_MARGIN_BYTES = SPACE_MARGIN_MB * 1024L * 1024
+
+    /** What the "not enough space" message says is needed: the file plus [SPACE_MARGIN_MB]. */
+    const val NEEDED_FREE_MB = APPROX_MB + SPACE_MARGIN_MB
 
     private const val REPORT_STEP_BYTES = 256L * 1024
     private const val TIMEOUT_MS = 30_000
@@ -93,6 +109,29 @@ object UbisoftInstallerDownload {
     @JvmStatic
     fun windowsPathOf(file: File): String = WIN_DIR + file.name
 
+    /** True when [windowsPath] is the downloaded installer (`C:\bl_installscript\ubisoft_installer\UbisoftConnectInstaller.exe`) and nothing else, never a game's own bundled one. Pure. */
+    @JvmStatic
+    fun isDownloadedPath(windowsPath: String): Boolean {
+        val p = windowsPath.trim().trim('"').trim()
+        return p.startsWith(WIN_DIR, ignoreCase = true) && p.substring(WIN_DIR.length).equals(FILE_NAME, ignoreCase = true)
+    }
+
+    /**
+     * Batch lines that remove the downloaded installer and its folder, for the end of the setup session's batch file
+     * (after the installer has exited, see `LiveInstallerRunProcessStage`). Empty for any [windowsPath] that is not the
+     * downloaded installer, so a game's own installer is never touched. Pure.
+     */
+    @JvmStatic
+    fun cleanupBatchLines(windowsPath: String): List<String> {
+        if (!isDownloadedPath(windowsPath)) return emptyList()
+        val dir = WIN_DIR.trimEnd('\\')
+        return listOf(
+            "echo Removing the downloaded installer...",
+            "del /f /q \"$dir\\*\" >nul 2>&1",
+            "rmdir \"$dir\" >nul 2>&1",
+        )
+    }
+
     /** Deletes the downloaded installer and any partial file (a stat when there is nothing). Never throws. */
     @JvmStatic
     fun deleteDownloaded(container: Container) {
@@ -124,6 +163,12 @@ object UbisoftInstallerDownload {
     @JvmStatic
     fun isPlausibleInstaller(length: Long, head: ByteArray): Boolean = length >= MIN_PLAUSIBLE_BYTES && hasMzHeader(head)
 
+    /** True when the announced Content-Length [total] is one the installer can have: neither tiny nor huge. */
+    internal fun isPlausibleLength(total: Long): Boolean = total in MIN_PLAUSIBLE_BYTES..MAX_BYTES
+
+    /** True when a transfer that started [elapsedMs] ago has used up its time. */
+    internal fun pastDeadline(elapsedMs: Long): Boolean = elapsedMs > TOTAL_DEADLINE_MS
+
     /** True when [e] says the disk is full. */
     @JvmStatic
     fun isNoSpace(e: IOException): Boolean {
@@ -132,8 +177,8 @@ object UbisoftInstallerDownload {
     }
 
     /**
-     * Where a redirect from [current] may go: [location] resolved against it, only when it is https on the same host,
-     * otherwise null (the download is refused rather than sent to another server).
+     * Where a redirect from [current] may go: [location] resolved against it, only when it is https on the same host and
+     * port and carries no credentials, otherwise null (the download is refused rather than sent to another server).
      */
     @JvmStatic
     fun redirectTarget(current: String, location: String?): String? {
@@ -142,6 +187,7 @@ object UbisoftInstallerDownload {
         val next = try { base.resolve(location.trim()) } catch (e: Exception) { return null }
         val host = next.host ?: return null
         if (!"https".equals(next.scheme, ignoreCase = true) || !host.equals(base.host, ignoreCase = true)) return null
+        if (next.port != base.port || next.userInfo != null) return null
         return next.toString()
     }
 
@@ -155,11 +201,19 @@ object UbisoftInstallerDownload {
     fun ensure(container: Container, handle: Handle, onProgress: (Long, Long) -> Unit): Outcome {
         val dest = fileOf(container)
         if (dest.isFile && isPlausibleInstaller(dest.length(), readHead(dest))) return Outcome.Done(dest)
-        return try {
-            download(dest, handle, onProgress)
-        } catch (t: Throwable) {
-            Log.w(TAG, "download failed", t)
-            Outcome.Failed(Reason.IO, t.message ?: t.javaClass.simpleName)
+        // A second caller waits here and, once the first has finished, finds the whole file instead of starting over.
+        downloadLock.lock()
+        try {
+            if (handle.cancelled) return Outcome.Cancelled
+            if (dest.isFile && isPlausibleInstaller(dest.length(), readHead(dest))) return Outcome.Done(dest)
+            return try {
+                download(dest, handle, onProgress)
+            } catch (t: Throwable) {
+                Log.w(TAG, "download failed", t)
+                Outcome.Failed(Reason.IO, t.message ?: t.javaClass.simpleName)
+            }
+        } finally {
+            downloadLock.unlock()
         }
     }
 
@@ -172,10 +226,12 @@ object UbisoftInstallerDownload {
         part.delete()
         dest.delete()
         var finished = false
+        val startedAt = System.nanoTime()
         try {
             val conn = connect(handle)
             val total = conn.contentLengthLong
             if (total <= 0) return Outcome.Failed(Reason.SIZE, "no Content-Length")
+            if (!isPlausibleLength(total)) return Outcome.Failed(Reason.SIZE, "Content-Length $total is not an installer's size")
             // 0 means the file system would not say; a full disk still stops the write below with ENOSPC.
             val free = dir.usableSpace
             if (free > 0 && !hasEnoughSpace(free, total)) return Outcome.Failed(Reason.NO_SPACE, "$free free, $total needed")
@@ -190,6 +246,7 @@ object UbisoftInstallerDownload {
                     val n = try { input.read(buf) } catch (e: IOException) { stop = failure(handle, Reason.NETWORK, e); break }
                     if (n < 0) break
                     if (handle.cancelled) { stop = Outcome.Cancelled; break }
+                    if (pastDeadline((System.nanoTime() - startedAt) / 1_000_000L)) { stop = Outcome.Failed(Reason.NETWORK, "taking too long"); break }
                     try { out.write(buf, 0, n) } catch (e: IOException) { stop = failure(handle, if (isNoSpace(e)) Reason.NO_SPACE else Reason.IO, e); break }
                     written += n
                     if (written - lastReport >= REPORT_STEP_BYTES || written == total) { lastReport = written; onProgress(written, total) }

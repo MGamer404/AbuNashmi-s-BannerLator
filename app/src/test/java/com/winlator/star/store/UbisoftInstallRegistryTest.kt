@@ -6,6 +6,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Test
 import java.io.File
 
@@ -137,6 +138,43 @@ class UbisoftInstallRegistryTest {
         val out = UbisoftInstallRegistry.installWrites(s, game)
         assertTrue(out.none { it.name == "DisplayName" })
         assertEquals(2 + 8, out.size)
+    }
+
+    @Test
+    fun aValueWithADeleteCharacterIsLeftOut() {
+        val s = state().copy(name = "Bad\u007FName", displayName = "Bad\u007FName")
+        val out = UbisoftInstallRegistry.installWrites(s, game)
+        assertTrue(out.none { it.name == "DisplayName" })
+        assertEquals(2 + 8, out.size)
+    }
+
+    @Test
+    fun aValueOver256CharactersIsLeftOutAndOneAtTheLimitStays() {
+        val tooLong = "x".repeat(257)
+        val cut = UbisoftInstallRegistry.installWrites(state().copy(name = tooLong, displayName = tooLong, language = tooLong), game)
+        assertTrue(cut.none { it.name == "DisplayName" || it.name == "Language" })
+        assertEquals(2 + 7, cut.size)
+        val atLimit = "x".repeat(256)
+        val kept = UbisoftInstallRegistry.installWrites(state().copy(name = atLimit, displayName = atLimit), game)
+        assertEquals(atLimit, kept.first { it.name == "DisplayName" }.data)
+    }
+
+    // ---- The outcome ----------------------------------------------------------------------------
+
+    @After
+    fun forgetTheRecordedOutcome() = UbisoftInstallRegistry.forgetLast()
+
+    @Test
+    fun theRegistrationOutcomeReadsInWords() {
+        val done = UbisoftInstallRegistry.Outcome(UbisoftInstallRegistry.Result.REGISTERED, "11 of 11 value(s) written")
+        assertEquals("REGISTERED: 11 of 11 value(s) written", done.toString())
+        val already = UbisoftInstallRegistry.Outcome(UbisoftInstallRegistry.Result.ALREADY_PRESENT, "")
+        assertEquals("ALREADY_PRESENT", already.toString())
+        val skipped = UbisoftInstallRegistry.Outcome(UbisoftInstallRegistry.Result.SKIPPED_NOT_UBISOFT, "no shortcut")
+        assertEquals(skipped, UbisoftInstallRegistry.record(skipped))
+        assertEquals(skipped, UbisoftInstallRegistry.last())
+        UbisoftInstallRegistry.forgetLast()
+        assertNull(UbisoftInstallRegistry.last())
     }
 
     // ---- The Z: path ----------------------------------------------------------------------------

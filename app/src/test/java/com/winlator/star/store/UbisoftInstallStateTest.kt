@@ -178,4 +178,11 @@ class UbisoftInstallStateTest {
         assertEquals("", s.name)
         assertEquals("en-US", s.language)
     }
+
+    @Test
+    fun theInstallHashIsFieldOneAsTextOrHex() {
+        assertEquals("abc", UbisoftInstallState.installHash(byteArrayOf(0x0A, 3, 'a'.code.toByte(), 'b'.code.toByte(), 'c'.code.toByte())))
+        assertEquals("01ff", UbisoftInstallState.installHash(byteArrayOf(0x0A, 2, 0x01, 0xFF.toByte())))
+        assertNull(UbisoftInstallState.installHash(byteArrayOf(0x10, 1)))
+    }
 }

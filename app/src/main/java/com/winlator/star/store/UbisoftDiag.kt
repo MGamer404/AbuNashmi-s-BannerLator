@@ -13,7 +13,6 @@ import android.util.Log
 import com.winlator.star.container.Container
 import com.winlator.star.container.Shortcut
 import com.winlator.star.core.ExitReasonReporter
-import com.winlator.star.core.LogcatCapture
 import com.winlator.star.core.WinePath
 import com.winlator.star.xenvironment.ImageFs
 import java.io.BufferedReader
@@ -23,25 +22,24 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.nio.file.Files
 import java.util.TimeZone
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
 
 /**
- * The Ubisoft launch report: for every launch of a Ubisoft game (an Epic game stamped Ubisoft, or a Steam game that
- * armed the Ubisoft launcher chain) the app writes its own diagnostics into the game's log folder, beside
- * `wine_debug.log`, whatever the Log Manager toggles say, so a Ubisoft Connect problem can be diagnosed from one
- * zip of that folder instead of files collected by hand:
+ * The Ubisoft launch report: when the user switches it on (Log Manager "Ubisoft diagnostics report", or the container
+ * extra `ubisoftDiagReport=1`, see [reportRequested]; off by default), every launch of a Ubisoft game (an Epic game stamped
+ * Ubisoft, or a Steam game that armed the Ubisoft launcher chain) writes its own diagnostics into the game's log folder,
+ * beside `wine_debug.log`, so a Ubisoft Connect problem can be diagnosed from one zip of that folder instead of files
+ * collected by hand. With the switch off none of this runs (the tiny `launch_decisions.txt` note is separate):
  *
  *  - `ubisoft_diag.txt`: the index and the readable report (header, shortcut, decisions, install-record outcome,
  *    registry sections, Ubisoft file areas and what changed in them, Connect's logs and settings, launch settings).
- *  - `ubisoft_diag_files/`: everything bigger, each file named in the index: raw copies of the registry hives, the
- *    shortcut, the install state files and Connect's small files; full listings of the prefix before and after;
- *    the app's logcat; a process sampler; network probes; system and memory facts.
+ *  - `ubisoft_diag_files/`: everything bigger, each file named in the index: the Ubisoft sections of the registry
+ *    hives, the shortcut, the install state files and Connect's small text files; full listings of the prefix before
+ *    and after; the app's logcat; a process sampler; network probes; system and memory facts.
  *
  * Two phases. PRE runs on the launch worker thread just before Wine starts: only the small readable sections run
  * inline, the heavy listings, probes and the sampler run on their own background threads. POST runs when the session
@@ -49,8 +47,10 @@ import java.util.zip.GZIPOutputStream
  * POST never runs, the PRE part is already on disk. Every section is its own try/catch; nothing here can fail a launch.
  * Non-Ubisoft launches never reach this object.
  *
- * Privacy: values of password / token / secret / exchange / auth / cookie / session names are replaced everywhere
- * ([UbisoftDiagScan]); files that look like credential stores are listed with a hash only, never copied.
+ * Privacy: values of password / token / secret / exchange / auth / cookie / session / ticket names and of fields that
+ * name a person or an account, e-mail addresses, GUIDs and the Epic launch arguments that carry an account are replaced
+ * everywhere ([UbisoftDiagScan]); only allow-listed text files are copied, every other file is listed with a hash only.
+ * The folder is still the user's to review before sharing: file names in the listings are not masked.
  */
 object UbisoftDiag {
     private const val TAG = "UbisoftDiag"
@@ -64,8 +64,14 @@ object UbisoftDiag {
     /** Shared-preference key of the "Ubisoft deep trace" switch (Log Manager), default off. */
     const val PREF_DEEP_TRACE = "ubisoft_deep_trace"
 
-    /** The same switch as a shortcut or container extra (`ubisoftDeepTrace=1`). */
+    /** The same switch as a container extra (`ubisoftDeepTrace=1`). A shortcut extra is ignored: a shortcut can come from the community. */
     const val EXTRA_DEEP_TRACE = "ubisoftDeepTrace"
+
+    /** Shared-preference key of the "Ubisoft diagnostics report" switch (Log Manager), default off. */
+    const val PREF_REPORT = "ubisoft_diag_report"
+
+    /** The same switch as a container extra (`ubisoftDiagReport=1`). A shortcut extra is ignored: a shortcut can come from the community. */
+    const val EXTRA_REPORT = "ubisoftDiagReport"
 
     /** Wine debug channels the deep trace adds for a Ubisoft launch: registry accesses and file accesses. */
     val DEEP_TRACE_CHANNELS = listOf("reg", "file")
@@ -75,6 +81,20 @@ object UbisoftDiag {
     private const val MAIN_CAP = 2_500_000L
     private const val PRE_TIME_MS = 30_000L
     private const val POST_RESERVE_MS = 4_000L
+
+    /** How long the network probes may take in all, and how long a POST started by a destroyed activity may run. */
+    private const val PROBES_TIME_MS = 25_000L
+    private const val LATE_POST_MS = 30_000L
+
+    /** Text budgets: the registry sections in the report, the Connect log text in the report (per file and in all, files shown), and the shortcut text. */
+    private const val REG_SNAPSHOT_CHARS = 400_000
+    private const val TEXT_FILE_TAIL = 200_000
+    private const val TEXT_TOTAL_CHARS = 1_000_000
+    private const val TEXT_FILES_SHOWN = 40
+    private const val SHORTCUT_BYTES = 64 * 1024
+
+    /** Longest value of an intent extra shown in the report. */
+    private const val EXTRA_VALUE_CHARS = 200
 
     /** Logcat tags of this feature set, used for the filtered logcat file. */
     private val LOG_TAGS = listOf(
@@ -122,12 +142,32 @@ object UbisoftDiag {
         return out
     }
 
-    /** True when the user switched the Ubisoft deep trace on: the Log Manager switch, or the extra on the shortcut or container. */
+    /**
+     * A switch from its two sources: the Log Manager preference and the container extra ("1" after trimming = on). A
+     * shortcut extra is never read: imported community shortcuts must not be able to turn the report or the trace on. Pure.
+     */
+    @JvmStatic
+    fun switchOn(pref: Boolean, containerExtra: String?): Boolean = pref || containerExtra?.trim() == "1"
+
+    /** True when the user switched the Ubisoft deep trace on (Log Manager, or the container extra). [shortcut] is ignored on purpose. */
     @JvmStatic
     fun deepTraceRequested(prefs: SharedPreferences, shortcut: Shortcut?, container: Container?): Boolean =
-        prefs.getBoolean(PREF_DEEP_TRACE, false) ||
-            shortcut?.getExtra(EXTRA_DEEP_TRACE, "") == "1" ||
-            container?.getExtra(EXTRA_DEEP_TRACE) == "1"
+        switchOn(prefs.getBoolean(PREF_DEEP_TRACE, false), container?.getExtra(EXTRA_DEEP_TRACE))
+
+    /**
+     * True when the user switched the full Ubisoft diagnostics report on (Log Manager, or the container extra).
+     * [shortcut] is ignored on purpose. Off by default; while it is off [begin], the sampler, the probes and the exit
+     * wait never run.
+     */
+    @JvmStatic
+    fun reportRequested(prefs: SharedPreferences, shortcut: Shortcut?, container: Container?): Boolean =
+        switchOn(prefs.getBoolean(PREF_REPORT, false), container?.getExtra(EXTRA_REPORT))
+
+    /** The line the decisions note carries about the report: whether it runs for this launch and where it is switched on. Pure. */
+    @JvmStatic
+    fun reportNote(on: Boolean): String =
+        if (on) "Ubisoft diagnostics report: ON (ubisoft_diag.txt and ubisoft_diag_files/ in this folder)\n"
+        else "Ubisoft diagnostics report: OFF (switch it on in the Log Manager, or with the container extra $EXTRA_REPORT=1)\n"
 
     /**
      * PRE: starts the report for this launch. Call on the launch worker thread after the registry steps and before Wine
@@ -206,7 +246,7 @@ object UbisoftDiag {
         stopSampler()
         try {
             if (!s.postStarted.compareAndSet(false, true)) return
-            s.postDeadline = System.currentTimeMillis() + 30_000L
+            s.postDeadline = System.currentTimeMillis() + LATE_POST_MS
             daemon("ubisoft-diag-post") { post(s, "the activity was destroyed before the exit routine ran (Wine may still have been running)") }
         } catch (t: Throwable) {
             Log.w(TAG, "late finish failed", t)
@@ -239,7 +279,7 @@ object UbisoftDiag {
         private val main = StringBuilder()
         private var mainBytes = 0L
         private var mainFull = false
-        private val used = LongArray(Bucket.values().size)
+        private val used = LongArray(Bucket.entries.size)
         private var total = 0L
         val files = LinkedHashMap<String, String>()
         val status = StatusMap()
@@ -312,7 +352,8 @@ object UbisoftDiag {
                 sb.append("=== Bannerlator Ubisoft diagnostics (").append(OUTPUT_NAME).append(") ===\n")
                 sb.append("written: ").append(stamp(System.currentTimeMillis())).append("   launch started: ").append(stamp(startedMs)).append('\n')
                 sb.append("Zip the whole log folder (this file and ").append(FILES_DIR).append("/) to send it. Only the latest run's side files are kept.\n")
-                sb.append("Listings *.gz are plain text, gzip-compressed (zcat / any unzip tool). Secrets are replaced by ").append(UbisoftDiagScan.REDACTED).append(".\n")
+                sb.append("Listings *.gz are plain text, gzip-compressed (zcat / any unzip tool). Secrets, e-mail addresses and GUIDs are replaced by ").append(UbisoftDiagScan.REDACTED)
+            .append(", but file names in the listings are not masked: look through the folder before you share it.\n")
                 sb.append("\n--- STATUS ---\n")
                 for (line in status.lines()) sb.append(line).append('\n')
                 sb.append("size used: ").append(total).append(" of ").append(TOTAL_CAP).append(" bytes\n")
@@ -334,7 +375,7 @@ object UbisoftDiag {
         }
     }
 
-    private fun stamp(ms: Long): String = SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.US).format(Date(ms))
+    private fun stamp(ms: Long): String = UbisoftDiagScan.fmtTime(ms) + " UTC"
 
     private fun daemon(name: String, body: () -> Unit): Thread {
         val t = Thread({
@@ -370,7 +411,7 @@ object UbisoftDiag {
 
     private fun deleteTree(f: File) {
         try {
-            if (f.isDirectory && !java.nio.file.Files.isSymbolicLink(f.toPath())) f.listFiles()?.forEach { deleteTree(it) }
+            if (f.isDirectory && !Files.isSymbolicLink(f.toPath())) f.listFiles()?.forEach { deleteTree(it) }
             f.delete()
         } catch (_: Throwable) {
         }
@@ -387,7 +428,7 @@ object UbisoftDiag {
         if (appName.isEmpty()) {
             why.append("route 1 (store's saved folder): shortcut has no epicAppName; ")
         } else {
-            val saved = UbisoftSafe.epicSavedDir(l.context, appName)
+            val saved = EpicCloudSavePaths.installDir(l.context, appName)
             why.append("route 1 (store's saved folder for epicAppName='").append(appName).append("'): ")
                 .append(saved?.path ?: "none saved").append(if (saved != null) " isDirectory=${saved.isDirectory}" else "").append("; ")
             if (saved != null && saved.isDirectory) return saved to why.append("=> used route 1").toString()
@@ -397,11 +438,6 @@ object UbisoftDiag {
         val below = exe?.let { UbisoftSupport.gameFolderUnder(it.absolutePath, UbisoftSupport.EPIC_ROOT) }
         if (below != null && below.isDirectory) return below to why.append("=> used route 2").toString()
         return null to why.append("=> no folder found").toString()
-    }
-
-    /** Wraps the one store call so a missing store class cannot fail the report. */
-    private object UbisoftSafe {
-        fun epicSavedDir(ctx: Context, appName: String): File? = try { EpicCloudSavePaths.installDir(ctx, appName) } catch (t: Throwable) { null }
     }
 
     // ---- PRE sections ---------------------------------------------------------------------------
@@ -416,7 +452,6 @@ object UbisoftDiag {
             append("app: ").append(com.winlator.star.BuildConfig.VERSION_NAME).append(" (versionCode ").append(com.winlator.star.BuildConfig.VERSION_CODE).append(")\n")
             append("build: applicationId=").append(com.winlator.star.BuildConfig.APPLICATION_ID).append(" flavor=").append(com.winlator.star.BuildConfig.FLAVOR)
                 .append(" type=").append(com.winlator.star.BuildConfig.BUILD_TYPE).append(" debug=").append(com.winlator.star.BuildConfig.DEBUG).append('\n')
-            append("commit: not available (BuildConfig has no commit field; versionName + versionCode identify the CI build)\n")
             append("installed: first=").append(pkg?.firstInstallTime?.let { stamp(it) } ?: "?").append(" lastUpdate=").append(pkg?.lastUpdateTime?.let { stamp(it) } ?: "?").append('\n')
             append("device: ").append(Build.MANUFACTURER).append(' ').append(Build.MODEL).append(" (").append(Build.DEVICE).append(", ").append(Build.HARDWARE).append(")\n")
             append("android: ").append(Build.VERSION.RELEASE).append(" (SDK ").append(Build.VERSION.SDK_INT).append(") patch=").append(Build.VERSION.SECURITY_PATCH).append('\n')
@@ -439,8 +474,8 @@ object UbisoftDiag {
         val host = runCatching { WinePath.resolveAndroidPath(l.container, sc.path) }.getOrNull()
         sb.append("exe (resolved host path): ").append(host?.absolutePath ?: "<unmapped>").append(" exists=").append(host?.isFile ?: false).append('\n')
         sb.append("--- full text of the .desktop file (secret-looking values replaced) ---\n")
-        val text = try { sc.file.readText(Charsets.UTF_8) } catch (t: Throwable) { "(unreadable: $t)" }
-        sb.append(UbisoftDiagScan.capUtf8(UbisoftDiagScan.redactText(text), 64 * 1024).first)
+        val text = try { sc.file.inputStream().use { UbisoftDiagScan.readUpTo(it, SHORTCUT_BYTES) } } catch (t: Throwable) { "(unreadable: $t)" }
+        sb.append(UbisoftDiagScan.redactText(text))
         return sb.toString()
     }
 
@@ -465,16 +500,17 @@ object UbisoftDiag {
         sb.append("launcherInstalled(container): ").append(UbisoftSupport.launcherInstalled(l.container))
             .append("   launcher files in Program Files (x86)/Ubisoft/Ubisoft Game Launcher: ")
             .append(UbisoftSupport.launcherFileStatus(l.container).joinToString(", ") { it.first + "=" + (if (it.second) "present" else "missing") }).append('\n')
+        sb.append("connectBuild (version.txt, read at the launch): ").append(UbisoftSupport.connectBuildText(UbisoftSupport.connectBuild(l.container))).append('\n')
         sb.append("(hasLauncherFiles, bundledInstaller and the setup answer are in DECISIONS (file based) below, worked out in the background)\n")
         sb.append("launch entry point: ").append(intentText(l.intent))
-        return sb.toString()
+        return UbisoftDiagScan.redactText(sb.toString())
     }
 
     @Suppress("DEPRECATION")
     private fun intentText(i: Intent?): String {
         if (i == null) return "no intent"
         val sb = StringBuilder()
-        sb.append("action=").append(i.action).append(" data=").append(i.dataString).append(" type=").append(i.type)
+        sb.append("action=").append(i.action).append(" data=").append(i.dataString?.let { UbisoftDiagScan.redactLine(it) }).append(" type=").append(i.type)
             .append(" component=").append(i.component?.flattenToShortString()).append(" package=").append(i.`package`)
             .append(" flags=0x").append(Integer.toHexString(i.flags)).append(" categories=").append(i.categories).append('\n')
         try {
@@ -482,7 +518,7 @@ object UbisoftDiag {
             if (ex == null) sb.append("  extras: none") else {
                 for (k in ex.keySet().sorted()) {
                     val v = try { ex.get(k) } catch (t: Throwable) { "(unreadable)" }
-                    val shown = if (UbisoftDiagScan.isSecretName(k)) UbisoftDiagScan.REDACTED else UbisoftDiagScan.redactLine(v.toString().take(200))
+                    val shown = if (UbisoftDiagScan.isSecretName(k)) UbisoftDiagScan.REDACTED else UbisoftDiagScan.redactLine(v.toString()).take(EXTRA_VALUE_CHARS)
                     sb.append("  extra ").append(k).append(" (").append(v?.javaClass?.simpleName).append(") = ").append(shown).append('\n')
                 }
             }
@@ -521,15 +557,11 @@ object UbisoftDiag {
         return sb.toString().trimEnd()
     }
 
+    /** The keys the app's own install-record write creates for this game (only the key names matter here, so the folder is a placeholder). */
     private fun expectedKeys(s: Session): List<String> {
         val dir = s.install.first ?: return emptyList()
         val st = UbisoftInstallState.read(File(dir, UbisoftInstallRegistry.STATE_FILE)) ?: return emptyList()
-        val id = st.productId
-        return listOf(
-            "Software\\Wow6432Node\\Ubisoft\\Launcher",
-            "Software\\Wow6432Node\\Ubisoft\\Launcher\\Installs\\$id",
-            "Software\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Uplay Install $id",
-        )
+        return UbisoftInstallRegistry.installWrites(st, "Z:\\").map { it.key }.distinct()
     }
 
     /** Ubisoft / Uplay sections of the prefix's two hives, secret values replaced, and whether the expected keys are there. */
@@ -541,7 +573,7 @@ object UbisoftDiag {
             sb.append("--- ").append(name).append(": ").append(f.path)
             if (!f.isFile) { sb.append("  MISSING FILE\n"); continue }
             sb.append("  size=").append(f.length()).append(" modified=").append(stamp(f.lastModified())).append('\n')
-            val r = f.bufferedReader(Charsets.UTF_8).use { UbisoftDiagScan.registrySections(it, 400_000) }
+            val r = f.bufferedReader(Charsets.UTF_8).use { UbisoftDiagScan.registrySections(it, REG_SNAPSHOT_CHARS) }
             sb.append(r.keys.size).append(" Ubisoft/Uplay section(s)").append(if (r.truncated) " [TRUNCATED]" else "").append('\n')
             if (name == "system.reg") for (k in expected) sb.append(if (UbisoftDiagScan.hasKey(r.keys, k)) "  PRESENT: " else "  MISSING: ").append(k).append('\n')
             sb.append(if (r.text.isEmpty()) "(no Ubisoft or Uplay key in this hive)\n" else r.text)
@@ -590,20 +622,17 @@ object UbisoftDiag {
         val dir = s.install.first
         sb.append("hasLauncherFiles(install folder): ").append(UbisoftSupport.hasLauncherFiles(dir)).append('\n')
         val bundled = UbisoftSupport.bundledInstaller(dir)
-        sb.append("bundledInstaller: ").append(bundled?.path ?: "none").append('\n')
+        sb.append("bundledInstaller: ").append(UbisoftSupport.bundledInstallerText(bundled?.path, bundled?.length() ?: 0L)).append('\n')
+        sb.append("connectBuild (version.txt): ").append(UbisoftSupport.connectBuildText(UbisoftSupport.connectBuild(l.container))).append('\n')
         if (l.route == "steam") sb.append("UbisoftSupport.detect(install folder): ").append(UbisoftSupport.detect(dir)).append('\n')
         val sc = l.shortcut
         if (sc != null && l.route == "epic") {
             // The same answer as epicSetupFor, worked out without its side effects (it deletes a downloaded installer).
-            val epicStamp = UbisoftSupport.epicStamp(sc)
-            val setup = when {
-                epicStamp != true -> UbisoftSupport.EpicSetup.NONE
-                UbisoftSupport.launcherInstalled(l.container) -> UbisoftSupport.EpicSetup.NONE
-                dir == null -> UbisoftSupport.EpicSetup.NONE
-                bundled != null -> UbisoftSupport.EpicSetup.BUNDLED
-                else -> UbisoftSupport.EpicSetup.DOWNLOAD
-            }
+            val setup = UbisoftSupport.epicDecisionNow(l.container, UbisoftSupport.epicStamp(sc), dir)
             sb.append("epicSetupFor (recomputed read-only, as it would be now): ").append(setup).append('\n')
+        }
+        if (l.route == "steam") {
+            sb.append("steamSetupFor (recomputed read-only, as it would be now): ").append(UbisoftSupport.steamDecisionNow(l.container, dir)).append('\n')
         }
         return sb.toString().trimEnd()
     }
@@ -703,8 +732,8 @@ object UbisoftDiag {
             val summary = ArrayList<String>()
             var complete = true
             for (rel in roots) {
-                val root = File(s.driveC, rel)
-                if (!root.isDirectory) { summary += "$rel: absent"; continue }
+                val root = realDirUnderDriveC(s, rel)
+                if (root == null) { summary += "$rel: absent (or a link, not followed)"; continue }
                 out.header("area $rel")
                 UbisoftDiagScan.entryOf(root)?.let { out.entry(rel, it); cmp?.onNow(rel, it) }
                 val r = UbisoftDiagScan.walk(root, 8, 4000, deadline) { p, e -> out.entry("$rel/$p", e); cmp?.onNow("$rel/$p", e) }
@@ -774,8 +803,13 @@ object UbisoftDiag {
 
     private fun filesDriveC(s: Session, phase: String, deadline: Long) {
         val (lines, diff) = listing(s, phase, "drive_c", "the whole prefix drive_c (depth 12, up to 100000 entries)", 4000) { out, cmp ->
-            val r = UbisoftDiagScan.walk(s.driveC, 12, 100_000, deadline) { p, e -> out.entry(p, e); cmp?.onNow(p, e) }
-            listOf(UbisoftDiagScan.describeWalk(r)) to !r.timedOut
+            val root = realDirUnderDriveC(s, "")
+            if (root == null) {
+                listOf("drive_c is absent or a link: not listed") to true
+            } else {
+                val r = UbisoftDiagScan.walk(root, 12, 100_000, deadline) { p, e -> out.entry(p, e); cmp?.onNow(p, e) }
+                listOf(UbisoftDiagScan.describeWalk(r)) to !r.timedOut
+            }
         }
         if (diff != null) s.writeSide("files_diff_drive_c.txt", "drive_c: POST minus PRE (added / changed / removed)", diff, Bucket.LISTINGS)
         s.addMain(phase.uppercase(), "FILES [${phase.uppercase()}] drive_c", lines.joinToString("\n") + (if (diff != null) "\n" + diff.lineSequence().firstOrNull() + "\n(full diff in files_diff_drive_c.txt)" else ""))
@@ -789,7 +823,7 @@ object UbisoftDiag {
         try {
             val t0 = SystemClock.elapsedRealtime()
             val hosts = UbisoftDiagNet.HOSTS + UbisoftDiagNet.CONTROL_HOST
-            val lines = UbisoftDiagNet.probeAll(hosts, 25_000L)
+            val lines = UbisoftDiagNet.probeAll(hosts, PROBES_TIME_MS)
             val text = "probed at ${stamp(System.currentTimeMillis())}: DNS + TCP 443 + TLS handshake per host, no data sent after the handshake.\n" +
                 "control host (not Ubisoft): ${UbisoftDiagNet.CONTROL_HOST}\n" + lines.joinToString("\n")
             s.writeSide("network_probes.txt", "reachability of the Ubisoft hosts (DNS, TCP 443, TLS, certificate)", text, Bucket.MISC)
@@ -894,22 +928,8 @@ object UbisoftDiag {
 
     // ---- Processes ------------------------------------------------------------------------------
 
-    private fun readSmall(path: String, max: Int): String? {
-        return try {
-            FileInputStream(path).use { ins ->
-                val buf = ByteArray(max)
-                var n = 0
-                while (n < max) {
-                    val r = ins.read(buf, n, max - n)
-                    if (r < 0) break
-                    n += r
-                }
-                String(buf, 0, n, Charsets.UTF_8)
-            }
-        } catch (e: Exception) {
-            null
-        }
-    }
+    private fun readSmall(path: String, max: Int): String? =
+        try { FileInputStream(path).use { UbisoftDiagScan.readUpTo(it, max) } } catch (e: Exception) { null }
 
     private class Proc(val stat: UbisoftDiagScan.ProcStat, val cmd: String)
 
@@ -1059,30 +1079,30 @@ object UbisoftDiag {
         Log.i(TAG, "report finished: ${s.outFile.path}")
     }
 
-    private fun copyWithRedaction(src: File, dstRel: String, desc: String, s: Session, b: Bucket): String {
+    /**
+     * The Ubisoft / Uplay sections of one hive as a side file (secret-named values replaced): the rest of the hive is not
+     * copied on purpose, it holds the user name and whatever else the games and installers wrote.
+     */
+    private fun copyRegistrySections(src: File, dstRel: String, s: Session): String {
         if (!src.isFile) return "absent"
-        val room = s.room(b)
+        val room = s.room(Bucket.REGISTRY)
         if (room <= 0L) return "skipped: size budget used up"
+        val r = BufferedReader(InputStreamReader(FileInputStream(src), Charsets.ISO_8859_1)).use { UbisoftDiagScan.registrySections(it, minOf(room, Int.MAX_VALUE.toLong()).toInt()) }
         val dst = File(s.dir, dstRel)
         dst.parentFile?.mkdirs()
-        var rc = UbisoftDiagScan.RegCopy(0L, 0, false)
-        BufferedReader(InputStreamReader(FileInputStream(src), Charsets.ISO_8859_1)).use { r ->
-            BufferedWriter(OutputStreamWriter(FileOutputStream(dst), Charsets.ISO_8859_1)).use { w ->
-                rc = UbisoftDiagScan.copyRegistry(r, w, room)
-                if (rc.truncated) w.write("\n[truncated: size limit]\n")
-            }
-        }
-        s.charge(b, dst.length())
-        s.register(dstRel, desc + if (rc.redacted > 0) " (${rc.redacted} secret-named value(s) replaced)" else "", dst.length(), rc.truncated)
-        return "copied ${dst.length()} bytes" + (if (rc.truncated) " (TRUNCATED)" else "")
+        val head = "# ${src.name}: only the Ubisoft / Uplay sections (${r.keys.size}) of the prefix's hive; secret-named values replaced; the rest of the hive is deliberately not copied\n"
+        dst.writeText(head + r.text + (if (r.truncated) "\n[truncated: size limit]\n" else "\n"), Charsets.ISO_8859_1)
+        s.charge(Bucket.REGISTRY, dst.length())
+        s.register(dstRel, "Ubisoft / Uplay sections of the prefix's ${src.name} after the session", dst.length(), r.truncated)
+        return "${r.keys.size} section(s), ${dst.length()} bytes" + (if (r.truncated) " (TRUNCATED)" else "")
     }
 
     private fun registryCopies(s: Session) {
         val sb = StringBuilder()
-        for (name in listOf("system.reg", "user.reg", "userdef.reg")) {
+        for (name in listOf("system.reg", "user.reg")) {
             val f = File(s.prefix, name)
             sb.append(name).append(": ").append(if (f.isFile) "${f.length()} bytes, modified ${stamp(f.lastModified())} -> " else "").append(
-                copyWithRedaction(f, "copies/registry/$name", "raw copy of the prefix's $name after the session", s, Bucket.REGISTRY),
+                copyRegistrySections(f, "copies/registry/$name", s),
             ).append('\n')
         }
         s.addMain("POST", "REGISTRY COPIES", sb.toString().trimEnd())
@@ -1091,7 +1111,17 @@ object UbisoftDiag {
 
     private class Candidate(val rel: String, val file: File, val size: Long, val mtime: Long, val action: UbisoftDiagScan.CopyAction)
 
-    /** Connect's logs and settings as readable text in the report, and raw copies of its small files in the side folder. */
+    /** [rel] below `drive_c` when it is a real folder (not a link) that still resolves below it; null otherwise, so a planted link cannot lead a walk or a copy out of the prefix. */
+    private fun realDirUnderDriveC(s: Session, rel: String): File? {
+        val f = File(s.driveC, rel)
+        return try {
+            if (f.isDirectory && !Files.isSymbolicLink(f.toPath()) && f.canonicalFile.toPath().startsWith(s.driveC.canonicalFile.toPath())) f else null
+        } catch (e: java.io.IOException) {
+            null
+        }
+    }
+
+    /** Connect's logs and settings as readable text in the report, and redacted copies of its small text files in the side folder. */
     private fun textFilesAndCopies(s: Session, deadline: Long) {
         val roots = listOf(
             "Program Files (x86)/Ubisoft/Ubisoft Game Launcher",
@@ -1101,8 +1131,8 @@ object UbisoftDiag {
         val cands = ArrayList<Candidate>()
         val notes = ArrayList<String>()
         for (rel in roots) {
-            val root = File(s.driveC, rel)
-            if (!root.isDirectory) { notes += "$rel: absent"; continue }
+            val root = realDirUnderDriveC(s, rel)
+            if (root == null) { notes += "$rel: absent (or a link, not followed)"; continue }
             val r = UbisoftDiagScan.walk(root, 14, 60_000, deadline) { p, e ->
                 if (e.kind == 'f') {
                     val full = "$rel/$p"
@@ -1112,24 +1142,24 @@ object UbisoftDiag {
             notes += "$rel: " + UbisoftDiagScan.describeWalk(r)
         }
 
-        // 1. Readable text in the report: settings.yaml first, then the newest *.log / *.txt (200 KB tail each, 1 MB in all).
+        // 1. Readable text in the report: settings.yaml first, then the newest *.log / *.txt (a tail of each, a budget in all).
+        // A file whose name looks like a credential or identity store is not shown either, only hashed in the copies index.
         val texts = cands.filter { c ->
             val n = c.file.name.lowercase()
-            n == "settings.yaml" || n.endsWith(".log") || n.endsWith(".txt")
+            c.action != UbisoftDiagScan.CopyAction.HASH_SENSITIVE && (n == "settings.yaml" || n.endsWith(".log") || n.endsWith(".txt"))
         }.sortedWith(compareBy({ if (it.file.name.equals("settings.yaml", true)) 0 else 1 }, { -it.mtime }))
         val sbText = StringBuilder()
-        var budget = 1_000_000
+        var budget = TEXT_TOTAL_CHARS
         var shown = 0
         for (c in texts) {
-            if (budget <= 0 || shown >= 40) break
-            val tail = UbisoftDiagScan.readTail(c.file, minOf(200_000, budget)) ?: continue
+            if (budget <= 0 || shown >= TEXT_FILES_SHOWN) break
+            val tail = UbisoftDiagScan.readTail(c.file, minOf(TEXT_FILE_TAIL, budget)) ?: continue
             sbText.append("\n--- ").append(c.rel).append("  size=").append(tail.size).append(" modified=").append(stamp(c.mtime))
                 .append(if (tail.cut) "  [truncated: last ${tail.text.length} chars shown]" else "").append(" ---\n")
             if (tail.binary) {
                 sbText.append("(binary content, not shown)\n")
             } else {
-                val body = if (c.file.name.equals("settings.yaml", true)) UbisoftDiagScan.redactYaml(tail.text) else UbisoftDiagScan.redactText(tail.text)
-                sbText.append(body).append('\n')
+                sbText.append(UbisoftDiagScan.redactFile(c.file.name, tail.text)).append('\n')
                 budget -= tail.text.length
             }
             shown++
@@ -1140,49 +1170,46 @@ object UbisoftDiag {
         s.addMain("POST", "TEXT FILES (Ubisoft Connect logs and settings)", sbText.toString().trimEnd())
         s.flushIndex()
 
-        // 2. Raw copies: text (secrets replaced) first, then the other small files, smallest first; the rest hash only.
+        // 2. Copies: only allow-listed text files, redacted, smallest first; every other file is listed with its hash only.
         val index = StringBuilder("action        size        modified             path  [sha256 when not copied]\n")
         var hashBudget = 400L * MB
-        val copyOrder = cands.sortedWith(
-            compareBy(
-                { when (it.action) { UbisoftDiagScan.CopyAction.TEXT_REDACTED -> 0; UbisoftDiagScan.CopyAction.RAW -> 1; else -> 2 } },
-                { it.size },
-            ),
-        )
+        val copyOrder = cands.sortedWith(compareBy({ if (it.action == UbisoftDiagScan.CopyAction.TEXT_REDACTED) 0 else 1 }, { it.size }))
         var copied = 0
         for (c in copyOrder) {
             if (s.abort || System.currentTimeMillis() > deadline) { index.append("-- stopped: time limit --\n"); break }
             var result: String
-            val a = c.action
-            if (a == UbisoftDiagScan.CopyAction.TEXT_REDACTED || a == UbisoftDiagScan.CopyAction.RAW) {
+            if (c.action == UbisoftDiagScan.CopyAction.TEXT_REDACTED) {
                 val room = s.room(Bucket.COPIES)
                 if (room < c.size + 64) {
                     result = "SKIPPED(budget)"
                 } else {
-                    val dst = File(s.dir, "copies/prefix/drive_c/${c.rel}")
-                    dst.parentFile?.mkdirs()
                     try {
-                        if (a == UbisoftDiagScan.CopyAction.TEXT_REDACTED) {
-                            val text = String(c.file.readBytes(), Charsets.UTF_8)
-                            val out = if (c.file.name.equals("settings.yaml", true)) UbisoftDiagScan.redactYaml(text) else UbisoftDiagScan.redactText(text)
-                            dst.writeText(out, Charsets.UTF_8)
-                            result = "COPIED(redacted)"
+                        val cap = if (c.file.name.equals("settings.yaml", true)) UbisoftDiagScan.YAML_READ_BYTES else UbisoftDiagScan.MAX_COPY_BYTES.toInt()
+                        val raw = c.file.inputStream().use { UbisoftDiagScan.readUpTo(it, cap) }
+                        // A file with a text name but binary content is not copied.
+                        if (UbisoftDiagScan.looksBinary(raw.toByteArray(Charsets.UTF_8))) {
+                            result = "HASH-ONLY(binary content)"
                         } else {
-                            c.file.copyTo(dst, overwrite = true)
-                            result = "COPIED(raw)"
+                            val text = UbisoftDiagScan.redactFile(c.file.name, raw)
+                            val dst = File(s.dir, "copies/prefix/drive_c/${c.rel}")
+                            dst.parentFile?.mkdirs()
+                            dst.writeText(text, Charsets.UTF_8)
+                            s.charge(Bucket.COPIES, dst.length())
+                            copied++
+                            result = "COPIED(redacted)"
                         }
-                        s.charge(Bucket.COPIES, dst.length())
-                        copied++
                     } catch (t: Throwable) {
                         result = "COPY-FAILED(${t.javaClass.simpleName})"
                     }
                 }
             } else {
-                result = when (a) {
-                    UbisoftDiagScan.CopyAction.HASH_SENSITIVE -> "HASH-ONLY(looks like a credential store)"
+                result = when (c.action) {
+                    UbisoftDiagScan.CopyAction.HASH_SENSITIVE -> "HASH-ONLY(name looks like a credential or identity store)"
                     UbisoftDiagScan.CopyAction.HASH_LARGE -> "HASH-ONLY(2 MB or more)"
-                    else -> "HASH-ONLY(binary)"
+                    else -> "HASH-ONLY(not on the text allow-list)"
                 }
+            }
+            if (result.startsWith("HASH-ONLY")) {
                 if (c.size <= hashBudget) {
                     hashBudget -= c.size
                     result += "  sha256=" + UbisoftDiagScan.sha256(c.file, c.size + 1)
@@ -1205,12 +1232,13 @@ object UbisoftDiag {
         val sb = StringBuilder()
         val sc = s.launch.shortcut
         if (sc != null) {
-            val text = try { UbisoftDiagScan.redactText(sc.file.readText(Charsets.UTF_8)) } catch (t: Throwable) { null }
+            val text = try { UbisoftDiagScan.redactText(sc.file.inputStream().use { UbisoftDiagScan.readUpTo(it, SHORTCUT_BYTES) }) } catch (t: Throwable) { null }
             if (text != null) { s.writeSide("copies/shortcut/${sc.file.name}", "the shortcut .desktop (secret values replaced)", text, Bucket.COPIES); sb.append("shortcut copied\n") }
         }
         val game = s.install.first
         if (game != null) {
-            game.listFiles()?.filter { it.isFile && (it.name.equals(UbisoftInstallRegistry.STATE_FILE, true) || it.name.equals("uplay_install.manifest", true)) }?.forEach { f ->
+            // The two install-record files are copied as they are: the game's own, with product ids and paths, no account data.
+            game.listFiles()?.filter { UbisoftDiagScan.entryOf(it)?.kind == 'f' && (it.name.equals(UbisoftInstallRegistry.STATE_FILE, true) || it.name.equals("uplay_install.manifest", true)) }?.forEach { f ->
                 val room = s.room(Bucket.COPIES)
                 if (f.length() < room) {
                     f.copyTo(File(s.dir, "copies/game/${f.name}").also { it.parentFile?.mkdirs() }, overwrite = true)
@@ -1245,7 +1273,7 @@ object UbisoftDiag {
                 while (true) {
                     val raw = r.readLine() ?: break
                     lines++
-                    val line = UbisoftDiagScan.redactLine(LogcatCapture.redact(raw))
+                    val line = UbisoftDiagScan.redactLine(raw)
                     if (!fullCut) {
                         if (fullBytes + line.length + 1 > s.room(Bucket.LOGCAT)) { fullCut = true; w.write("[truncated: size limit; the end of the buffer is only in logcat_filtered.txt]\n") }
                         else { w.write(line); w.write("\n"); fullBytes += line.length + 1 }
@@ -1273,23 +1301,14 @@ object UbisoftDiag {
         sb.append(if (ExitReasonReporter.isSupported()) ExitReasonReporter.capture(s.launch.context) else "needs Android 11 or newer").append('\n')
         sb.append("\n--- dumpsys meminfo ${android.os.Process.myPid()} (may be refused for an app) ---\n")
         sb.append(runCommand(listOf("dumpsys", "meminfo", android.os.Process.myPid().toString()), 8_000L, 64 * 1024)).append('\n')
-        s.writeSide("exit_info_post.txt", "ApplicationExitInfo records and dumpsys meminfo of the app", sb.toString(), Bucket.MISC)
+        s.writeSide("exit_info_post.txt", "ApplicationExitInfo records and dumpsys meminfo of the app", UbisoftDiagScan.redactText(sb.toString()), Bucket.MISC)
     }
 
     private fun runCommand(cmd: List<String>, timeoutMs: Long, maxBytes: Int): String {
         return try {
             val p = ProcessBuilder(cmd).redirectErrorStream(true).start()
             val wd = daemon("ubisoft-diag-cmd-watchdog") { try { Thread.sleep(timeoutMs); p.destroy() } catch (_: InterruptedException) {} }
-            val text = p.inputStream.use { ins ->
-                val buf = ByteArray(maxBytes)
-                var n = 0
-                while (n < maxBytes) {
-                    val r = ins.read(buf, n, maxBytes - n)
-                    if (r < 0) break
-                    n += r
-                }
-                String(buf, 0, n, Charsets.UTF_8)
-            }
+            val text = p.inputStream.use { UbisoftDiagScan.readUpTo(it, maxBytes) }
             wd.interrupt()
             p.destroy()
             text.ifBlank { "(no output)" }

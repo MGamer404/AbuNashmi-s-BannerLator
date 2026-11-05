@@ -18,13 +18,12 @@ import java.io.File
  *
  * These games start Ubisoft Connect themselves (`uplay_r1_loader.dll` reads `HKLM\Software\Wow6432Node\Ubisoft\Launcher`
  * and runs the launcher found there) and stop with "Unable to find Ubisoft Game Launcher" when it is not in the
- * prefix. Steam installs it from the depot's install script (`<appId>_install.vdf`, "Run Process" step running the
- * bundled `UbisoftConnectInstaller.exe /S`); Bannerlator used to look for that script only under the name
- * `installScript.vdf` and only ran the step for EA titles, so the launcher was never installed.
+ * prefix. Steam installs it from the depot's install script (`<appId>_install.vdf` or `installScript.vdf`, a "Run
+ * Process" step running the bundled `UbisoftConnectInstaller.exe /S`); the same step is run here for any Ubisoft title.
  *
  * Epic Games Store builds of Ubisoft titles (Assassin's Creed Syndicate) need the same launcher but have no Steam
- * script: their folder carries the loader plus `Uplay\UplayInstaller.exe`, and the shortcut's `ubisoft` stamp says
- * so (see the Epic section below). When such a folder bundles no installer at all, Ubisoft's own is downloaded
+ * script: their folder carries the loader plus `Uplay\UplayInstaller.exe`, and the shortcut's `ubisoft` stamp
+ * says so (see the Epic section below). When such a folder bundles no installer at all, Ubisoft's own is downloaded
  * once, after the user agrees ([UbisoftInstallerDownload]).
  *
  * Cross-checked with DroidDeck (Droid-Deck/DroidDeck #1449 / #1463) and GameNative (#2286): both install the bundled
@@ -40,6 +39,12 @@ object UbisoftSupport {
 
     /** The launcher's own settings file (relative to the container root). */
     private val SETTINGS_FILE = ".wine/drive_c/users/${ImageFs.USER}/AppData/Local/Ubisoft Game Launcher/settings.yaml"
+
+    /** A real `settings.yaml` is a few KB; a larger one is not read or rewritten. */
+    private const val MAX_SETTINGS_BYTES = 1024L * 1024
+
+    /** An install script is a few KB; a larger file is not read. */
+    private const val MAX_SCRIPT_BYTES = 512L * 1024
 
     /**
      * Files a Ubisoft game links against to find the launcher (root of the game folder), plus the install record
@@ -79,8 +84,7 @@ object UbisoftSupport {
      * Matches `Ubisoft Connect Installer.exe`, `UbisoftGameLauncherInstaller.exe`, `Uplay_Installer.exe`,
      * `UplayInstaller_x64.exe`; not `UplayLaunch.exe`, `UplayService.exe`, `upc.exe`, `UbisoftGameLauncher.exe`, a DLL.
      */
-    @JvmStatic
-    fun installerRank(fileName: String): Int? {
+    internal fun installerRank(fileName: String): Int? {
         val name = fileName.trim()
         if (!name.endsWith(".exe", ignoreCase = true)) return null
         val stem = name.dropLast(4).lowercase().filter { it != ' ' && it != '_' && it != '-' && it != '.' }
@@ -94,66 +98,116 @@ object UbisoftSupport {
     }
 
     /** True when [fileName] (no folders) is a Ubisoft launcher installer, see [installerRank]. */
-    @JvmStatic
-    fun isInstallerName(fileName: String): Boolean = installerRank(fileName) != null
+    internal fun isInstallerName(fileName: String): Boolean = installerRank(fileName) != null
 
     private fun processFileName(processPath: String): String =
         processPath.trim().trim('"').trim().substringAfterLast('\\').substringAfterLast('/')
 
     /** True for a "Run Process" exe that is Ubisoft's launcher installer (judged by the file name, not the folders). */
-    @JvmStatic
     fun isInstaller(processPath: String): Boolean = isInstallerName(processFileName(processPath))
 
     /** [processes] with Ubisoft's launcher installer first, best name first (order otherwise kept), so it is the step that gets run. */
-    @JvmStatic
     fun installerFirst(processes: List<InstallScriptModel.RunProcess>): List<InstallScriptModel.RunProcess> =
         processes.sortedBy { installerRank(processFileName(it.process)) ?: Int.MAX_VALUE }
 
     /**
-     * What a depot's files say about the launcher, found once and reused for a short while: the installer search
-     * walks up to three folder levels, and one launch asks about the same depot from several places (the Games tab,
-     * the install-script pass, the agent hand-off, the DLL override), mostly for games that are not Ubisoft's.
-     * Each half is looked up on first use only, so a depot with a loader in its root never gets walked.
+     * The "Run Process" steps to run for a depot whose script is [scriptSteps]: the script's own steps when one of them
+     * is a Ubisoft launcher installer, otherwise those plus the installer the depot bundles (none for a depot without
+     * one, so an EA depot is unaffected). Pure given the depot's files.
+     */
+    fun withBundledInstaller(scriptSteps: List<InstallScriptModel.RunProcess>, installDir: File): List<InstallScriptModel.RunProcess> =
+        if (scriptSteps.any { isInstaller(it.process) }) scriptSteps else scriptSteps + fallbackRunProcesses(installDir)
+
+    /**
+     * What a depot's files say about the launcher, found once and reused for a short while: one launch asks about the
+     * same depot from several places (the Games tab, the install-script pass, the agent hand-off), mostly for games
+     * that are not Ubisoft's. Each part is looked up on first use only.
+     *
+     * The installer search goes [DEEP_LEVELS] folders down only for a depot that already looks like Ubisoft's (a loader
+     * or install record in its root, or an install script that names Ubisoft). Any other depot gets its root and one
+     * folder below, so a game that has nothing to do with Ubisoft costs a few directory listings and nothing more.
      */
     private class DepotScan(val installDir: File, val atMs: Long) {
-        val hasLoader: Boolean by lazy {
-            installDir.listFiles()?.any { f -> f.isFile && UbisoftSupport.LOADER_PREFIXES.any { f.name.startsWith(it, ignoreCase = true) } } == true
+        val rootNames: Array<String> by lazy { installDir.list() ?: emptyArray<String>() }
+        val hasLoader: Boolean by lazy { UbisoftSupport.rootHasLoader(installDir, rootNames) }
+        val scriptMentionsUbisoft: Boolean by lazy {
+            UbisoftSupport.scriptText(installDir, rootNames)?.let { UbisoftSupport.mentionsUbisoft(it) } == true
         }
-        val installer: File? by lazy { UbisoftSupport.searchInstaller(installDir) }
+        val installer: File? by lazy {
+            UbisoftSupport.searchInstaller(
+                installDir, if (hasLoader || scriptMentionsUbisoft) UbisoftSupport.DEEP_LEVELS else UbisoftSupport.SHALLOW_LEVELS, rootNames,
+            )
+        }
     }
 
     private const val SCAN_TTL_MS = 30_000L
+    private const val SCAN_CACHE_MAX = 16
     private val scans = java.util.concurrent.ConcurrentHashMap<String, DepotScan>()
 
     private fun scanOf(installDir: File): DepotScan {
         val key = installDir.absolutePath
         val now = System.currentTimeMillis()
         scans[key]?.let { if (now - it.atMs in 0..SCAN_TTL_MS) return it }
-        if (scans.size >= 16) scans.clear()
+        if (scans.size >= SCAN_CACHE_MAX) scans.clear()
         return DepotScan(installDir, now).also { scans[key] = it }
     }
 
     /** Drops every remembered depot scan (the files changed on disk, or a test reuses a folder). */
     internal fun forgetScans() = scans.clear()
 
+    /** Folder levels below the root the installer search may go for a depot that looks like Ubisoft's. */
+    internal const val DEEP_LEVELS = 3
+
+    /** Folder levels below the root searched for any other depot (a layout like `Uplay\UplayInstaller.exe`). */
+    internal const val SHALLOW_LEVELS = 1
+
+    /** Safety net: folders listed by one installer search, whatever the depot looks like. */
+    private const val SEARCH_MAX_DIRS = 300
+
     /**
-     * The depot's launcher installer: folders are searched level by level, so the shallowest hit wins; on one level
-     * the best [installerRank] wins, then the folder path and name (children are sorted, the listing order of the
-     * file system never matters). Folders are listed down to three levels below [root] and not past the first level with a hit.
+     * True when a file in [root] has a launcher-loader name. The names come from one listing ([names]) and are checked
+     * before anything is stat'ed, so a game without such a name costs no file stat at all.
      */
-    private fun searchInstaller(root: File): File? {
+    internal fun rootHasLoader(root: File, names: Array<String>): Boolean =
+        names.any { n -> LOADER_PREFIXES.any { n.startsWith(it, ignoreCase = true) } && File(root, n).isFile }
+
+    /** True when [text] (an install script) names Ubisoft or Uplay. */
+    private fun mentionsUbisoft(text: String): Boolean =
+        text.contains("Ubisoft", ignoreCase = true) || text.contains("Uplay", ignoreCase = true)
+
+    /**
+     * The depot's install script text, null when there is none, it is bigger than [MAX_SCRIPT_BYTES] or it cannot be
+     * read. Found by file name only ([InstallScriptExecutor.locateScriptByName]), so asking never walks the depot.
+     */
+    private fun scriptText(installDir: File, rootNames: Array<String>? = null): String? {
+        val script = InstallScriptExecutor.locateScriptByName(installDir, rootNames) ?: return null
+        if (script.length() > MAX_SCRIPT_BYTES) return null
+        return try { script.readText() } catch (e: Exception) { null }
+    }
+
+    /**
+     * The launcher installer found by walking folders from [root] level by level, down to [maxDepth] levels below it, so
+     * the shallowest hit wins. On one level the best [installerRank] wins, then the lower-cased path (the listing order
+     * of the file system never matters). Only entries whose name looks like an installer are stat'ed as files, and the
+     * walk stops after [maxDirs] folders. [rootNames] = the root's listing when the caller already has it.
+     */
+    internal fun searchInstaller(root: File, maxDepth: Int, rootNames: Array<String>? = null, maxDirs: Int = SEARCH_MAX_DIRS): File? {
         var level = listOf(root)
-        for (depth in 0..3) {
+        var listed = 0
+        for (depth in 0..maxDepth) {
             var best: File? = null
             var bestRank = Int.MAX_VALUE
             val next = ArrayList<File>()
             for (dir in level) {
-                val children = dir.listFiles() ?: continue
-                for (f in children.sortedWith(BY_NAME)) {
-                    val rank = installerRank(f.name)
+                if (listed >= maxDirs) return best
+                listed++
+                val names = (if (dir === root) rootNames else null) ?: dir.list() ?: continue
+                for (name in names) {
+                    val rank = installerRank(name)
+                    val f = File(dir, name)
                     if (rank != null && f.isFile) {
-                        if (rank < bestRank) { best = f; bestRank = rank }
-                    } else if (depth < 3 && f.isDirectory) next += f
+                        if (best == null || rank < bestRank || (rank == bestRank && sortKey(f) < sortKey(best))) { best = f; bestRank = rank }
+                    } else if (depth < maxDepth && f.isDirectory) next += f
                 }
             }
             if (best != null) return best
@@ -162,13 +216,14 @@ object UbisoftSupport {
         return null
     }
 
-    private val BY_NAME = compareBy<File>({ it.name.lowercase() }, { it.name })
+    /** Orders equal-rank installers by path, folder by folder (a separator sorts before any name character), case aside. */
+    private fun sortKey(f: File): String = f.path.replace('/', '\u0000').lowercase() + "\u0001" + f.path
 
     /**
-     * The launcher installer a depot bundles, looked for in its root and up to three folders below it
-     * (e.g. `Support\Uplay\`). Null when the depot ships none. The answer is reused for 30 seconds.
+     * The launcher installer a depot bundles. Looked for in its root and one folder below it (`Uplay\`), and down to
+     * three folders (`Support\Uplay\`) when the depot looks like Ubisoft's (see [DepotScan]). Null when the depot ships
+     * none. The answer is reused for 30 seconds.
      */
-    @JvmStatic
     fun bundledInstaller(installDir: File?): File? {
         if (installDir == null || !installDir.isDirectory) return null
         return scanOf(installDir).installer?.takeIf { it.isFile }
@@ -186,21 +241,14 @@ object UbisoftSupport {
     }
 
     /** True for a Ubisoft title, detected from the depot's files (and its install script), so no tag is needed. */
-    @JvmStatic
     fun detect(installDir: File?): Boolean {
         if (installDir == null || !installDir.isDirectory) return false
         if (hasLauncherFiles(installDir)) return true
-        val script = InstallScriptExecutor.locateScript(installDir) ?: return false
-        if (script.length() > 512 * 1024) return false
-        return try {
-            val text = script.readText()
-            text.contains("Ubisoft", ignoreCase = true) || text.contains("Uplay", ignoreCase = true)
-        } catch (e: Exception) { false }
+        return scanOf(installDir).scriptMentionsUbisoft
     }
 
     /** The "Run Process" step to run when a depot bundles the installer but its script has none (or there is no script). */
-    @JvmStatic
-    fun fallbackRunProcesses(installDir: File): List<InstallScriptModel.RunProcess> {
+    internal fun fallbackRunProcesses(installDir: File): List<InstallScriptModel.RunProcess> {
         val exe = bundledInstaller(installDir) ?: return emptyList()
         val rel = exe.relativeTo(installDir).path.replace('/', '\\')
         return listOf(InstallScriptModel.RunProcess(SETUP_NAME, "%INSTALLDIR%\\$rel", "/S", null, null, null))
@@ -209,47 +257,137 @@ object UbisoftSupport {
     // ---- The prefix -----------------------------------------------------------------------------
 
     /** True when Ubisoft Connect is installed in [container]'s prefix. */
-    @JvmStatic
     fun launcherInstalled(container: Container): Boolean {
         val dir = File(container.rootDir, LAUNCHER_DIR)
         return dir.isDirectory && LAUNCHER_EXES.any { File(dir, it).isFile }
     }
 
     /** Which of Connect's launcher exes ([launcherInstalled] wants one) are in [container]'s prefix, name to present. For the diagnostics report. */
-    @JvmStatic
     fun launcherFileStatus(container: Container): List<Pair<String, Boolean>> {
         val dir = File(container.rootDir, LAUNCHER_DIR)
         return LAUNCHER_EXES.map { it to File(dir, it).isFile }
     }
 
+    /** `version.txt` in the launcher's folder: one line, the client's build number (relative to the container root). */
+    private const val VERSION_FILE = "$LAUNCHER_DIR/version.txt"
+
+    /** Builds are four to six digits; a file longer than this is not the build file. */
+    private const val VERSION_FILE_MAX_BYTES = 64L
+
+    /** The largest number taken for a build (they are four to six digits). */
+    private const val MAX_BUILD = 999_999
+
     /**
-     * True when the depot has something that installs the launcher: a bundled installer, or an install-script
-     * "Run Process" step that runs one. Without either, a setup session would have nothing to run.
+     * The build number in a `version.txt` [text] (whitespace and a BOM around it ignored), or null when it is not a
+     * plain sensible number. Pure. Informational only (the launch notes print it): no decision is made on the build.
+     * For orientation: 13393 (v175, 2026) is what Ubisoft's current installer puts in; 7178 (2019) is what the legacy
+     * `UplayInstaller.exe` of an Epic Syndicate folder installs, and that client fails to start here.
      */
-    @JvmStatic
-    fun hasInstallableLauncher(installDir: File): Boolean {
-        if (bundledInstaller(installDir) != null) return true
-        val script = InstallScriptExecutor.locateScript(installDir) ?: return false
-        if (script.length() > 512 * 1024) return false
-        return try {
-            InstallScriptModel.parse(script.readText()).runProcesses.any { isInstaller(it.process) }
-        } catch (e: Exception) { false }
+    internal fun connectBuildFrom(text: String): Int? {
+        val n = text.trim().trim('\uFEFF').trim().toIntOrNull() ?: return null
+        return if (n in 1..MAX_BUILD) n else null
     }
 
-    /** True when [shortcut] is a Ubisoft title whose container still has no Ubisoft Connect (run [startSetup] first). */
-    @JvmStatic
-    fun needsSetup(shortcut: Shortcut): Boolean {
-        // The prefix check is a few file stats; the depot checks read the game's folders, so they come second.
-        if (launcherInstalled(shortcut.container)) return false
-        val installDir = EaSupport.installDirOf(shortcut) ?: return false
-        return detect(installDir) && hasInstallableLauncher(installDir)
+    /**
+     * The Ubisoft Connect build installed in [container]'s prefix, read from the launcher folder's `version.txt`; null
+     * when the file is missing, unreadable, oversized or not a number (an unknown build). One tiny file read.
+     * Informational only: nothing decides on it.
+     */
+    fun connectBuild(container: Container): Int? = connectBuildAt(container.rootDir)
+
+    /** [connectBuild] for the container root folder [rootDir] (what a test can call without a container). */
+    internal fun connectBuildAt(rootDir: File): Int? {
+        val file = File(rootDir, VERSION_FILE)
+        if (!file.isFile || file.length() > VERSION_FILE_MAX_BYTES) return null
+        return try { connectBuildFrom(file.readText(Charsets.UTF_8)) } catch (e: Exception) { null }
+    }
+
+    /** [build] in words for the notes. Pure. */
+    fun connectBuildText(build: Int?): String = build?.toString() ?: "unknown (no readable version.txt)"
+
+    /**
+     * True when [fileName] is an installer name that ships the current Ubisoft Connect: only `UbisoftConnectInstaller...`
+     * ([installerRank] 0). The legacy names (`UplayInstaller.exe`, `Uplay_Installer.exe`, `upcinstaller...`, another
+     * `ubisoft...installer`) are what old games bundle, and they install a 2019 client that fails here. Pure.
+     */
+    internal fun isModernInstallerName(fileName: String?): Boolean = fileName != null && installerRank(fileName) == 0
+
+    /** True for a "Run Process" exe that is the current Ubisoft Connect installer (judged by the file name, see [isModernInstallerName]). */
+    fun isModernInstaller(processPath: String): Boolean = isModernInstallerName(processFileName(processPath))
+
+    /** The best of the installer file [names] ([installerRank], the first of equals), null for none. Pure. */
+    internal fun bestInstallerName(names: List<String>): String? = names.minByOrNull { installerRank(it) ?: Int.MAX_VALUE }
+
+    /** File names of the install script's "Run Process" steps that run a Ubisoft launcher installer; empty without a script. */
+    private fun scriptInstallerNames(installDir: File): List<String> {
+        val text = scriptText(installDir) ?: return emptyList()
+        return try {
+            InstallScriptModel.parse(text).runProcesses.map { processFileName(it.process) }.filter { isInstallerName(it) }
+        } catch (e: Exception) { emptyList() }
+    }
+
+    /**
+     * What the Steam [shortcut] needs before it launches (see [EpicDecision], shared with the Epic gate): nothing, the
+     * one-time setup with the installer the depot ships ([EpicSetup.BUNDLED], only when that is the current
+     * `UbisoftConnectInstaller...`), or the download of Ubisoft's own ([EpicSetup.DOWNLOAD]: the depot's installer is a
+     * legacy one, or the depot has Ubisoft's launcher files and no installer). The prefix check is a few file stats; the
+     * depot checks read the game's folders, so they come second and only for a container without Connect. A game that
+     * is not Ubisoft's costs the root listing and one folder level below it. Call off the main thread.
+     */
+    fun steamSetupFor(shortcut: Shortcut): EpicDecision {
+        if (launcherInstalled(shortcut.container)) {
+            // Safety net: a download kept by a setup session that died before its batch deleted it (a stat when nothing is there).
+            UbisoftInstallerDownload.deleteDownloaded(shortcut.container)
+            return steamSetupDecision(true, false, null, false)
+        }
+        val installDir = EaSupport.installDirOf(shortcut) ?: return EpicDecision.NOT_APPLICABLE
+        return steamDecisionFor(installDir)
+    }
+
+    /** Which setup check a launch has to pass first (see [gateKind]). */
+    enum class GateKind {
+        /** None: not a Ubisoft candidate (or an Android game, or a stamp that was already looked at again). */
+        NONE,
+
+        /** The Epic check ([epicSetupFor]). */
+        EPIC,
+
+        /** The Steam check ([steamSetupFor]). */
+        STEAM,
+    }
+
+    /**
+     * Whether a launch is a Ubisoft candidate and which check it gets, from facts that need no disk access. Pure. This is
+     * the test the launch flows apply first ([ShortcutLauncher.requestLaunch] and the other launch entry points): an
+     * Android game is never one; an Epic-like game ([epicLike]) is, except one stamped "not Ubisoft" ([stamp] false)
+     * whose stamp was already looked at again in this app run ([stampRechecked]); any other Steam-origin game
+     * ([steamOrigin]) gets the Steam check; everything else (GOG, Amazon, Xbox, custom, Linux...) none.
+     */
+    fun gateKind(androidEntry: Boolean, epicLike: Boolean, stamp: Boolean?, stampRechecked: Boolean, steamOrigin: Boolean): GateKind = when {
+        androidEntry -> GateKind.NONE
+        epicLike -> if (stamp == false && stampRechecked) GateKind.NONE else GateKind.EPIC
+        steamOrigin -> GateKind.STEAM
+        else -> GateKind.NONE
+    }
+
+    /** [steamSetupDecision] from the depot [installDir]'s files, for a container without Connect. */
+    internal fun steamDecisionFor(installDir: File): EpicDecision {
+        if (!detect(installDir)) return EpicDecision.NOT_APPLICABLE
+        val name = bestInstallerName(scriptInstallerNames(installDir)) ?: bundledInstaller(installDir)?.name
+        return steamSetupDecision(false, true, name, hasLauncherFiles(installDir))
+    }
+
+    /** [steamSetupFor] without the shortcut, read-only: [container]'s prefix and the depot [installDir] (the diagnostics' view). */
+    fun steamDecisionNow(container: Container, installDir: File?): EpicDecision {
+        if (launcherInstalled(container)) return steamSetupDecision(true, false, null, false)
+        if (installDir == null || !installDir.isDirectory) return EpicDecision.NOT_APPLICABLE
+        return steamDecisionFor(installDir)
     }
 
     /**
      * Starts the one-time Ubisoft Connect setup session for [shortcut] (the depot's bundled installer, run silently).
      * Returns null when the session was launched, or a message for the user when it could not start. Off the main thread.
      */
-    @JvmStatic
     fun startSetup(context: Context, shortcut: Shortcut): String? {
         if (isEpicShortcut(shortcut)) {
             val epicDir = epicInstallDirOf(context, shortcut)
@@ -265,7 +403,7 @@ object UbisoftSupport {
         val appId = runCatching { EaSupport.resolveSteamAppId(shortcut, installDir) }.getOrDefault(0)
         if (appId <= 0) return context.getString(R.string.ubisoft_setup_no_app_id)
         val started = InstallScriptExecutor.runForShortcut(context, shortcut.container, appId, exe, true)
-        return if (started) null else context.getString(R.string.ubisoft_setup_not_started)
+        return if (started) null else context.getString(R.string.ubisoft_setup_failed)
     }
 
     /**
@@ -273,23 +411,27 @@ object UbisoftSupport {
      * for [container]. No Steam app id and no install script needed. Same contract as [startSetup]: null when the
      * session was launched, otherwise a message for the user. Off the main thread (it looks through the folder).
      */
-    @JvmStatic
-    fun startSetupForInstallDir(context: Context, container: Container, installDir: File): String? {
+    private fun startSetupForInstallDir(context: Context, container: Container, installDir: File): String? {
         val processes = fallbackRunProcesses(installDir)
         if (processes.isEmpty()) return context.getString(R.string.ubisoft_setup_not_started)
+        // A legacy installer (UplayInstaller.exe...) installs a 2019 client that cannot start here: never run one.
+        if (!isModernInstaller(processes.first().process)) return context.getString(R.string.ubisoft_setup_failed)
         val tokens = InstallScriptTokens(container, installDir, File(context.filesDir, "imagefs"))
+        Log.i(TAG, "running the game's bundled Ubisoft Connect installer; Connect build before: ${connectBuild(container) ?: "none"}")
         val started = InstallScriptExecutor.runProcessStage.run(context, container, processes, tokens, emptyList())
-        return if (started) null else context.getString(R.string.ubisoft_setup_not_started)
+        return if (started) null else context.getString(R.string.ubisoft_setup_failed)
     }
 
     /**
-     * Setup for a game that bundles no installer: gets Ubisoft's official one ([UbisoftInstallerDownload], reused when
-     * an earlier attempt already fetched it) and runs it silently in one setup session for [container]. The file
-     * lives in the container's own `C:` drive, so the stage runs it by its plain `C:` path (no copy of 251 MB).
-     * [onProgress] gets (bytes so far, total) on this thread. Returns null when the session was launched or [handle]
-     * cancelled the download (it deleted the partial file), otherwise a message for the user. Off the main thread.
+     * Setup for a game (Epic or Steam) that bundles no usable installer (none, or only a legacy one that is never run):
+     * gets Ubisoft's official one ([UbisoftInstallerDownload], reused when an earlier attempt already fetched it) and
+     * runs it silently in one setup session for [container]. The file lives in the container's own `C:` drive, so the
+     * stage runs it by its plain `C:` path (no copy of 251 MB), and the session's batch file deletes it as soon as the
+     * installer has exited, success or not. For a Steam game this one silent step stands in for the install script's
+     * legacy Ubisoft step (the stage only ever runs the first step; the script's registry and file stages still run
+     * at launch). [onProgress] gets (bytes so far, total) on this thread. Returns null when the session was launched or
+     * [handle] cancelled the download (it deleted the partial file), otherwise a message for the user. Off the main thread.
      */
-    @JvmStatic
     fun startSetupWithDownload(
         context: Context, container: Container, handle: UbisoftInstallerDownload.Handle,
         onProgress: (Long, Long) -> Unit,
@@ -305,18 +447,19 @@ object UbisoftSupport {
         val processes = listOf(InstallScriptModel.RunProcess(SETUP_NAME, process, "/S", null, null, null))
         // %INSTALLDIR% is not used by this step; the folder only has to exist for the tokens.
         val tokens = InstallScriptTokens(container, exe.parentFile ?: exe, File(context.filesDir, "imagefs"))
+        // An update runs over the old client: the build before it is logged here, the one after shows in the launch decisions note.
+        Log.i(TAG, "running the downloaded Ubisoft Connect installer; Connect build before: ${connectBuild(container) ?: "none"}")
         val started = InstallScriptExecutor.runProcessStage.run(context, container, processes, tokens, emptyList())
-        return if (started) null else context.getString(R.string.ubisoft_setup_not_started)
+        return if (started) null else context.getString(R.string.ubisoft_setup_failed)
     }
 
     /** The user-facing line for a failed download. */
-    @JvmStatic
-    fun downloadFailureMessage(context: Context, failed: UbisoftInstallerDownload.Outcome.Failed): String = when (failed.reason) {
+    private fun downloadFailureMessage(context: Context, failed: UbisoftInstallerDownload.Outcome.Failed): String = when (failed.reason) {
         UbisoftInstallerDownload.Reason.NETWORK -> context.getString(R.string.ubisoft_download_failed_network)
         UbisoftInstallerDownload.Reason.HTTP -> context.getString(R.string.ubisoft_download_failed_http, failed.detail)
         UbisoftInstallerDownload.Reason.SIZE -> context.getString(R.string.ubisoft_download_failed_size)
         UbisoftInstallerDownload.Reason.INVALID -> context.getString(R.string.ubisoft_download_failed_invalid)
-        UbisoftInstallerDownload.Reason.NO_SPACE -> context.getString(R.string.ubisoft_download_failed_space)
+        UbisoftInstallerDownload.Reason.NO_SPACE -> context.getString(R.string.ubisoft_download_failed_space, UbisoftInstallerDownload.NEEDED_FREE_MB)
         UbisoftInstallerDownload.Reason.IO -> context.getString(R.string.ubisoft_download_failed_io)
     }
 
@@ -328,27 +471,17 @@ object UbisoftSupport {
     internal const val EPIC_ROOT = "epic_games"
 
     /** [EXTRA_UBISOFT] as true / false, or null while it has not been worked out. */
-    @JvmStatic
-    fun stampValue(raw: String?): Boolean? = when (raw?.trim()) {
+    internal fun stampValue(raw: String?): Boolean? = when (raw?.trim()) {
         "1" -> true
         "0" -> false
         else -> null
     }
 
     /**
-     * True for a shortcut the Epic store wrote (`storeSource=epic`), nothing wider. No disk access. This is the check
-     * for the Epic-only features that are not about Ubisoft (EOS overlay, launch arguments, cloud saves); the Ubisoft
-     * paths use [isEpicShortcut].
-     */
-    @JvmStatic
-    fun isEpicStoreShortcut(shortcut: Shortcut): Boolean = shortcut.getExtra("storeSource", "") == "epic"
-
-    /**
      * [isEpicLike] with the reason in words (for the launch decisions note and the install-record skip line): the
      * answer and why. Pure string checks, no disk access.
      */
-    @JvmStatic
-    fun epicLikeReason(storeSource: String, path: String): Pair<Boolean, String> {
+    internal fun epicLikeReason(storeSource: String, path: String): Pair<Boolean, String> {
         val source = storeSource.trim().lowercase()
         if (source == "epic") return true to "storeSource=epic"
         if (source.isNotEmpty() && source != "custom") return false to "storeSource='$storeSource' is another store's tag"
@@ -365,26 +498,22 @@ object UbisoftSupport {
      * its Windows exe [path] sits in a game folder below `epic_games`. Any other tag (steam, gog, amazon, xbox,
      * android...) is never Epic, whatever the path says. Pure string checks, no disk access.
      */
-    @JvmStatic
-    fun isEpicLike(storeSource: String, path: String): Boolean = epicLikeReason(storeSource, path).first
+    internal fun isEpicLike(storeSource: String, path: String): Boolean = epicLikeReason(storeSource, path).first
 
     /**
      * True for an Epic game for the Ubisoft paths (setup offer, overlay, install record, launch report): [isEpicLike] on
      * the shortcut's `storeSource` and exe path. No disk access.
      */
-    @JvmStatic
     fun isEpicShortcut(shortcut: Shortcut): Boolean =
         isEpicLike(shortcut.getExtra("storeSource", ""), shortcut.path.orEmpty())
 
     /** The stamp on [shortcut] (see [EXTRA_UBISOFT]). No disk access. */
-    @JvmStatic
     fun epicStamp(shortcut: Shortcut): Boolean? = stampValue(shortcut.getExtra(EXTRA_UBISOFT, ""))
 
     /**
      * The game folder just below a [root] segment in [path] (`/.../epic_games/<game>/Bin/x.exe` gives
      * `/.../epic_games/<game>`), either separator, any case; null when [path] has no such segment.
      */
-    @JvmStatic
     fun gameFolderUnder(path: String, root: String): File? {
         val parts = path.replace('\\', '/').split('/')
         val at = parts.indexOfFirst { it.equals(root, ignoreCase = true) }
@@ -396,15 +525,13 @@ object UbisoftSupport {
      * The install folder of an Epic shortcut's game: the one the store saved for its `epicAppName`, else the folder
      * below `epic_games` on the exe's Android path. Null when neither is there (e.g. the SD card is out).
      */
-    @JvmStatic
-    fun epicInstallDirOf(context: Context, shortcut: Shortcut): File? = epicInstallDirRoute(context, shortcut).first
+    private fun epicInstallDirOf(context: Context, shortcut: Shortcut): File? = epicInstallDirRoute(context, shortcut).first
 
     /**
      * [epicInstallDirOf] with the way it was found in words (for the launch decisions note). A shortcut without an
      * `epicAppName` (one the store did not write) goes straight to the exe path route.
      */
-    @JvmStatic
-    fun epicInstallDirRoute(context: Context, shortcut: Shortcut): Pair<File?, String> {
+    private fun epicInstallDirRoute(context: Context, shortcut: Shortcut): Pair<File?, String> {
         val appName = shortcut.getExtra("epicAppName", "")
         if (appName.isNotEmpty()) {
             val saved = EpicCloudSavePaths.installDir(context, appName)?.takeIf { it.isDirectory }
@@ -421,8 +548,7 @@ object UbisoftSupport {
      * True when a stamp of [stamp] should be looked at again: only a "not Ubisoft" (`0`) that has not been
      * re-checked yet in this app run. A `1` stands, an unset stamp is worked out the normal way.
      */
-    @JvmStatic
-    fun stampNeedsRecheck(stamp: Boolean?, alreadyChecked: Boolean): Boolean = stamp == false && !alreadyChecked
+    internal fun stampNeedsRecheck(stamp: Boolean?, alreadyChecked: Boolean): Boolean = stamp == false && !alreadyChecked
 
     private const val RECHECKED_MAX = 512
 
@@ -431,7 +557,6 @@ object UbisoftSupport {
         java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
 
     /** True once [shortcut]'s `0` stamp was re-checked in this app run (see [isEpicUbisoft]). No disk access. */
-    @JvmStatic
     fun epicStampRechecked(shortcut: Shortcut): Boolean = rechecked.contains(shortcut.file.path)
 
     /** Takes [shortcut]'s one re-check of this run; false when it was taken already. */
@@ -440,15 +565,11 @@ object UbisoftSupport {
         return rechecked.add(shortcut.file.path)
     }
 
-    /** Forgets every re-check (a test reuses a shortcut path). */
-    internal fun forgetRechecks() = rechecked.clear()
-
     /**
      * The stamp to write for a game folder: "1" when its files say Ubisoft, "0" only when it holds files and none
      * of them do, null (leave the stamp unset, look again at launch) for an empty or unreadable folder.
      */
-    @JvmStatic
-    fun stampFor(folderHasFiles: Boolean, ubisoft: Boolean): String? = when {
+    internal fun stampFor(folderHasFiles: Boolean, ubisoft: Boolean): String? = when {
         ubisoft -> "1"
         folderHasFiles -> "0"
         else -> null
@@ -478,19 +599,19 @@ object UbisoftSupport {
     /**
      * True when the Epic [shortcut]'s game needs Ubisoft Connect. A plain read of the [EXTRA_UBISOFT] stamp; a
      * shortcut without one (written before the stamp existed) gets it worked out from the game's files once and saved.
-     * A `0` is looked at once more per app run (it may have been stamped on an empty or partial folder): when the files
-     * now say Ubisoft the stamp becomes `1`, otherwise the `0` stays and is not looked at again until the app restarts.
-     * Only those looks touch the disk, so call this off the main thread.
+     * A `0` is looked at once more per app run (it may have been stamped on an empty or partial folder): when a loader
+     * is now in the folder's root the stamp becomes `1`, otherwise the `0` stays and is not looked at again until the
+     * app restarts. Only those looks touch the disk, so call this off the main thread.
      */
-    @JvmStatic
-    fun isEpicUbisoft(context: Context, shortcut: Shortcut): Boolean {
+    internal fun isEpicUbisoft(context: Context, shortcut: Shortcut): Boolean {
         if (!isEpicShortcut(shortcut)) return false
         epicStamp(shortcut)?.let { stamp ->
             if (!stampNeedsRecheck(stamp, epicStampRechecked(shortcut)) || !claimRecheck(shortcut)) return stamp
-            // Folder not found or still no loader / installer: the 0 stays.
+            // Folder not found or still no loader in its root: the 0 stays. The root names are all the re-check reads.
             val dir = epicInstallDirOf(context, shortcut) ?: return false
+            val names = dir.list() ?: return false
+            if (!rootHasLoader(dir, names)) return false
             scans.remove(dir.absolutePath) // a scan remembered from the stale look would answer the same again
-            if (!hasLauncherFiles(dir)) return false
             stampEpic(shortcut, true)
             return true
         }
@@ -503,40 +624,119 @@ object UbisoftSupport {
 
     private fun stampEpic(shortcut: Shortcut, ubisoft: Boolean) {
         try {
+            // The stamp is bookkeeping, not an edit by the user: keep the file's modified time (the Games list sorts by it).
+            val modified = shortcut.file.lastModified()
             shortcut.putExtra(EXTRA_UBISOFT, if (ubisoft) "1" else "0")
             shortcut.saveData()
+            if (modified > 0L) shortcut.file.setLastModified(modified)
         } catch (e: Exception) {
             Log.w(TAG, "could not stamp the Ubisoft tag on ${shortcut.name}", e)
         }
     }
 
-    /** What an Epic launch has to do about Ubisoft Connect first. */
+    /** What a Ubisoft launch has to do about Ubisoft Connect first (the Epic and the Steam gate share it). */
     enum class EpicSetup {
         /** Nothing: not a Ubisoft title, Connect is already in the prefix, or the game's folder is not there to look in. */
         NONE,
 
-        /** Offer the one-time setup with the installer the game's folder bundles. */
+        /** Offer the one-time setup with the (current) installer the game's folder / depot bundles. */
         BUNDLED,
 
-        /** Connect is missing and the game bundles no installer: offer to download Ubisoft's own ([UbisoftInstallerDownload]). */
+        /**
+         * Offer to download Ubisoft's own current installer ([UbisoftInstallerDownload]): Connect is missing and the game
+         * bundles no installer or only a legacy one (see [EpicSetupReason]).
+         */
         DOWNLOAD,
     }
 
-    /**
-     * What the Epic [shortcut] needs before it launches (see [EpicSetup]). A stamped "not Ubisoft" game answers
-     * [EpicSetup.NONE] without touching the disk; otherwise a few file stats, plus the depot search for a Ubisoft title
-     * whose container has no Connect. Call off the main thread.
-     */
-    @JvmStatic
-    fun epicSetupFor(context: Context, shortcut: Shortcut): EpicSetup {
-        if (!isEpicUbisoft(context, shortcut)) return EpicSetup.NONE
-        if (launcherInstalled(shortcut.container)) {
-            // Connect is in: a downloaded installer from an earlier setup is no use any more (about 251 MB).
-            UbisoftInstallerDownload.deleteDownloaded(shortcut.container)
-            return EpicSetup.NONE
+    /** Why an [EpicSetup] answer is what it is: the dialog words the download variants by it, the notes print it. */
+    enum class EpicSetupReason {
+        /** Not a Ubisoft title, or its folder is not there to look in: nothing to decide. */
+        NOT_APPLICABLE,
+
+        /** Connect is already in the prefix. */
+        CURRENT,
+
+        /** Connect is missing and the game bundles a current-name installer (`UbisoftConnectInstaller...`). */
+        MODERN_BUNDLED,
+
+        /** Connect is missing and the only installer the game has is a legacy one (`UplayInstaller.exe`...: a 2019 client that fails here). */
+        LEGACY_BUNDLED,
+
+        /** Connect is missing and the game has Ubisoft's launcher files but no installer. */
+        NO_INSTALLER,
+    }
+
+    /** [setup] and why ([reason]). */
+    data class EpicDecision(val setup: EpicSetup, val reason: EpicSetupReason) {
+        override fun toString(): String = "$setup ($reason)"
+
+        companion object {
+            @JvmField
+            val NOT_APPLICABLE = EpicDecision(EpicSetup.NONE, EpicSetupReason.NOT_APPLICABLE)
         }
-        val dir = epicInstallDirOf(context, shortcut) ?: return EpicSetup.NONE
-        return if (bundledInstaller(dir) != null) EpicSetup.BUNDLED else EpicSetup.DOWNLOAD
+    }
+
+    /** The decision for a Ubisoft game whose container has no Connect, from the file name of the installer it has (null = none). */
+    private fun missingConnectDecision(installerName: String?): EpicDecision = when {
+        installerName == null -> EpicDecision(EpicSetup.DOWNLOAD, EpicSetupReason.NO_INSTALLER)
+        isModernInstallerName(installerName) -> EpicDecision(EpicSetup.BUNDLED, EpicSetupReason.MODERN_BUNDLED)
+        else -> EpicDecision(EpicSetup.DOWNLOAD, EpicSetupReason.LEGACY_BUNDLED)
+    }
+
+    /**
+     * What an Epic Ubisoft game needs for Connect, from two facts. Pure.
+     *  - Connect installed: [EpicSetup.NONE] (whatever its build).
+     *  - Connect missing, a current-name bundled installer: [EpicSetup.BUNDLED]; a legacy-name one: [EpicSetup.DOWNLOAD]
+     *    ([EpicSetupReason.LEGACY_BUNDLED]); none: [EpicSetup.DOWNLOAD] ([EpicSetupReason.NO_INSTALLER]).
+     * [bundledName] is the file name of the installer the game's folder bundles, null when there is none.
+     */
+    internal fun epicSetupDecision(launcherInstalled: Boolean, bundledName: String?): EpicDecision =
+        if (launcherInstalled) EpicDecision(EpicSetup.NONE, EpicSetupReason.CURRENT) else missingConnectDecision(bundledName)
+
+    /**
+     * What a Steam game needs for Connect, from four facts. Pure. Connect installed: [EpicSetup.NONE]. Not a Ubisoft
+     * title ([ubisoft] false, the depot's files say so): [EpicSetup.NONE] ([EpicSetupReason.NOT_APPLICABLE]). Otherwise
+     * as for Epic, with [installerName] = the file name of the installer the depot would run (the best-named Ubisoft
+     * step of its install script, else the bundled installer; null = none): a current-name one is run as it always was
+     * ([EpicSetup.BUNDLED]), a legacy-name one is never run ([EpicSetup.DOWNLOAD], [EpicSetupReason.LEGACY_BUNDLED]), and a
+     * depot with Ubisoft's launcher files ([hasLauncherFiles]) but no installer at all gets [EpicSetup.DOWNLOAD]
+     * ([EpicSetupReason.NO_INSTALLER]); without launcher files and an installer there is nothing to set up.
+     */
+    internal fun steamSetupDecision(launcherInstalled: Boolean, ubisoft: Boolean, installerName: String?, hasLauncherFiles: Boolean): EpicDecision = when {
+        launcherInstalled -> EpicDecision(EpicSetup.NONE, EpicSetupReason.CURRENT)
+        !ubisoft -> EpicDecision.NOT_APPLICABLE
+        installerName == null && !hasLauncherFiles -> EpicDecision.NOT_APPLICABLE
+        else -> missingConnectDecision(installerName)
+    }
+
+    /**
+     * [epicSetupDecision] for an Epic Ubisoft game, read from the disk without side effects: [container]'s prefix
+     * and, only while Connect is missing, the installer [installDir] bundles. [stamp] = the shortcut's Ubisoft stamp;
+     * anything but `1` answers [EpicDecision.NOT_APPLICABLE], as does a missing folder while Connect is missing.
+     * Shared by [epicSetupFor] and the diagnostics.
+     */
+    fun epicDecisionNow(container: Container, stamp: Boolean?, installDir: File?): EpicDecision {
+        if (stamp != true) return EpicDecision.NOT_APPLICABLE
+        if (launcherInstalled(container)) return epicSetupDecision(true, null)
+        if (installDir == null) return EpicDecision.NOT_APPLICABLE
+        return epicSetupDecision(false, bundledInstaller(installDir)?.name)
+    }
+
+    /**
+     * What the Epic [shortcut] needs before it launches (see [EpicDecision]). A stamped "not Ubisoft" game answers
+     * [EpicDecision.NOT_APPLICABLE] without touching the disk; otherwise a few file stats, plus the depot search for a
+     * Ubisoft title whose container has no Connect. Call off the main thread.
+     */
+    fun epicSetupFor(context: Context, shortcut: Shortcut): EpicDecision {
+        if (!isEpicUbisoft(context, shortcut)) return EpicDecision.NOT_APPLICABLE
+        val container = shortcut.container
+        val installed = launcherInstalled(container)
+        val decision = epicDecisionNow(container, true, if (installed) null else epicInstallDirOf(context, shortcut))
+        // Safety net only: the setup session's own batch deletes the downloaded installer as soon as it has run (see
+        // UbisoftInstallerDownload.cleanupBatchLines). This catches a session that died before that; a stat when nothing is there.
+        if (installed) UbisoftInstallerDownload.deleteDownloaded(container)
+        return decision
     }
 
     /**
@@ -605,8 +805,7 @@ object UbisoftSupport {
      * True when an Epic-like game gets the Ubisoft launch report: its stamp says Ubisoft, or this launch's install
      * record found something to record ([last] is anything but "not Ubisoft"), so a wrong stamp cannot hide the report.
      */
-    @JvmStatic
-    fun epicRouteDecision(epicLike: Boolean, stamp: Boolean?, last: UbisoftInstallRegistry.Result?): Boolean =
+    internal fun epicRouteDecision(epicLike: Boolean, stamp: Boolean?, last: UbisoftInstallRegistry.Result?): Boolean =
         epicLike && (stamp == true || (last != null && last != UbisoftInstallRegistry.Result.SKIPPED_NOT_UBISOFT))
 
     /**
@@ -626,21 +825,19 @@ object UbisoftSupport {
     private val PATH_MARKERS = LOADER_PREFIXES + listOf("ubisoftgamelauncher", "ubisoftconnect", "uplayinstaller", "uplaylaunch", "/upc.exe")
 
     /** True when [path] (either separator, any case) itself carries a Ubisoft marker file name. A string check, no disk access. */
-    @JvmStatic
-    fun pathHasUbisoftMarker(path: String): Boolean {
+    internal fun pathHasUbisoftMarker(path: String): Boolean {
         val p = path.replace('\\', '/').lowercase()
         return PATH_MARKERS.any { p.contains(it) }
     }
 
     /**
-     * What makes a launch worth a decisions note, in words, or null when none of it applies (the usual launch).
-     * Booleans and a string in, so the common case is a few field reads.
+     * What makes a launch worth a decisions note, in words, or null when none of it applies (the usual launch, and an
+     * Epic game stamped "not Ubisoft"). Booleans and a string in, so the common case is a few field reads.
+     * [epicUbisoft] = an Epic-like shortcut whose stamp says Ubisoft.
      */
-    @JvmStatic
-    fun decisionsTrigger(epicLike: Boolean, storeSourceEpic: Boolean, steamChain: Boolean, pathMarker: Boolean, diagRoute: String?): String? {
+    internal fun decisionsTrigger(epicUbisoft: Boolean, steamChain: Boolean, pathMarker: Boolean, diagRoute: String?): String? {
         val parts = ArrayList<String>()
-        if (epicLike) parts += "Epic-like shortcut"
-        if (storeSourceEpic) parts += "storeSource=epic"
+        if (epicUbisoft) parts += "Epic-like shortcut stamped Ubisoft"
         if (steamChain) parts += "Ubisoft launcher chain armed"
         if (pathMarker) parts += "Ubisoft file name in the exe path"
         if (diagRoute != null) parts += "Ubisoft launch report route '$diagRoute'"
@@ -648,8 +845,7 @@ object UbisoftSupport {
     }
 
     /** Why a launch got no Ubisoft launch report, in one line. Pure. */
-    @JvmStatic
-    fun noRouteReason(storeSource: String, path: String, stampRaw: String, steamChain: Boolean, registrationSkipped: Boolean): String {
+    internal fun noRouteReason(storeSource: String, path: String, stampRaw: String, steamChain: Boolean, registrationSkipped: Boolean): String {
         if (steamChain) return "the Ubisoft launcher chain is armed but the report was not started"
         val (epicLike, why) = epicLikeReason(storeSource, path)
         if (!epicLike) return "$why, and no Ubisoft launcher chain in a Steam launch plan"
@@ -667,57 +863,66 @@ object UbisoftSupport {
     }
 
     /** Everything the decisions note prints, already worked out (see [launchDecisionsText]). */
-    class LaunchFacts(
+    internal class LaunchFacts(
         val timestamp: String, val trigger: String,
-        val app: String, val flavor: String, val debug: Boolean, val commit: String,
+        val app: String, val flavor: String, val debug: Boolean,
         val shortcutFile: String, val name: String, val exe: String,
         val storeSource: String, val epicAppName: String, val epicSandboxId: String, val epicEos: String,
         val ubisoft: String, val launchMode: String, val steamAppId: String,
         val strictEpic: Boolean, val epicLike: Boolean, val epicLikeWhy: String,
         val installDir: String, val installRoute: String,
         val hasLauncherFiles: String, val stateFile: String,
-        val launcherInstalled: String, val registration: String,
+        val launcherInstalled: String, val connectBuild: String, val bundledInstaller: String, val setupDecision: String,
+        val registration: String,
         val route: String?, val routeWhy: String,
     )
 
+    /** The bundled installer [path] (null = none) in words for the notes: size and whether its name is a current one ([isModernInstallerName]). Pure. */
+    fun bundledInstallerText(path: String?, bytes: Long): String =
+        if (path == null) "none" else "$path ($bytes bytes, current-client name: ${isModernInstallerName(File(path).name)})"
+
     /** The text of the decisions note for [f]: a few lines, plain, one fact per line. Pure. */
-    @JvmStatic
-    fun launchDecisionsText(f: LaunchFacts): String = buildString {
-        append("launch decisions (rewritten on every launch of an Epic-like, Ubisoft-marked or Ubisoft-chain shortcut)\n")
+    internal fun launchDecisionsText(f: LaunchFacts): String = buildString {
+        append("launch decisions (rewritten on every launch of a Ubisoft-stamped Epic, Ubisoft-marked or Ubisoft-chain shortcut)\n")
         append("timestamp: ").append(f.timestamp).append('\n')
         append("written because: ").append(f.trigger).append('\n')
         append("app: ").append(f.app).append(" flavor=").append(f.flavor).append(" debug=").append(f.debug).append('\n')
-        append("commit: ").append(f.commit).append('\n')
         append("shortcut file: ").append(f.shortcutFile).append('\n')
         append("name: ").append(f.name).append('\n')
         append("exe (Windows path in the shortcut): ").append(f.exe).append('\n')
         append("storeSource='").append(f.storeSource).append("'  epicAppName='").append(f.epicAppName).append("'  epicSandboxId='").append(f.epicSandboxId)
             .append("'  epicEos='").append(f.epicEos).append("'  ubisoft='").append(f.ubisoft).append("'  launchMode='").append(f.launchMode)
             .append("'  steamAppId='").append(f.steamAppId).append("'\n")
-        append("strict Epic check (storeSource=epic, the old isEpicShortcut): ").append(f.strictEpic).append('\n')
+        append("storeSource is exactly epic: ").append(f.strictEpic).append('\n')
         append("Epic-like (storeSource epic, or empty/custom with the exe under epic_games): ").append(f.epicLike).append(" - ").append(f.epicLikeWhy).append('\n')
         append("install folder: ").append(f.installDir).append("  (found by: ").append(f.installRoute).append(")\n")
         append("hasLauncherFiles(install folder): ").append(f.hasLauncherFiles).append('\n')
         append("uplay_install.state: ").append(f.stateFile).append('\n')
         append("Ubisoft Connect in the prefix: ").append(f.launcherInstalled).append('\n')
+        append("Ubisoft Connect build (version.txt): ").append(f.connectBuild).append('\n')
+        append("bundled installer: ").append(f.bundledInstaller).append('\n')
+        append("Ubisoft Connect setup decision (read-only, as the launch gate would answer now): ").append(f.setupDecision).append('\n')
         append("install record (UbisoftInstallRegistry.last): ").append(f.registration).append('\n')
         append("Ubisoft launch report route: ").append(f.route ?: "none").append(if (f.route == null) " - " + f.routeWhy else "").append('\n')
     }
 
     /**
      * Builds the decisions note for a launch of [shortcut], or null when the launch is none of the kinds that get one
-     * (see [decisionsTrigger]; the check is a few string tests). [steamChain] = the Steam plan armed the Ubisoft chain,
-     * [diagRoute] = the report route this launch chose (null = none). Looks at a few files for the launches that do
-     * get a note. Call on the launch worker, after [registerEpicInstall] has run. Never throws.
+     * (see [decisionsTrigger]: an Epic game stamped Ubisoft, an armed Ubisoft chain, a report route, a Ubisoft file name
+     * in the exe path; the check is a few string tests and touches no file). [steamChain] = the Steam plan armed the
+     * Ubisoft chain, [diagRoute] = the report route this launch chose (null = none). The launches that do get a note
+     * look at a few files; the installer search goes deep only for a depot that looks like Ubisoft's (see [DepotScan]).
+     * Call on the launch worker, after [registerEpicInstall] has run. Never throws.
      */
     @JvmStatic
     fun launchDecisionsFor(context: Context, shortcut: Shortcut?, steamChain: Boolean, diagRoute: String?): String? {
         return try {
             val source = shortcut?.getExtra("storeSource", "").orEmpty()
             val exe = shortcut?.path.orEmpty()
-            val strict = shortcut != null && isEpicStoreShortcut(shortcut)
+            val strict = source == "epic"
             val (epicLike, why) = epicLikeReason(source, exe)
-            val trigger = decisionsTrigger(epicLike, strict, steamChain, pathHasUbisoftMarker(exe), diagRoute) ?: return null
+            val stamp = if (shortcut == null) null else epicStamp(shortcut)
+            val trigger = decisionsTrigger(epicLike && stamp == true, steamChain, pathHasUbisoftMarker(exe), diagRoute) ?: return null
 
             var found: Pair<File?, String> = null to "no shortcut"
             if (shortcut != null) {
@@ -740,6 +945,13 @@ object UbisoftSupport {
                 "launcherInstalled=${launcherInstalled(shortcut.container)} (" +
                     files.joinToString(", ") { it.first + "=" + (if (it.second) "present" else "missing") } + ")"
             }
+            val bundled = if (dir == null) null else bundledInstaller(dir)
+            val setup = when {
+                shortcut == null -> "n/a (no shortcut)"
+                epicLike -> "Epic gate: " + epicDecisionNow(shortcut.container, stamp, dir)
+                steamChain -> "Steam gate: " + steamDecisionNow(shortcut.container, dir)
+                else -> "n/a (neither an Epic game nor a Ubisoft launcher chain launch)"
+            }
             val last = UbisoftInstallRegistry.last()
             val facts = LaunchFacts(
                 timestamp = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US).format(java.util.Date()),
@@ -747,7 +959,6 @@ object UbisoftSupport {
                 app = "${com.winlator.star.BuildConfig.VERSION_NAME} (versionCode ${com.winlator.star.BuildConfig.VERSION_CODE})",
                 flavor = com.winlator.star.BuildConfig.FLAVOR,
                 debug = com.winlator.star.BuildConfig.DEBUG,
-                commit = "none (BuildConfig has no commit field; versionName + versionCode identify the CI build)",
                 shortcutFile = shortcut?.file?.path ?: "<no shortcut>",
                 name = shortcut?.name ?: "<no shortcut>",
                 exe = exe,
@@ -766,6 +977,9 @@ object UbisoftSupport {
                 hasLauncherFiles = if (dir == null) "n/a (no folder)" else hasLauncherFiles(dir).toString(),
                 stateFile = stateFile,
                 launcherInstalled = launcher,
+                connectBuild = if (shortcut == null) "unknown (no shortcut)" else connectBuildText(connectBuild(shortcut.container)),
+                bundledInstaller = if (dir == null) "n/a (no folder)" else bundledInstallerText(bundled?.path, bundled?.length() ?: 0L),
+                setupDecision = setup,
                 registration = last?.toString() ?: "none recorded (registerEpicInstall did not run for this launch)",
                 route = diagRoute,
                 routeWhy = noRouteReason(
@@ -804,6 +1018,10 @@ object UbisoftSupport {
         if (!File(container.rootDir, LAUNCHER_DIR).isDirectory) return false
         val file = File(container.rootDir, SETTINGS_FILE)
         return try {
+            if (file.isFile && file.length() > MAX_SETTINGS_BYTES) {
+                Log.w(TAG, "Ubisoft Connect settings.yaml is ${file.length()} bytes - left as is")
+                return false
+            }
             val current = if (file.isFile) file.readText(Charsets.UTF_8) else ""
             val updated = overlayOff(current)
             if (updated == current) return false
@@ -815,7 +1033,7 @@ object UbisoftSupport {
             Log.i(TAG, "Ubisoft Connect overlay turned off (container ${container.id})")
             true
         } catch (e: Exception) {
-            Log.w(TAG, "could not turn the Ubisoft Connect overlay off — left as is", e)
+            Log.w(TAG, "could not turn the Ubisoft Connect overlay off - left as is", e)
             false
         }
     }
@@ -825,8 +1043,7 @@ object UbisoftSupport {
      * everything else in the file is kept as written, a missing section or key is added, and a file that already says
      * so comes back unchanged.
      */
-    @JvmStatic
-    fun overlayOff(text: String): String {
+    internal fun overlayOff(text: String): String {
         val sep = if (text.contains("\r\n")) "\r\n" else "\n"
         val lines = text.replace("\r\n", "\n").split('\n').toMutableList()
         if (lines.isNotEmpty() && lines.last().isEmpty()) lines.removeAt(lines.lastIndex)

@@ -71,6 +71,66 @@ class UbisoftInstallerDownloadTest {
     }
 
     @Test
+    fun aRedirectToAnotherPortOrWithCredentialsIsRefused() {
+        val from = UbisoftInstallerDownload.INSTALLER_URL
+        assertNull(UbisoftInstallerDownload.redirectTarget(from, "https://static3.cdn.ubi.com:8443/x.exe"))
+        assertNull(UbisoftInstallerDownload.redirectTarget(from, "https://user:pw@static3.cdn.ubi.com/x.exe"))
+        assertEquals(
+            "https://static3.cdn.ubi.com:8443/y.exe",
+            UbisoftInstallerDownload.redirectTarget("https://static3.cdn.ubi.com:8443/x.exe", "/y.exe"),
+        )
+    }
+
+    @Test
+    fun onlyAnInstallerSizedLengthIsAccepted() {
+        assertTrue(UbisoftInstallerDownload.isPlausibleLength(262_918_936L))
+        assertTrue(UbisoftInstallerDownload.isPlausibleLength(1024 * mb))
+        assertFalse(UbisoftInstallerDownload.isPlausibleLength(1024 * mb + 1))
+        assertFalse(UbisoftInstallerDownload.isPlausibleLength(1 * mb))
+        assertFalse(UbisoftInstallerDownload.isPlausibleLength(0L))
+        assertFalse(UbisoftInstallerDownload.isPlausibleLength(-1L))
+    }
+
+    @Test
+    fun aTransferHasTwentyFiveMinutes() {
+        assertFalse(UbisoftInstallerDownload.pastDeadline(0L))
+        assertFalse(UbisoftInstallerDownload.pastDeadline(25L * 60 * 1000))
+        assertTrue(UbisoftInstallerDownload.pastDeadline(25L * 60 * 1000 + 1))
+    }
+
+    @Test
+    fun theSpaceMessageNamesTheFileAndItsMargin() {
+        assertEquals(351, UbisoftInstallerDownload.NEEDED_FREE_MB)
+        assertTrue(UbisoftInstallerDownload.hasEnoughSpace(UbisoftInstallerDownload.NEEDED_FREE_MB * mb, UbisoftInstallerDownload.APPROX_MB * mb))
+    }
+
+    @Test
+    fun onlyTheDownloadedInstallerIsDeletedByTheSessionBatch() {
+        val path = "C:\\bl_installscript\\ubisoft_installer\\UbisoftConnectInstaller.exe"
+        assertTrue(UbisoftInstallerDownload.isDownloadedPath(path))
+        assertTrue(UbisoftInstallerDownload.isDownloadedPath("\"c:\\BL_INSTALLSCRIPT\\ubisoft_installer\\ubisoftconnectinstaller.exe\""))
+        assertEquals(
+            listOf(
+                "echo Removing the downloaded installer...",
+                "del /f /q \"C:\\bl_installscript\\ubisoft_installer\\*\" >nul 2>&1",
+                "rmdir \"C:\\bl_installscript\\ubisoft_installer\" >nul 2>&1",
+            ),
+            UbisoftInstallerDownload.cleanupBatchLines(path),
+        )
+        for (other in listOf(
+            "C:\\bl_installscript\\Assassins_Creed_IV\\Support\\Uplay\\UbisoftConnectInstaller.exe",
+            "C:\\bl_installscript\\ubisoft_installer\\sub\\UbisoftConnectInstaller.exe",
+            "C:\\bl_installscript\\ubisoft_installer\\UplayInstaller.exe",
+            "Z:\\steam_games\\Game\\UplayInstaller.exe",
+            "%INSTALLDIR%\\Support\\Uplay\\UbisoftConnectInstaller.exe",
+            "",
+        )) {
+            assertFalse(other, UbisoftInstallerDownload.isDownloadedPath(other))
+            assertTrue(other, UbisoftInstallerDownload.cleanupBatchLines(other).isEmpty())
+        }
+    }
+
+    @Test
     fun theFixedUrlIsHttpsAndTheWinePathIsUnderTheContainersCDrive() {
         assertTrue(UbisoftInstallerDownload.INSTALLER_URL.startsWith("https://"))
         assertEquals(

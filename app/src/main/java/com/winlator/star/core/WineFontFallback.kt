@@ -15,8 +15,8 @@ import java.io.StringReader
  * same stack is exposed to it. Windows ships the font; a prefix whose `tahoma.ttf` is missing does not.
  *
  * The fix is a `"Tahoma"="Arial"` value under `HKCU\Software\Wine\Fonts\Replacements`, which Wine's font code reads
- * when it looks a family up. Wine adds that replacement itself only when no real Tahoma is installed, so a prefix
- * that has the font is unaffected, and a "Tahoma" replacement of the user's own is kept as it is.
+ * when it looks a family up. A prefix that has the real `tahoma.ttf` is left alone ([hasTahomaFont]), and a
+ * "Tahoma" replacement of the user's own is kept as it is.
  */
 object WineFontFallback {
     private const val TAG = "WineFontFallback"
@@ -31,24 +31,35 @@ object WineFontFallback {
      * thread after the prefix is prepared and before any Wine process runs: [WineRegistryEditor] rewrites the
      * file, and a running wineserver would overwrite the change when it saves its own copy.
      *
-     * The common case (the replacement is already there, or the file is missing) is one streamed read that stops
-     * at the key, and nothing is written. Returns true when the registry was changed. Never throws.
+     * A prefix that has the real font (`drive_c/windows/Fonts/tahoma.ttf` next to [userReg]) costs one file stat and
+     * nothing else. Otherwise the common case (the replacement is already there) is one streamed read that stops at the
+     * key, and nothing is written. Returns true when the registry was changed. Never throws.
      */
     @JvmStatic
     fun ensureTahomaReplacement(userReg: File): Boolean {
         if (!userReg.isFile) return false
+        if (hasTahomaFont(userReg)) return false
         return try {
             if (!userReg.bufferedReader(Charsets.UTF_8).use { needsTahomaReplacement(it) }) return false
             WineRegistryEditor(userReg).use { it.setStringValue(REPLACEMENTS_KEY, MISSING_FONT, SUBSTITUTE_FONT) }
             // The editor swallows I/O errors, so look at the file again before saying it worked.
             val done = !userReg.bufferedReader(Charsets.UTF_8).use { needsTahomaReplacement(it) }
             if (done) Log.i(TAG, "Tahoma font replacement added: $MISSING_FONT -> $SUBSTITUTE_FONT")
-            else Log.w(TAG, "could not add the Tahoma font replacement — left as is")
+            else Log.w(TAG, "could not add the Tahoma font replacement - left as is")
             done
         } catch (e: Exception) {
-            Log.w(TAG, "could not add the Tahoma font replacement — left as is", e)
+            Log.w(TAG, "could not add the Tahoma font replacement - left as is", e)
             false
         }
+    }
+
+    /** Where the real font sits, relative to the prefix folder (the one holding `user.reg`). */
+    private const val FONT_FILE = "drive_c/windows/Fonts/tahoma.ttf"
+
+    /** True when the prefix of [userReg] has a real `tahoma.ttf`: Wine then has the family itself and needs no replacement. */
+    internal fun hasTahomaFont(userReg: File): Boolean {
+        val prefix = userReg.parentFile ?: return false
+        return File(prefix, FONT_FILE).isFile
     }
 
     /**
