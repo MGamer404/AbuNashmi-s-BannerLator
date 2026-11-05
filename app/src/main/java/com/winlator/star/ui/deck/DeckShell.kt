@@ -216,11 +216,15 @@ internal fun DeckShell(
 ) {
     // The XMB mode can be switched on and off while the shell is up, so the keyboard host follows the live setting.
     val xmbHome by AppThemeState.deckXmbHome.collectAsState()
+    // Owned here, not by the content, so the theme below can tell Home (which keeps its own backdrop) from the other pages.
+    val navController = rememberNavController()
+    val route by navController.currentBackStackEntryAsState()
+    val onHome = (route?.destination?.route ?: DeckRoutes.HOME) == DeckRoutes.HOME
     DeckTheme {
-        // XMB mode: every page's own `colorScheme.background` fill is the wash too, not a flat patch of the plain preset colour.
-        XmbWashTheme(xmbHome) {
+        // XMB mode: every page but Home sits on the glow, so its own `colorScheme.background` fill goes clear; Home keeps the flat wash.
+        XmbWashTheme(xmbHome, glow = !onHome) {
             XmbKeyboardHost(xmbHome) {
-                DeckShellContent(startRoute, pendingRoute, onPendingRouteConsumed, onAbout, onLaunchStore)
+                DeckShellContent(navController, startRoute, pendingRoute, onPendingRouteConsumed, onAbout, onLaunchStore)
             }
         }
     }
@@ -228,13 +232,13 @@ internal fun DeckShell(
 
 @Composable
 private fun DeckShellContent(
+    navController: NavHostController,
     startRoute: String,
     pendingRoute: String?,
     onPendingRouteConsumed: () -> Unit,
     onAbout: () -> Unit,
     onLaunchStore: (Screen) -> Unit,
 ) {
-    val navController = rememberNavController()
     val context = LocalContext.current
     val cs = MaterialTheme.colorScheme
     val cfg = LocalConfiguration.current
@@ -456,7 +460,8 @@ private fun DeckShellContent(
 
     // Backdrop: the theme background, washed with two soft glows.
     // On Home they follow the focused game's cover; elsewhere they are the accent.
-    // XMB mode has no glows: its backdrop is one even wash of the theme colour, the same on every page and from edge to edge.
+    // XMB mode has no ambient glows: Home sits on one even wash of the theme colour, every other page on the soft theme-colour glow
+    // (XmbGlowBackdrop), the same for all of them and from edge to edge.
     val tints = ambient.value
     val glow1 by animateColorAsState(tints?.first ?: cs.primary, tween(900), label = "deckGlow1")
     val glow2 by animateColorAsState(tints?.second ?: lerp(cs.primary, cs.background, 0.35f), tween(900), label = "deckGlow2")
@@ -472,7 +477,7 @@ private fun DeckShellContent(
             modifier = Modifier
                 .fillMaxSize()
                 .then(
-                    if (xmbHome) Modifier.xmbWashBackground()
+                    if (xmbHome) { if (currentRoute == DeckRoutes.HOME) Modifier.xmbWashBackground() else Modifier }
                     else Modifier
                         .background(cs.background)
                         .drawBehind {
@@ -493,6 +498,8 @@ private fun DeckShellContent(
                         }
                 ),
         ) {
+            // XMB mode, every page but Home (which paints its own over the wash): the glow, behind the page and the bars.
+            if (xmbHome && currentRoute != DeckRoutes.HOME) XmbGlowBackdrop(Modifier.matchParentSize())
             // Landscape: a camera hole on a short edge is not left as an empty strip. The side rail's glass runs under it with its
             // icons clear of it; on the other side the page background runs under it and only the page, not the legend, keeps clear.
             val dir = LocalLayoutDirection.current
@@ -1047,7 +1054,7 @@ private fun DeckTabButton(tab: DeckTab, selected: Boolean, showLabel: Boolean, m
 @Composable
 private fun DeckMark() {
     val accent = MaterialTheme.colorScheme.primary
-    val bg = MaterialTheme.colorScheme.background
+    val bg = xmbSolidBackground()
     Canvas(modifier = Modifier.size(28.dp)) {
         val r = 9.dp.toPx()
         drawRoundRect(

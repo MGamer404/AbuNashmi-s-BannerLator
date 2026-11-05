@@ -85,6 +85,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import kotlinx.coroutines.launch
 import com.winlator.star.ui.deck.ScreenScale
 import com.winlator.star.ui.deck.XmbEditTapCatcher
+import com.winlator.star.ui.deck.XmbGlowBackdrop
 import com.winlator.star.ui.deck.XmbKeyboardHost
 import com.winlator.star.ui.deck.XmbTriggerGuard
 import com.winlator.star.ui.deck.XmbWashTheme
@@ -95,7 +96,9 @@ import com.winlator.star.ui.deck.xmbEditStop
 import com.winlator.star.ui.deck.deckFocusRing
 import com.winlator.star.ui.deck.rememberScreenScale
 import com.winlator.star.ui.deck.rememberXmbHome
+import com.winlator.star.ui.deck.xmbChipOverArt
 import com.winlator.star.ui.deck.xmbFrame
+import com.winlator.star.ui.deck.xmbPageFrost
 import com.winlator.star.ui.theme.LocalAccentDim
 
 // The store screens in the Deck interface's XMB-home mode: edge to edge in an even frame, a slim rail, a compact search
@@ -115,19 +118,22 @@ internal fun StoreXmbScreen(content: @Composable () -> Unit) {
     XmbScreenWindow(xmb)
     // XMB home: the XMB keyboard replaces Android's for every text field on the screen.
     val hosted: @Composable () -> Unit = { XmbKeyboardHost(xmb, content) }
-    // XMB home: the theme's background is the wash, so this fill and every rail, tab row and page inside it share one tone.
+    // XMB home: the screen sits on the theme-colour glow and the theme's own background is clear, so the glow shows through every
+    // rail, tab row and page inside it, and their cards are glass over it.
     XmbWashTheme(xmb) {
         CompositionLocalProvider(LocalStoreXmb provides xmb) {
             if (!xmb) {
                 hosted()
             } else {
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.background)
-                        .windowInsetsPadding(WindowInsets.ime)
-                        .padding(horizontal = xmbFrame()),
-                ) { hosted() }
+                Box(Modifier.fillMaxSize()) {
+                    XmbGlowBackdrop(Modifier.matchParentSize())
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .windowInsetsPadding(WindowInsets.ime)
+                            .padding(horizontal = xmbFrame()),
+                    ) { hosted() }
+                }
             }
         }
     }
@@ -139,8 +145,19 @@ internal fun StoreXmbScreen(content: @Composable () -> Unit) {
  */
 @Composable
 internal fun StoreKeyboardTheme(content: @Composable () -> Unit) {
+    val xmb = rememberXmbHome()
     com.winlator.star.ui.theme.WinlatorTheme {
-        XmbWashTheme(rememberXmbHome()) { XmbKeyboardHost(content = content) }
+        XmbWashTheme(xmb) {
+            if (!xmb) {
+                XmbKeyboardHost(content = content)
+            } else {
+                // These screens paint no backdrop of their own, and their `background` fills are clear on the glow.
+                Box(Modifier.fillMaxSize()) {
+                    XmbGlowBackdrop(Modifier.matchParentSize())
+                    XmbKeyboardHost(content = content)
+                }
+            }
+        }
     }
 }
 
@@ -512,12 +529,13 @@ internal fun XmbStoreCover(
     val cs = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(s.dp(10f))
     var focused by remember { mutableStateOf(false) }
+    val frostLine = xmbPageFrost()?.line
     Box(
         modifier = modifier
             .onFocusChanged { focused = it.isFocused }
             .deckFocusRing(shape, scaleTo = 1.06f)
             .clip(shape)
-            .border(1.dp, cs.outline, shape)
+            .border(1.dp, frostLine ?: cs.outline, shape)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
     ) {
         CatalogArt(candidates = art, title = title, modifier = Modifier.fillMaxWidth(), aspectRatio = 2f / 3f)
@@ -527,7 +545,7 @@ internal fun XmbStoreCover(
                     .align(Alignment.TopStart)
                     .padding(s.dp(5f))
                     .clip(RoundedCornerShape(5.dp))
-                    .background(cs.surfaceContainerHighest.copy(alpha = 0.9f))
+                    .background(xmbChipOverArt().copy(alpha = 0.9f))
                     .padding(horizontal = s.dp(5f), vertical = 1.dp),
             ) {
                 Text(badge, fontSize = s.sp(9.5f), fontWeight = FontWeight.Bold, color = cs.onSurface, maxLines = 1)
@@ -581,13 +599,15 @@ internal fun XmbFeatureCard(
     val s = rememberScreenScale()
     val cs = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(s.dp(12f))
+    // On the glow the card is frosted glass over it (a thin light fill and hairline); elsewhere the opaque card, as before.
+    val frost = xmbPageFrost()
     Row(
         modifier = modifier
             .fillMaxWidth()
             .deckFocusRing(shape, scaleTo = 1.03f)
             .clip(shape)
-            .background(cs.surfaceContainer)
-            .border(1.dp, cs.outline, shape)
+            .background(frost?.card ?: cs.surfaceContainer)
+            .border(1.dp, frost?.line ?: cs.outline, shape)
             .clickable(onClick = onClick)
             .padding(s.dp(8f)),
         verticalAlignment = Alignment.CenterVertically,
@@ -630,14 +650,15 @@ internal fun XmbSearchField(
     val shape = RoundedCornerShape(s.dp(9f))
     // Tap-to-edit behaviour is shared with every other search bar (ui/deck/DeckXmbKit.kt).
     val edit = rememberXmbEdit()
+    val frost = xmbPageFrost()
     Row(
         modifier = modifier
             .widthIn(max = s.w(0.45f, min = 240.dp, max = 520.dp))
             .height(s.h(0.09f, min = 40.dp, max = 52.dp))
             .xmbEditStop(edit)
             .clip(shape)
-            .background(cs.surfaceContainer)
-            .border(if (edit.active) 2.dp else 1.dp, if (edit.active) cs.primary else cs.outline, shape)
+            .background(frost?.raised ?: cs.surfaceContainer)
+            .border(if (edit.active) 2.dp else 1.dp, if (edit.active) cs.primary else (frost?.line ?: cs.outline), shape)
             .clickable { edit.start() }
             .padding(horizontal = s.dp(10f)),
         verticalAlignment = Alignment.CenterVertically,

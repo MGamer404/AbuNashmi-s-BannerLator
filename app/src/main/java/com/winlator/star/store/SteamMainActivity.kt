@@ -81,6 +81,7 @@ import androidx.compose.ui.unit.dp
 import com.winlator.star.R
 import com.winlator.star.store.download.DownloadsButton
 import com.winlator.star.ui.deck.rememberScreenScale
+import com.winlator.star.ui.deck.xmbCardFill
 import com.winlator.star.ui.theme.LocalAccentDim
 
 /**
@@ -687,7 +688,7 @@ private fun RailStatusDot(status: SteamRepository.SteamStatus, onReconnect: () -
     val base = Modifier
         .steamFocusRing(shape)
         .clip(shape)
-        .background(MaterialTheme.colorScheme.surfaceContainer)
+        .background(xmbCardFill(MaterialTheme.colorScheme.surfaceContainer))
     Column(
         modifier = (if (tappable) base.clickable(onClick = onReconnect) else base)
             .padding(horizontal = 6.dp, vertical = 4.dp)

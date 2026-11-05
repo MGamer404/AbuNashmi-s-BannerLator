@@ -67,6 +67,9 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.winlator.star.store.download.Store
 import com.winlator.star.ui.deck.rememberScreenScale
+import com.winlator.star.ui.deck.xmbCardFill
+import com.winlator.star.ui.deck.xmbCardLine
+import com.winlator.star.ui.deck.xmbChipOverArt
 import com.winlator.star.ui.theme.StoreDiscountBg
 import com.winlator.star.ui.theme.StoreDiscountInk
 import com.winlator.star.ui.theme.StoreFreeGreen
@@ -364,8 +367,8 @@ fun CatalogRailCard(
             .width(StoreCardWidth)
             .steamFocusRing(shape)
             .clip(shape)
-            .background(MaterialTheme.colorScheme.surfaceContainer)
-            .border(1.dp, MaterialTheme.colorScheme.outline, shape)
+            .background(xmbCardFill(MaterialTheme.colorScheme.surfaceContainer))
+            .border(1.dp, xmbCardLine(MaterialTheme.colorScheme.outline), shape)
             .clickable(onClick = onOpen),
     ) {
         CatalogArt(
@@ -424,8 +427,8 @@ fun CatalogResultRow(
             .fillMaxWidth()
             .steamFocusRing(shape)
             .clip(shape)
-            .background(MaterialTheme.colorScheme.surfaceContainer)
-            .border(1.dp, MaterialTheme.colorScheme.outline, shape)
+            .background(xmbCardFill(MaterialTheme.colorScheme.surfaceContainer))
+            .border(1.dp, xmbCardLine(MaterialTheme.colorScheme.outline), shape)
             .clickable(onClick = onOpen)
             .padding(9.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -498,8 +501,8 @@ fun CatalogHeroCard(
             .fillMaxWidth()
             .steamFocusRing(shape)
             .clip(shape)
-            .background(MaterialTheme.colorScheme.surfaceContainer)
-            .border(1.dp, MaterialTheme.colorScheme.outline, shape)
+            .background(xmbCardFill(MaterialTheme.colorScheme.surfaceContainer))
+            .border(1.dp, xmbCardLine(MaterialTheme.colorScheme.outline), shape)
             .clickable(onClick = onOpen),
     ) {
         CatalogArt(
@@ -589,7 +592,7 @@ fun CatalogLibraryTile(
                         .align(Alignment.TopStart)
                         .padding(6.dp)
                         .clip(RoundedCornerShape(5.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.9f))
+                        .background(xmbChipOverArt().copy(alpha = 0.9f))
                         .padding(horizontal = 6.dp, vertical = 2.dp),
                 ) {
                     Text(badgeText, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
@@ -617,8 +620,8 @@ fun CatalogLibraryTile(
             .fillMaxWidth()
             .steamFocusRing(shape)
             .clip(shape)
-            .background(MaterialTheme.colorScheme.surfaceContainer)
-            .border(1.dp, MaterialTheme.colorScheme.outline, shape)
+            .background(xmbCardFill(MaterialTheme.colorScheme.surfaceContainer))
+            .border(1.dp, xmbCardLine(MaterialTheme.colorScheme.outline), shape)
             .clickable(onClick = onOpen),
     ) {
         Box(modifier = Modifier.fillMaxWidth()) {
@@ -634,7 +637,7 @@ fun CatalogLibraryTile(
                         .align(Alignment.TopStart)
                         .padding(6.dp)
                         .clip(RoundedCornerShape(5.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.9f))
+                        .background(xmbChipOverArt().copy(alpha = 0.9f))
                         .padding(horizontal = 6.dp, vertical = 2.dp),
                 ) {
                     Text(
