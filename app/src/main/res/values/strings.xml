@@ -2817,4 +2817,6 @@ trying for speed, <b>notemplates</b> if you get driver crashes.
     <string name="xmb_kb_esc">Esc</string>
     <string name="xmb_kb_up">Up</string>
     <string name="xmb_kb_down">Down</string>
+    <string name="ig_keyboard_hint_xmb">The on-screen keyboard, typing into the game. On a controller, Select + X opens and closes it.</string>
+    <string name="ig_keyboard_hint_android">The Android keyboard, typing into the game.</string>
 </resources>

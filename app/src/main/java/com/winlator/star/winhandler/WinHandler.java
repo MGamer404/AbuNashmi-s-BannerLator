@@ -200,13 +200,6 @@ public class WinHandler {
     public void setXInputStatusListener(XInputStatusListener listener) {
         xinputStatusListener = listener;
     }
-
-    /** The one slot for the guest bltextfocus.exe's datagrams (code 17); set by {@link TextFocusHelper}. */
-    private volatile TextFocusHelper.Listener textFocusListener;
-
-    void setTextFocusListener(TextFocusHelper.Listener listener) {
-        textFocusListener = listener;
-    }
     private final Handler inputHandler = new Handler(Looper.getMainLooper());
     private final Map<Integer, Runnable> pendingDeviceReleases = new HashMap<>();
     private LocalServerSocket vibrationServer;
@@ -1295,19 +1288,6 @@ public class WinHandler {
                 if (statusListener != null) statusListener.onXInputStatus(requested, mode, ok, gen, pid);
                 break;
             }
-            case RequestCodes.TEXT_FOCUS: {
-                // bltextfocus.exe: the focused Windows control became / stopped being a text field. Parsed
-                // here, delivered on the main thread; the slot is read again there so a stop() in between wins.
-                if (textFocusListener == null) break;
-                final TextFocusHelper.Packet packet = TextFocusHelper.parsePacket(receiveData.array(), receivePacket.getLength());
-                if (packet == null) break;
-                inputHandler.post(() -> {
-                    TextFocusHelper.Listener l = textFocusListener;
-                    if (l != null) l.onTextFocus(packet.active, packet.editStyle, packet.caretX, packet.caretY,
-                            packet.caretW, packet.caretH, packet.pid);
-                });
-                break;
-            }
             default: {
                 // Handle any other request codes if needed
                 break;
@@ -1339,7 +1319,7 @@ public class WinHandler {
                     synchronized (actions) {
                         receiveData.rewind();
                         byte requestCode = receiveData.get();
-                        if (requestCode != RequestCodes.XINPUT_RUMBLE && requestCode != RequestCodes.TEXT_FOCUS)
+                        if (requestCode != RequestCodes.XINPUT_RUMBLE)
                             Log.d("WinHandlerTM", "recv code=" + requestCode + " from port " + receivePacket.getPort());
                         handleRequest(requestCode, receivePacket.getPort());
                     }

@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
-import android.os.SystemClock
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -76,16 +75,13 @@ internal class GuestEcho(private val limit: Int = ECHO_LIMIT) {
 /**
  * The keyboard's input when it types into the game: each key goes to the [typer] and the echo for the preview strip is
  * kept alongside. Enter is the action key (the field's own action is unknown), so the panel shows Enter and never closes
- * on it; the panel goes when the game's text field loses the focus.
+ * on it; the panel goes when the user closes it.
  */
 @Stable
-internal class GuestKeySession(private val typer: GuestTyper, editStyle: Int) : XmbKeyboardInput {
+internal class GuestKeySession(private val typer: GuestTyper) : XmbKeyboardInput {
     private val echo = GuestEcho()
 
-    /** The layout this session was made for, so the host can tell when the field changed to another kind. */
-    val keyboardType: KeyboardType = GuestEditStyle.keyboardType(editStyle)
-
-    override val imeOptions = ImeOptions(keyboardType = keyboardType, imeAction = ImeAction.Default)
+    override val imeOptions = ImeOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Default)
     override var value: TextFieldValue by mutableStateOf(TextFieldValue(""))
         private set
     override val hasNavigationKeys: Boolean get() = true
@@ -131,6 +127,7 @@ internal class GuestKeySession(private val typer: GuestTyper, editStyle: Int) : 
 /**
  * Hosts the in-game keyboard panel in an activity: the panel's view, when it shows (see [GuestKeyboardPolicy]), the pad
  * while it is up, and the keys it must never leave held. All calls come in on the main thread, or are moved to it.
+ * It opens and closes only on the user's say: the show-keyboard button or the activity's Select + X combo (see [GuestKeyboardCombo]).
  */
 class XmbGuestKeyboardHost(
     private val activity: Activity,
@@ -153,8 +150,6 @@ class XmbGuestKeyboardHost(
     private val keysUntilUp = HashSet<Int>()
     private var view: ComposeView? = null
     private var typer: GuestTyper? = null
-    private var editStyle = 0
-    private val tick = Runnable { handle(policy.onTick(now())) }
 
     internal var session by mutableStateOf<GuestKeySession?>(null)
         private set
@@ -193,54 +188,32 @@ class XmbGuestKeyboardHost(
         }
     }
 
-    /** The show-keyboard button and gesture: opens the panel and keeps it, or closes it. */
+    /** The show-keyboard button and the Select + X combo: opens the panel, or closes it. */
     fun toggle() = onMain {
         if (!policy.visible && typer() == null) {
             callbacks.onSystemKeyboard()
             return@onMain
         }
-        handle(policy.onUserToggle(now()))
+        handle(policy.onUserToggle())
     }
 
     /** B, Back or the panel's hide key. */
-    fun userClose() = onMain { handle(policy.onUserClose(now())) }
+    fun userClose() = onMain { handle(policy.close()) }
 
     private fun systemKeyboard() {
-        handle(policy.onUserClose(now()))
+        handle(policy.close())
         callbacks.onSystemKeyboard()
     }
 
-    /**
-     * The game's focus is in a text field, or no longer is ([editStyle] is the Windows EDIT style flags, 0 when unknown).
-     * A read-only field counts as none.
-     */
-    fun onTextFocus(active: Boolean, editStyle: Int) = onMain {
-        val typable = GuestEditStyle.typable(active, editStyle)
-        if (typable) this.editStyle = editStyle
-        handle(policy.onHardwareKeyboard(hasHardwareKeyboard(), now()))
-        handle(policy.onTextFocus(typable, now()))
-        // The same panel is up and the field is now another kind (text to number): the layout follows it.
-        val current = session
-        val t = typer
-        if (typable && policy.visible && current != null && t != null && current.keyboardType != GuestEditStyle.keyboardType(editStyle)) {
-            session = GuestKeySession(t, editStyle)
-        }
-    }
-
     /** A menu over the game (the Deck menu) opened or closed; both use the pad, so only one is up. */
-    fun onMenuOpen(open: Boolean) = onMain {
-        handle(policy.onMenuOpen(open, now()))
-        // The automatic panel returns after the menu if the field still has the focus, once whatever closed the menu has run.
-        if (!open) main.post { handle(policy.onTick(now())) }
-    }
+    fun onMenuOpen(open: Boolean) = onMain { handle(policy.onMenuOpen(open)) }
 
     /** The game is leaving the screen or the session ends: the panel goes and no key stays held. */
-    fun hide() = onMain { handle(policy.onForceHide()) }
+    fun hide() = onMain { handle(policy.close()) }
 
     /** The session ends. */
     fun release() = onMain {
-        handle(policy.onForceHide())
-        main.removeCallbacks(tick)
+        handle(policy.close())
         typer?.close()
         typer = null
     }
@@ -288,12 +261,12 @@ class XmbGuestKeyboardHost(
         return typer
     }
 
-    /** Does what the policy decided, then sets the timer for the hide it is waiting to do. */
+    /** Does what the policy decided. */
     private fun handle(action: GuestKeyboardAction) {
         if (action == GuestKeyboardAction.SHOW) {
             if (!showView()) {
                 // No way to type into this session: the policy forgets the panel.
-                policy.onForceHide()
+                policy.close()
                 return
             }
             callbacks.onOpenChanged(true)
@@ -304,9 +277,6 @@ class XmbGuestKeyboardHost(
             typer?.releaseAll()
             callbacks.onOpenChanged(false)
         }
-        main.removeCallbacks(tick)
-        val wait = policy.pendingDelay(now())
-        if (wait >= 0) main.postDelayed(tick, wait)
     }
 
     private fun showView(): Boolean {
@@ -318,7 +288,7 @@ class XmbGuestKeyboardHost(
         lp.height = (area * XmbKeyboardGeometry.PANEL_HEIGHT_SHARE).roundToInt()
         lp.gravity = Gravity.BOTTOM
         v.layoutParams = lp
-        session = GuestKeySession(t, editStyle)
+        session = GuestKeySession(t)
         v.visibility = View.VISIBLE
         v.descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
         v.isFocusable = true
@@ -339,8 +309,6 @@ class XmbGuestKeyboardHost(
     private fun onMain(block: () -> Unit) {
         if (Looper.myLooper() === Looper.getMainLooper()) block() else main.post(block)
     }
-
-    private fun now(): Long = SystemClock.uptimeMillis()
 
     companion object {
         /** The XMB interface style is on: the keyboard of the game is the XMB one. */

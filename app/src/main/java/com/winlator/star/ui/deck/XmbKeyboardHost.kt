@@ -180,10 +180,10 @@ internal class XmbKeyboardState : SoftwareKeyboardController {
 }
 
 /**
- * An alphabetic keyboard is attached (Bluetooth / USB). Compose's text field takes its keys itself, and the game gets them
- * as they are, so no panel is needed. A gamepad that reports itself as a keyboard does not count.
+ * An alphabetic keyboard is attached (Bluetooth / USB). Compose's text field takes its keys itself, so no panel is
+ * needed. A gamepad that reports itself as a keyboard does not count.
  */
-internal fun hasHardwareKeyboard(): Boolean = InputDevice.getDeviceIds().any { id ->
+private fun hasHardwareKeyboard(): Boolean = InputDevice.getDeviceIds().any { id ->
     val device = InputDevice.getDevice(id)
     device != null && !device.isVirtual &&
         device.keyboardType == InputDevice.KEYBOARD_TYPE_ALPHABETIC &&

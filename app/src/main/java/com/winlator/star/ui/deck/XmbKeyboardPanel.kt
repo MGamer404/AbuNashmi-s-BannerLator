@@ -105,6 +105,7 @@ import kotlinx.coroutines.launch
 //   X Backspace (held repeats)   Y Space   L1/R1 cursor left/right   L2 held = Shift   L3 = Caps toggle
 //   R2 or Start = the field's action (Search, Done, Go, Send, Next, or Enter in a multi-line field)
 //   D-pad moves over the keys, A types the focused key, B closes
+//   In a game the activity also opens and closes the panel with Select + X (GuestKeyboardCombo), before any of these
 //
 // The panel always sits on the bottom edge and is PANEL_HEIGHT of the screen tall, with the same margin on both sides,
 // whatever page or field it opened from: its window covers the whole screen and the panel is placed in it by share.

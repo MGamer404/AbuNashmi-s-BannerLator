@@ -1699,8 +1699,8 @@ public class XServerDisplayActivity extends AppCompatActivity {
     // XMB mode: the game's keyboard is the XMB panel at the bottom of the screen, typing into the session (X11 or Wayland).
     // Null in every other style, which keeps Android's keyboard.
     private volatile com.winlator.star.ui.deck.XmbGuestKeyboardHost guestKeyboard;
-    // X11 Wine session in XMB mode: reports when the focused Windows control is a text field, which raises the panel.
-    private volatile com.winlator.star.winhandler.TextFocusHelper textFocusHelper;
+    // Select (Back) + X opens and closes that panel in a game; this tracks whether Select is held.
+    private final com.winlator.star.ui.deck.GuestKeyboardCombo guestKeyboardCombo = new com.winlator.star.ui.deck.GuestKeyboardCombo();
     private float waylandCursorX = -1f, waylandCursorY = -1f; // touchpad cursor position (view px)
     // The Wayland pointer is an app-drawn overlay (the compositor never draws one), so nothing was
     // deciding when it should go away: any injected motion made it visible and only a pointer lock
@@ -2021,7 +2021,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
         if (waylandTextInput != null) waylandTextInput.onUserToggledKeyboard();
     }
 
-    /** XMB mode: adds the keyboard panel to the game screen, hidden until a text field or the keyboard button asks for it. */
+    /** XMB mode: adds the keyboard panel to the game screen, hidden until the keyboard button or Select + X asks for it. */
     private void setupXmbGuestKeyboard() {
         if (guestKeyboard != null || !com.winlator.star.ui.deck.XmbGuestKeyboardHost.isXmbMode(this)) return;
         if (com.winlator.star.androidgames.AndroidGames.INSTANCE.isAndroidEntry(shortcut)) return;
@@ -2036,23 +2036,15 @@ public class XServerDisplayActivity extends AppCompatActivity {
                     }
                 });
         guestKeyboard.install();
-        wireWaylandGuestKeyboard();
     }
 
     /** What types into this session: key presses on the X server, or text and keys for the Wayland compositor. Null when there is nothing to type into yet. */
     private com.winlator.star.core.GuestTyper createGuestTyper() {
         if (waylandMode) {
             return new com.winlator.star.core.GuestWaylandTyper(
-                    () -> waylandTextInput != null && waylandTextInput.textFocused());
+                    () -> waylandTextInput != null && waylandTextInput.acceptsText());
         }
         return xServer != null ? new com.winlator.star.core.GuestKeyTyper(xServer) : null;
-    }
-
-    /** Wayland: the compositor's text-input reports raise the XMB panel instead of Android's keyboard. Runs from both ends, whichever is created last wires it. */
-    private void wireWaylandGuestKeyboard() {
-        final com.winlator.star.ui.deck.XmbGuestKeyboardHost keyboard = guestKeyboard;
-        if (keyboard == null || waylandTextInput == null) return;
-        waylandTextInput.setPanelSink(active -> keyboard.onTextFocus(active, 0));
     }
 
     /** The panel came up or went down: the same hand-over of the pad as the menus, and the screen shift Android's keyboard gets. */
@@ -2061,23 +2053,6 @@ public class XServerDisplayActivity extends AppCompatActivity {
         if (r != null) r.setScreenOffsetYRelativeToCursor(open);
         onInGameMenuOpenChanged(open);
         if (!open && touchpadView != null) touchpadView.requestFocus();
-    }
-
-    /** X11 Wine session in XMB mode: starts the guest helper that reports text-field focus. Never fatal; without it the keyboard still opens from its button. */
-    private void startTextFocusHelper() {
-        final com.winlator.star.ui.deck.XmbGuestKeyboardHost keyboard = guestKeyboard;
-        if (keyboard == null || waylandMode || winHandler == null || textFocusHelper != null) return;
-        if (inGameSessionKind != com.winlator.star.ui.deck.InGameSessionKind.WINE_X11) return;
-        try {
-            com.winlator.star.winhandler.TextFocusHelper helper =
-                    new com.winlator.star.winhandler.TextFocusHelper(this, container, winHandler);
-            helper.setListener((active, editStyle, caretX, caretY, caretW, caretH, pid) ->
-                    keyboard.onTextFocus(active, editStyle));
-            textFocusHelper = helper;
-            if (!helper.start()) Log.w("XServerDisplayActivity", "Text focus helper did not start");
-        } catch (Throwable t) {
-            Log.w("XServerDisplayActivity", "Text focus helper", t);
-        }
     }
 
 
@@ -3678,6 +3653,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
         // the game is still on screen and the controller is still playing it.)
         // The keyboard panel goes down too, which lets go of any key it is typing.
         if (guestKeyboard != null) guestKeyboard.hide();
+        guestKeyboardCombo.reset();
         if (inputControlsView != null) inputControlsView.releaseAllInputs();
         if (touchpadView != null) touchpadView.releaseAllInputs();
         if (winHandler != null && inputControlsView != null) winHandler.releaseAllControllerInputs();
@@ -7500,8 +7476,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
         waylandVsyncRunning = false;
         if (waylandHudThread != null) { waylandHudThread.quitSafely(); waylandHudThread = null; waylandHudSampler = null; }
         if (waylandClipboard != null) { waylandClipboard.stop(); waylandClipboard = null; }
-        if (waylandTextInput != null) { waylandTextInput.setPanelSink(null); waylandTextInput.stop(); waylandTextInput = null; }
-        if (textFocusHelper != null) { textFocusHelper.stop(); textFocusHelper = null; }
+        if (waylandTextInput != null) { waylandTextInput.stop(); waylandTextInput = null; }
         if (guestKeyboard != null) { guestKeyboard.release(); guestKeyboard = null; }
         super.onDestroy();
         // Power-user perf: stop the thermal watchdog and revert any privileged sysfs writes on game
@@ -7748,7 +7723,6 @@ public class XServerDisplayActivity extends AppCompatActivity {
         }
         updateDeckCornerButton();
         onInGameMenuOpenChanged(open);
-        // A text field that still has the focus gets its panel back once the menu is gone.
         if (!open && guestKeyboard != null) guestKeyboard.onMenuOpen(false);
     }
 
@@ -8143,6 +8117,24 @@ public class XServerDisplayActivity extends AppCompatActivity {
         return guestKeyboard.onKeyEvent(event);
     }
 
+    /**
+     * XMB mode: X pressed while Select (or the pad's Back) is held opens the keyboard panel, and the same combo closes it.
+     * Runs before the panel's own key handling, which uses plain X for Backspace. Select itself is never taken: it goes on
+     * to the game as without the combo. The combo's X, its repeats and its release go no further, so neither the game nor
+     * the panel sees them. It is off while the Deck menu is up (the menu uses X too) and when X is the Menu button.
+     */
+    private boolean guestKeyboardComboEvent(KeyEvent event) {
+        if (guestKeyboard == null) return false;
+        boolean armed = !deckPanelOpen() && menuButtonKeyCode != KeyEvent.KEYCODE_BUTTON_X;
+        // The Back Android makes out of an unhandled B keeps B's scan code; only the pad's own Back is Select.
+        boolean madeFromB = (event.getFlags() & KeyEvent.FLAG_FALLBACK) != 0
+                || (event.getScanCode() >= 0x130 && event.getScanCode() <= 0x13f);
+        com.winlator.star.ui.deck.GuestKeyboardCombo.Verdict verdict = guestKeyboardCombo.onKey(event.getKeyCode(),
+                event.getAction(), event.getRepeatCount(), ExternalController.isGameController(event.getDevice()), madeFromB, armed);
+        if (verdict == com.winlator.star.ui.deck.GuestKeyboardCombo.Verdict.TOGGLE) guestKeyboard.toggle();
+        return verdict != com.winlator.star.ui.deck.GuestKeyboardCombo.Verdict.PASS;
+    }
+
     /** Hands a d-pad or A event to the Deck panel's focus system; A becomes the d-pad centre key, which presses the focused control. */
     private void routeKeyToDeckPanel(KeyEvent event) {
         int kc = event.getKeyCode();
@@ -8208,6 +8200,8 @@ public class XServerDisplayActivity extends AppCompatActivity {
         super.onWindowFocusChanged(hasFocus);
         // Button releases made while another window has focus never reach dispatchKeyEvent, so a press the Deck panel took could leave its release owed.
         if (!hasFocus) deckKeysToPanelUntilUp.clear();
+        // The same goes for a Select held for the keyboard combo: its release would never arrive.
+        if (!hasFocus) guestKeyboardCombo.reset();
         if (hasFocus && waylandClipboard != null) waylandClipboard.refresh();
 
         if (hasFocus && (cursorLock || isRelativeMouseMovement || waylandPointerLocked) && inGameControlsEditor == null) {
@@ -10084,7 +10078,6 @@ public class XServerDisplayActivity extends AppCompatActivity {
         waylandClipboard.start();
         waylandTextInput = new com.winlator.star.wayland.WaylandTextInput(this, waylandInputView);
         waylandTextInput.start();
-        wireWaylandGuestKeyboard();
     }
 
     /** Scene (virtual desktop) pixel -> view pixel through the fullscreen mode + alignment, with the
@@ -11906,8 +11899,6 @@ public class XServerDisplayActivity extends AppCompatActivity {
 
         // Start the WinHandler (writes events to the file)
         winHandler.start();
-        // XMB mode (X11): learn when a text field has the focus in the game, which raises the keyboard panel.
-        startTextFocusHelper();
         // Steam Controller support (no-op unless the setting is on) — after WinHandler so pads that
         // are already paired seat straight into its slots.
         runOnUiThread(this::startSteamControllerSupport);
@@ -14434,6 +14425,9 @@ public class XServerDisplayActivity extends AppCompatActivity {
             controllerTestFeedKeyEvent(event);
             return true;
         }
+
+        // XMB mode: Select + X toggles the keyboard panel. First, so it sees Select whichever of the layers below takes it.
+        if (guestKeyboardComboEvent(event)) return true;
 
         // Deck style, panel open: the pad drives the panel (and a release follows its press there). Closed: nothing taken.
         if (deckPanelKeyEvent(event)) return true;

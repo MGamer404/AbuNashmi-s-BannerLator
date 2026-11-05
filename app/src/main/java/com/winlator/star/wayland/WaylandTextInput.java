@@ -62,13 +62,6 @@ public final class WaylandTextInput implements WaylandCompositor.TextInputListen
     private boolean autoShown;         // we opened the keyboard ourselves
     private boolean userForced;        // the app's keyboard toggle opened it
     private View focusBefore;          // who had focus before we took it for the IME
-    private volatile PanelSink panelSink;   // the XMB keyboard panel, which replaces Android's keyboard
-
-    /** The XMB keyboard panel's side of text input: it shows and hides itself instead of Android's keyboard. */
-    public interface PanelSink {
-        /** A program in the guest started or stopped accepting text (same rule as the automatic Android keyboard: text input enabled and a caret placed). Main thread. */
-        void onTextFocus(boolean active);
-    }
 
     public WaylandTextInput(Activity activity, SurfaceInputView view) {
         this.activity = activity;
@@ -84,13 +77,10 @@ public final class WaylandTextInput implements WaylandCompositor.TextInputListen
     /** IME text mode: only once a program has both enabled text input AND placed a caret. Without
      *  the caret (winewayland enables for every focused window) the keyboard stays in key mode, so
      *  a game gets key events, not IME strings. */
-    boolean textMode() { return panelSink == null && textFocused(); }
+    boolean textMode() { return textActive && caretKnown; }
 
-    /** A program in the guest accepts text input and has placed a caret, whatever shows the keyboard. Any thread. */
-    public boolean textFocused() { return textActive && caretKnown; }
-
-    /** Hands the keyboard over to the XMB panel: the IME is never attached to the surface, and focus changes go to the sink. Null puts Android's keyboard back. */
-    public void setPanelSink(PanelSink sink) { panelSink = sink; }
+    /** Read-only view of {@link #textMode()} for the XMB keyboard's Wayland typer, which asks from its own thread: text goes to the program as text while it accepts it. */
+    public boolean acceptsText() { return textMode(); }
 
     public void start() { WaylandCompositor.setTextInputListener(this); }
 
@@ -127,15 +117,6 @@ public final class WaylandTextInput implements WaylandCompositor.TextInputListen
 
     @Override
     public void onTextInput(boolean enabled, String program, int x, int y, int w, int h) {
-        if (panelSink != null) {
-            main.post(() -> {
-                textActive = enabled;
-                caretKnown = enabled && w > 0 && h > 0;
-                PanelSink sink = panelSink;
-                if (sink != null) sink.onTextFocus(textFocused());
-            });
-            return;
-        }
         main.post(() -> {
             boolean wasTextMode = textMode();
             textActive = enabled;
