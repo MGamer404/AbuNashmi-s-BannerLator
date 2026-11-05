@@ -34,4 +34,14 @@ class StoreMarkTest {
         assertEquals(labels.indices.toList(), labels.map { storeRank(it) })
         assertEquals(labels.size, storeRank("Itch.io"))
     }
+
+    @Test fun epicFolder_isRecognisedWithoutAStoreTag() {
+        assertEquals(true, isInEpicFolder("Z:\\epic_games\\Assassins Creed Syndicate\\ACS.exe"))
+        assertEquals(true, isInEpicFolder("/data/user/0/app/files/imagefs/epic_games/Some Game/Game.exe"))
+        assertEquals(true, isInEpicFolder("Z:\\EPIC_GAMES\\Game\\g.exe"))
+        assertEquals(false, isInEpicFolder("Z:\\epic_games"))
+        assertEquals(false, isInEpicFolder("Z:\\epic_games_old\\Game\\g.exe"))
+        assertEquals(false, isInEpicFolder("Z:\\steam_games\\Game\\g.exe"))
+        assertEquals(false, isInEpicFolder(null))
+    }
 }

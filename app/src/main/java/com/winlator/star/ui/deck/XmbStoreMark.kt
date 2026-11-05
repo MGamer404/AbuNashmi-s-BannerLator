@@ -61,8 +61,24 @@ internal fun storeMarkOfLabel(label: String): StoreMark = when (label) {
 // go of them), so an edited shortcut is classified again and a scrolling list never classifies the same one twice.
 private val marks: MutableMap<Shortcut, StoreMark> = Collections.synchronizedMap(WeakHashMap<Shortcut, StoreMark>())
 
-/** The one place that decides a shortcut's mark: the same rules as its store shelf and its filter chip. */
-internal fun storeMarkOf(s: Shortcut): StoreMark = marks.getOrPut(s) { storeMarkOfLabel(storeLabelOf(s)) }
+/**
+ * True when [path] (a Windows or Android path) is a game folder the Epic store installed into, i.e. an `epic_games`
+ * segment followed by another one. A game added with "+" or the folder scan carries no Epic tag, only this path.
+ */
+internal fun isInEpicFolder(path: String?): Boolean {
+    val parts = (path ?: return false).replace('\\', '/').split('/')
+    val at = parts.indexOfFirst { it.equals("epic_games", ignoreCase = true) }
+    return at >= 0 && at + 1 < parts.size && parts[at + 1].isNotEmpty()
+}
+
+/**
+ * The one place that decides a shortcut's mark: the same rules as its store shelf and its filter chip, plus the Epic
+ * folder for shortcuts that carry no store tag (they would otherwise get the plain Windows mark).
+ */
+internal fun storeMarkOf(s: Shortcut): StoreMark = marks.getOrPut(s) {
+    val mark = storeMarkOfLabel(storeLabelOf(s))
+    if (mark == StoreMark.WINDOWS && isInEpicFolder(s.path)) StoreMark.EPIC else mark
+}
 
 /** Decodes the store logos ahead of time so a list full of marks finds them ready. */
 internal suspend fun warmStoreMarks(context: Context) {
