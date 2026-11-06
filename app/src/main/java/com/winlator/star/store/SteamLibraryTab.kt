@@ -57,7 +57,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.focusProperties
 import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
@@ -74,10 +73,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.winlator.star.R
 import com.winlator.star.ui.deck.LocalXmbGroup
-import com.winlator.star.ui.deck.XmbGroupItem
 import com.winlator.star.ui.deck.XmbInk
 import com.winlator.star.ui.deck.rememberScreenScale
-import com.winlator.star.ui.deck.rememberXmbFocusGroup
 import com.winlator.star.ui.deck.rememberXmbHighlightItem
 import com.winlator.star.ui.deck.xmbCardFill
 import com.winlator.star.ui.deck.xmbCardLine
@@ -1109,18 +1106,7 @@ private fun LibraryDetailRowXmb(
     // Room for the panel's shadow between the rows.
     val outer = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)
     if (game.isInstalled) {
-        val group = rememberXmbFocusGroup()
-        XmbGroupItem(group, shape, outer) {
-            // The row itself is not a focus target (the group item is); a tap on it still opens the game.
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .xmbGlassCard(shape, xmbCardFill(cs.surfaceVariant))
-                    .border(1.dp, xmbCardLine(cs.outline), shape)
-                    .focusProperties { canFocus = false }
-                    .clickable(onClick = onClick),
-            ) { LibraryDetailBody(game, onClick, onLaunch, onUninstall) }
-        }
+        XmbPanelCard(outer, onOpen = onClick) { LibraryDetailBody(game, onClick, onLaunch, onUninstall) }
     } else {
         val hl = rememberXmbHighlightItem()
         Box(

@@ -41,14 +41,14 @@ class XmbHighlightTest {
     @Test
     fun theOutlineAppearsInPlaceAndGlidesBetweenItems() {
         // Hidden: it shows where the item is, whatever else is going on.
-        assertEquals(XmbMove.SNAP, xmbMoveFor(wasHidden = true, itemChanged = true, animating = false))
-        assertEquals(XmbMove.SNAP, xmbMoveFor(wasHidden = true, itemChanged = false, animating = true))
+        assertEquals(XmbHighlightMove.SNAP, xmbMoveFor(wasHidden = true, itemChanged = true, animating = false))
+        assertEquals(XmbHighlightMove.SNAP, xmbMoveFor(wasHidden = true, itemChanged = false, animating = true))
         // Another item: glide.
-        assertEquals(XmbMove.GLIDE, xmbMoveFor(wasHidden = false, itemChanged = true, animating = false))
+        assertEquals(XmbHighlightMove.GLIDE, xmbMoveFor(wasHidden = false, itemChanged = true, animating = false))
         // The same item moved because the list scrolled: follow without animating.
-        assertEquals(XmbMove.SNAP, xmbMoveFor(wasHidden = false, itemChanged = false, animating = false))
+        assertEquals(XmbHighlightMove.SNAP, xmbMoveFor(wasHidden = false, itemChanged = false, animating = false))
         // The same item moved while a glide is still running: retarget the glide, do not jump.
-        assertEquals(XmbMove.GLIDE, xmbMoveFor(wasHidden = false, itemChanged = false, animating = true))
+        assertEquals(XmbHighlightMove.GLIDE, xmbMoveFor(wasHidden = false, itemChanged = false, animating = true))
     }
 
     @Test

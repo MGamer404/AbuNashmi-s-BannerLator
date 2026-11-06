@@ -125,6 +125,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.LifecycleEventObserver
 import com.winlator.star.R
+import com.winlator.star.androidgames.AndroidGames
 import com.winlator.star.container.Shortcut
 import com.winlator.star.inputcontrols.ExternalController
 import com.winlator.star.ui.LocalTopBarOverlayInset
@@ -135,6 +136,7 @@ import com.winlator.star.ui.deck.rememberXmbLogo
 import com.winlator.star.ui.deck.storeMarkOf
 import com.winlator.star.ui.findActivity
 import com.winlator.star.ui.theme.DangerRed
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -305,7 +307,7 @@ internal fun ShortcutsXmbView(
     val xmbScope = remember(nav) {
         object : XmbScope {
             override val context: Context get() = appCtx
-            override val scope: kotlinx.coroutines.CoroutineScope get() = coScope
+            override val scope: CoroutineScope get() = coScope
             override fun push(menu: XmbMenu) = nav.push(menu)
             override fun pop() = nav.pop()
             override fun popToRoot() = nav.popTo(0)
@@ -634,16 +636,16 @@ internal fun ShortcutsXmbView(
                 ) {
                     if (hasPad && nested) {
                         val hi = nav.hint(xmbScope)
-                        XmbHint("A", Color(0xFF3DDC84), hi.a, hs)
-                        XmbHint("B", Color(0xFFFF5252), "Back", hs)
+                        XmbButtonHint("A", Color(0xFF3DDC84), hi.a, hs)
+                        XmbButtonHint("B", Color(0xFFFF5252), "Back", hs)
                         if (!m.port && m.w >= 600f) {
                             XmbKeyHint("▲ ▼", "Move", hs)
                             if (hi.change) XmbKeyHint("◀ ▶", "Change", hs)
                         }
                         if (hi.sections) XmbKeyHint("L1 R1", "Section", hs)
                     } else if (hasPad) {
-                        XmbHint("A", Color(0xFF3DDC84), if (upperOpen) upperRow[upIdx].label else if (onAll) allLabel else if (centered) "Options" else actions[actIdx].label, hs)
-                        XmbHint("B", Color(0xFFFF5252), "Back", hs)
+                        XmbButtonHint("A", Color(0xFF3DDC84), if (upperOpen) upperRow[upIdx].label else if (onAll) allLabel else if (centered) "Options" else actions[actIdx].label, hs)
+                        XmbButtonHint("B", Color(0xFFFF5252), "Back", hs)
                         if (!m.port && m.w >= 600f) {
                             XmbKeyHint("◀ ▶", "Games", hs); XmbKeyHint("▲ ▼", "Options", hs); XmbKeyHint("L1 R1", if (inDeckShell) "Tabs" else "Jump", hs)
                         }
@@ -748,7 +750,7 @@ internal fun ShortcutsXmbView(
                     } else {
                         // An Android game has no container/resolution line; its package name stands in.
                         val meta = remember(s) {
-                            com.winlator.star.androidgames.AndroidGames.packageOf(s) ?: buildLaunchSpec(s, context).meta
+                            AndroidGames.packageOf(s) ?: buildLaunchSpec(s, context).meta
                         }
                         Column {
                             Text(
@@ -912,7 +914,7 @@ private fun XmbCover(
     selectionMode: Boolean,
     selected: Boolean,
     // 1 = the focused cover grows to full size (the usual row), 0 = every cover small (the home's lowered peek).
-    grow: () -> Float = { 1f },
+    grow: () -> Float,
     onClick: () -> Unit,
 ) {
     val shape = RoundedCornerShape(8.dp)
@@ -963,9 +965,11 @@ private fun XmbCover(
     }
 }
 
-// A cover's place in the row (a game's or the All Games card's): its size, position and fade from its distance to the cross,
-// read in the graphics layer so a swipe re-draws without recomposing.
-private fun Modifier.xmbCoverSlot(index: Int, pos: MutableFloatState, m: XmbMetrics, focused: Boolean, grow: () -> Float): Modifier = this
+// A card's place in a row (a game's, the All Games card's or an upper-row card's): its size, position and fade from its distance to
+// the cross, read in the graphics layer so a swipe re-draws without recomposing. [y] is its top (dp) in the box it is drawn in.
+private fun Modifier.xmbCoverSlot(
+    index: Int, pos: MutableFloatState, m: XmbMetrics, focused: Boolean, grow: () -> Float, y: Float = m.top,
+): Modifier = this
     .zIndex(if (focused) 1f else 0f)
     .size(m.fW.dp, m.fH.dp)
     .graphicsLayer {
@@ -981,7 +985,7 @@ private fun Modifier.xmbCoverSlot(index: Int, pos: MutableFloatState, m: XmbMetr
         val sc = (m.sH + (m.fH - m.sH) * t) / m.fH
         val x = m.cross + ud * m.pitch + m.grow * g * u.coerceIn(0f, 1f)
         translationX = x.dp.toPx()
-        translationY = m.top.dp.toPx()
+        translationY = y.dp.toPx()
         scaleX = sc
         scaleY = sc
         transformOrigin = TransformOrigin(0f, 0f)
@@ -1133,7 +1137,7 @@ private fun XmbActionRow(action: XmbAction, selected: Boolean, accent: Color, ic
 }
 
 /** Centred home: the peeking cards' middle sits this far (dp, on a 412 dp phone) from the top, just below the host's floating tab bar; above it they fade out. */
-internal const val XMB_PEEK_CLIP = 50f
+private const val XMB_PEEK_CLIP = 50f
 
 /** The surface of the upper row's plain cards (Add game) and of the All Games card, so they always match. */
 internal val XMB_PLAIN_CARD = listOf(Color(0xFF2A2D33), Color(0xFF16181C))
@@ -1245,23 +1249,9 @@ private fun XmbUpperCard(
     val src = remember { MutableInteractionSource() }
     val art = card.art
     Box(
+        // The bar's own box places the cards vertically (y = 0), unlike a game cover, which sits at the row's top.
         Modifier
-            .zIndex(if (focused) 1f else 0f)
-            .size(m.fW.dp, m.fH.dp)
-            .graphicsLayer {
-                val g = grow()
-                val p = pos.floatValue
-                val u = index - p
-                // While the bar only peeks ([grow] is 0) it rests from the first card, not from the chosen one.
-                val ud = index - xmbRowAnchor(p, g)
-                val t = (1f - abs(u)).coerceAtLeast(0f) * g
-                val sc = (m.sH + (m.fH - m.sH) * t) / m.fH
-                translationX = (m.cross + ud * m.pitch + m.grow * g * u.coerceIn(0f, 1f)).dp.toPx()
-                scaleX = sc
-                scaleY = sc
-                transformOrigin = TransformOrigin(0f, 0f)
-                alpha = ((if (ud >= 0f) 0.82f else 0.82f + ud * 0.32f) + 0.18f * t).coerceIn(0f, 1f)
-            }
+            .xmbCoverSlot(index, pos, m, focused, grow, y = 0f)
             .then(if (focused) Modifier.shadow(14.dp, shape, ambientColor = accent, spotColor = accent) else Modifier)
             .clip(shape)
             // Opaque, edge to edge: a see-through fill would let the focus shadow show through as a dark inner box.
@@ -1289,11 +1279,11 @@ private fun XmbUpperCard(
 /** What the backdrop shows for a chosen upper-row card: its [art], with [icon] standing in for a missing logo. */
 private data class XmbBackdropArt(val art: XmbCardArt, val icon: ImageVector)
 
-/** The home backdrop's blur: a medium one, so the art stays recognisable (the old Big Picture hero used 40 dp as "heavy"). */
+/** The home backdrop's blur: a medium one, so the art stays recognisable. */
 private val XMB_BACKDROP_BLUR = 16.dp
 
 /** The one flat black veil over the home backdrop's art, just enough for the text on top to stay readable. */
-internal const val XMB_BACKDROP_VEIL = 0.30f
+private const val XMB_BACKDROP_VEIL = 0.30f
 
 /** Below API 31 the backdrop art is shrunk to 1/this of its size and scaled back up, which looks blurred. */
 internal const val XMB_BACKDROP_SOFT_DIV = 16
@@ -1412,7 +1402,7 @@ private fun XmbInfo(s: Shortcut, playtime: String?, descLines: Int, storeBadges:
     val spec = remember(s) { buildLaunchSpec(s, context) }
     val details = remember(s) { buildLaunchDetails(s) }
     storeBadges(s)
-    if (!remember(s) { com.winlator.star.androidgames.AndroidGames.isAndroidEntry(s) }) SpecChipRows(
+    if (!remember(s) { AndroidGames.isAndroidEntry(s) }) SpecChipRows(
         rendererLabel = spec.rendererLabel,
         dxvkVersion = spec.dxvkVersion,
         frameGenLabel = spec.frameGenLabel,
@@ -1450,7 +1440,7 @@ private fun XmbInfo(s: Shortcut, playtime: String?, descLines: Int, storeBadges:
 }
 
 @Composable
-private fun XmbHint(glyph: String, color: Color, label: String, s: Float = 1f) {
+private fun XmbButtonHint(glyph: String, color: Color, label: String, s: Float) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(17.dp * s).clip(CircleShape).background(color), contentAlignment = Alignment.Center) {
             Text(glyph, color = Color.Black, fontSize = 10.sp * s, fontWeight = FontWeight.Bold)
@@ -1461,7 +1451,7 @@ private fun XmbHint(glyph: String, color: Color, label: String, s: Float = 1f) {
 }
 
 @Composable
-private fun XmbKeyHint(keys: String, label: String, s: Float = 1f) {
+private fun XmbKeyHint(keys: String, label: String, s: Float) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
             keys, color = Color(0xFFDDDDDD), fontSize = 10.sp * s,

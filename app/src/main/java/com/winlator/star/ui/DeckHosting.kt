@@ -8,9 +8,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.MutableIntState
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -148,8 +148,8 @@ fun DeckDialogScaled(host: Boolean = true, content: @Composable () -> Unit) {
 }
 
 /**
- * The height of the bottom button-hint row (the "A Select  B Back" legend) while the Deck shell shows it, else 0. The shell
- * sets it; a floating button that sits at the bottom of a page adds it to its bottom padding so the hints never cover it.
- * Everywhere else it stays 0.dp, so reading it is always safe.
+ * How far up a floating button at the bottom of a page must sit to clear the floating "B Back" / "Y Search" hints (bottom
+ * right) while the XMB shell or an XMB store screen shows them, else 0. The shell sets it; a floating button adds it to its
+ * bottom padding so the hints never cover it. Everywhere else it stays 0.dp, so reading it is always safe.
  */
 val LocalXmbHintInset = compositionLocalOf { 0.dp }

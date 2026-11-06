@@ -24,9 +24,6 @@ internal class XmbHomeExit(private val windowMs: Long = XMB_EXIT_WINDOW_MS) {
         return false
     }
 
-    /** A first press is waiting for its second (the pill is showing). */
-    fun pending(now: Long): Boolean = firstAt != NONE && now - firstAt in 0L..windowMs
-
     /** Forget a waiting first press (the page changed). */
     fun reset() {
         firstAt = NONE

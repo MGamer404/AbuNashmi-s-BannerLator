@@ -144,7 +144,7 @@ fun AppearanceScreen() {
                         isSelected = isSelected,
                         isCustomSlot = index == CUSTOM_PRESET_INDEX,
                         customAccent = customAccent,
-                        xmbWash = xmbHome,
+                        xmbGlass = xmbHome,
                         onClick = { AppThemeState.setPreset(index) },
                         modifier = Modifier.weight(1f)
                     )
@@ -369,15 +369,15 @@ private fun PresetSwatch(
     isSelected: Boolean,
     isCustomSlot: Boolean,
     customAccent: Color,
-    xmbWash: Boolean,
+    xmbGlass: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val accent = if (isCustomSlot) customAccent else preset.primary
     // XMB: the swatch shows the glass the app would paint with this preset (the same maths and drawing as the real backdrop):
     // the base with its sweep, and a mini panel with its border and sheen, the accent dot and two lines on it.
-    val glass = remember(preset, xmbWash) {
-        if (xmbWash) xmbGlassFor(preset.background, preset.surface, preset.onBackground, preset.onSurfaceVariant) else null
+    val glass = remember(preset, xmbGlass) {
+        if (xmbGlass) xmbGlassFor(preset.background, preset.surface, preset.onBackground, preset.onSurfaceVariant) else null
     }
     val sheen = remember(glass) { glass?.let { xmbSheenDraw(it.frost.sheen) } }
     Column(
@@ -413,8 +413,8 @@ private fun PresetSwatch(
                 ) {
                     Box(Modifier.size(8.dp).background(accent, CircleShape))
                     Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Box(Modifier.width(22.dp).height(3.dp).clip(RoundedCornerShape(2.dp)).background(glass.frost.tint.copy(alpha = 0.30f)))
-                        Box(Modifier.width(14.dp).height(3.dp).clip(RoundedCornerShape(2.dp)).background(glass.frost.tint.copy(alpha = 0.18f)))
+                        Box(Modifier.width(22.dp).height(3.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.30f)))
+                        Box(Modifier.width(14.dp).height(3.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.18f)))
                     }
                 }
             } else {

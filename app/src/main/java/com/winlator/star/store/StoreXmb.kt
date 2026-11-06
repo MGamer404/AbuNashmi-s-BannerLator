@@ -5,6 +5,11 @@ import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -17,16 +22,24 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -41,19 +54,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.lazy.grid.LazyGridState
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -61,6 +63,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -75,9 +78,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.calculateEndPadding
-import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -90,7 +90,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import kotlinx.coroutines.launch
 import com.winlator.star.R
 import com.winlator.star.ui.LocalXmbHintInset
 import com.winlator.star.ui.deck.DeckFloatingHint
@@ -99,30 +98,35 @@ import com.winlator.star.ui.deck.LocalXmbKeyboard
 import com.winlator.star.ui.deck.ScreenScale
 import com.winlator.star.ui.deck.XmbEditTapCatcher
 import com.winlator.star.ui.deck.XmbGlassBackdrop
+import com.winlator.star.ui.deck.XmbGroupItem
 import com.winlator.star.ui.deck.XmbHighlightHost
 import com.winlator.star.ui.deck.XmbHighlightItem
 import com.winlator.star.ui.deck.XmbInk
 import com.winlator.star.ui.deck.XmbKeyboardHost
 import com.winlator.star.ui.deck.XmbRailState
-import com.winlator.star.ui.deck.xmbRailItem
-import com.winlator.star.ui.deck.XmbTriggerGuard
-import com.winlator.star.ui.deck.XmbWashTheme
 import com.winlator.star.ui.deck.XmbScreenWindow
-import com.winlator.star.ui.deck.rememberXmbEdit
-import com.winlator.star.ui.deck.xmbEditField
-import com.winlator.star.ui.deck.xmbEditStop
-import com.winlator.star.ui.deck.deckFocusRing
+import com.winlator.star.ui.deck.XmbTriggerGuard
+import com.winlator.star.ui.deck.XmbGlassTheme
+import com.winlator.star.ui.deck.deckFocusRingInk
 import com.winlator.star.ui.deck.rememberScreenScale
+import com.winlator.star.ui.deck.rememberXmbEdit
+import com.winlator.star.ui.deck.rememberXmbFocusGroup
+import com.winlator.star.ui.deck.rememberXmbHighlightItem
 import com.winlator.star.ui.deck.rememberXmbHintDensity
 import com.winlator.star.ui.deck.rememberXmbHome
-import com.winlator.star.ui.deck.rememberXmbHighlightItem
+import com.winlator.star.ui.deck.xmbCardFill
+import com.winlator.star.ui.deck.xmbCardLine
 import com.winlator.star.ui.deck.xmbChipOverArt
+import com.winlator.star.ui.deck.xmbEditField
+import com.winlator.star.ui.deck.xmbEditStop
 import com.winlator.star.ui.deck.xmbFrame
 import com.winlator.star.ui.deck.xmbGlassCard
 import com.winlator.star.ui.deck.xmbHighlight
 import com.winlator.star.ui.deck.xmbHighlightHostOrNull
 import com.winlator.star.ui.deck.xmbPageFrost
+import com.winlator.star.ui.deck.xmbRailItem
 import com.winlator.star.ui.theme.LocalAccentDim
+import kotlinx.coroutines.launch
 
 // The store screens in the Deck interface's XMB-home mode: edge to edge in an even frame, a slim rail, a compact search
 // field that types only on A, and portrait covers that pop when focused. Everything here is used only while
@@ -145,7 +149,7 @@ internal fun StoreXmbScreen(content: @Composable () -> Unit) {
     // XMB home: the screen sits on the charcoal glass and the theme's own background is clear, so the glass shows through every
     // rail, tab row and page inside it, and their cards are glass over it. The highlight host wraps all of it: the one gliding
     // outline of the window draws over every page, rail and card (dialogs and sheets bring their own host).
-    XmbWashTheme(xmb) {
+    XmbGlassTheme(xmb) {
         CompositionLocalProvider(LocalStoreXmb provides xmb) {
             if (!xmb) {
                 hosted()
@@ -169,10 +173,10 @@ internal fun StoreXmbScreen(content: @Composable () -> Unit) {
  * Search hint. A tap runs the same back action as the B button (the activity's back dispatcher: a section's own back handler
  * first, then the screen closes). It steps aside while the XMB keyboard panel is up, and it provides [LocalXmbHintInset] so
  * anything floating at the bottom can lift clear of it. The hint is drawn at Home's size and place (the Deck density, 16 dp
- * from the camera cut-out's end edge), so [endInset] is no longer used. Not [enabled]: [content] unchanged.
+ * from the camera cut-out's end edge). Not [enabled]: [content] unchanged.
  */
 @Composable
-internal fun XmbBackHintLayer(enabled: Boolean, endInset: Dp = 0.dp, content: @Composable () -> Unit) {
+internal fun XmbBackHintLayer(enabled: Boolean, content: @Composable () -> Unit) {
     if (!enabled) {
         content()
         return
@@ -222,7 +226,7 @@ private val XMB_BACK_HINT_HEIGHT = 34.dp
 internal fun StoreKeyboardTheme(content: @Composable () -> Unit) {
     val xmb = rememberXmbHome()
     com.winlator.star.ui.theme.WinlatorTheme {
-        XmbWashTheme(xmb) {
+        XmbGlassTheme(xmb) {
             if (!xmb) {
                 XmbKeyboardHost(content = content)
             } else {
@@ -481,11 +485,6 @@ internal fun XmbRailItem(label: String, icon: ImageVector, selected: Boolean, co
 internal fun Modifier.xmbRing(shape: Shape, item: XmbHighlightItem): Modifier =
     if (xmbHighlightHostOrNull() != null) this.xmbHighlight(shape, item, wholeSubtree = true) else this.steamFocusRing(shape)
 
-/** [xmbRing] for the covers: outside a highlight host it is the Deck ring with its pop ([scaleTo]), as before. */
-@Composable
-internal fun Modifier.xmbDeckRing(shape: Shape, scaleTo: Float, item: XmbHighlightItem): Modifier =
-    if (xmbHighlightHostOrNull() != null) this.xmbHighlight(shape, item) else this.deckFocusRing(shape, scaleTo = scaleTo)
-
 /** How long (ms) the header ignores scrolling after it hides or shows. */
 private const val HEADER_SETTLE_MS = 450L
 
@@ -572,8 +571,8 @@ internal fun XmbHeaderState.Header(content: @Composable ColumnScope.() -> Unit) 
 }
 
 /**
- * A portrait (2:3) cover with the name small at its bottom, the way the Xbox library draws its games. Focused, it pops
- * a little (scale, accent ring and glow) and shows [focusDetail] (a rating) under the name.
+ * A portrait (2:3) cover with the name small at its bottom, the way the Xbox library draws its games. Focused, it takes the
+ * highlight outline ([deckFocusRingInk]) and shows [focusDetail] (a rating) under the name.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -603,7 +602,7 @@ internal fun XmbStoreCover(
     Box(
         modifier = modifier
             .onFocusChanged { focused = it.isFocused }
-            .xmbDeckRing(shape, 1.06f, hl)
+            .deckFocusRingInk(shape, hl, scaleTo = 1.06f)
             .clip(shape)
             .border(1.dp, frostLine ?: cs.outline, shape)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
@@ -678,7 +677,7 @@ internal fun XmbFeatureCard(
             // Room for the shadow: neighbouring cards in a list are only a few dp apart.
             .then(if (frost != null) Modifier.padding(vertical = 5.dp) else Modifier)
             .fillMaxWidth()
-            .xmbDeckRing(shape, 1.03f, hl)
+            .deckFocusRingInk(shape, hl, scaleTo = 1.03f)
             .xmbGlassCard(shape, frost?.card ?: cs.surfaceContainer)
             .border(1.dp, frost?.line ?: cs.outline, shape)
             .clickable(onClick = onClick)
@@ -706,6 +705,28 @@ internal fun XmbFeatureCard(
                 footer()
             }
         }
+    }
+}
+
+/**
+ * XMB home: a glass panel that is ONE stop of the D-pad (the highlight glides from panel to panel). A enters the
+ * [xmbInner] buttons inside [content], B comes back to the panel; a tap anywhere on it runs [onOpen]. [modifier] places the
+ * panel: leave 12 dp or more round it for its shadow.
+ */
+@Composable
+internal fun XmbPanelCard(modifier: Modifier, onOpen: () -> Unit, content: @Composable () -> Unit) {
+    val shape = RoundedCornerShape(12.dp)
+    val cs = MaterialTheme.colorScheme
+    XmbGroupItem(rememberXmbFocusGroup(), shape, modifier) {
+        // The panel itself is not a focus target (the group item is).
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .xmbGlassCard(shape, xmbCardFill(cs.surfaceVariant))
+                .border(1.dp, xmbCardLine(cs.outline), shape)
+                .focusProperties { canFocus = false }
+                .clickable(onClick = onOpen),
+        ) { content() }
     }
 }
 

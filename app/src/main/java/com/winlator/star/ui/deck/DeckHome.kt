@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -45,7 +44,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
@@ -567,7 +565,7 @@ internal fun DeckHome(
                     onFocusedChange = onFocus,
                     // Full screen: the XMB hides the system bars in landscape and keeps L1/R1 for its jumps.
                     // The XMB home sits inside the shell instead: the shell keeps the bars hidden, takes L1/R1 for its tabs
-                    // and floats its own tabs, status and Search over the XMB, so the XMB drops its hints and clock.
+                    // and floats its own tabs, status and Back / Search hints over the XMB, so the XMB drops its hints and clock.
                     // The games rest centred with the library cards (upperRow) peeking above; A opens a game's options,
                     // Up lifts the cards fully into view.
                     inDeckShell = xmbHome,

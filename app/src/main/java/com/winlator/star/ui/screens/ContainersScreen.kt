@@ -47,7 +47,6 @@ import androidx.compose.material3.FilledTonalButton
 import java.io.File
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -102,6 +101,9 @@ import com.winlator.star.contentdialog.GraphicsDriverConfigDialog
 import com.winlator.star.core.EmuSaveRoots
 import com.winlator.star.core.FileUtils
 import com.winlator.star.core.GameSaveBackup
+import com.winlator.star.ui.deck.XmbInk
+import com.winlator.star.ui.deck.rememberXmbFocusGroup
+import com.winlator.star.ui.deck.rememberXmbHighlightItem
 import com.winlator.star.util.InAppFilePicker
 import com.winlator.star.core.SaveLocator
 import com.winlator.star.core.StringUtils
@@ -111,9 +113,6 @@ import com.winlator.star.store.download.InstallProgressDialog
 import androidx.compose.ui.text.style.TextOverflow
 import com.winlator.star.ui.DeckDialogBars
 import com.winlator.star.ui.DeckDialogScaled
-import com.winlator.star.ui.deck.XmbInk
-import com.winlator.star.ui.deck.rememberXmbFocusGroup
-import com.winlator.star.ui.deck.rememberXmbHighlightItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext

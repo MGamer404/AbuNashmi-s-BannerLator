@@ -397,7 +397,7 @@ fun SteamStorefrontHost(
             // The Steam activities are not edge-to-edge, so systemBars is usually zero — but the
             // display cutout is NOT, and in landscape on a handheld it eats the rail. Both, always —
             // except in XMB home, where StoreXmbScreen already frames the screen edge to edge.
-            .then(if (LocalStoreXmb.current) Modifier else Modifier.systemBarsPadding().displayCutoutPadding()),
+            .then(if (xmb) Modifier else Modifier.systemBarsPadding().displayCutoutPadding()),
     ) {
         if (layout.wide) {
             Row(modifier = Modifier.fillMaxSize()) {

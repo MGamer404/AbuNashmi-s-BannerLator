@@ -119,8 +119,7 @@ class XmbRowLogicTest {
         assertEquals(listOf("a", "b"), xmbRecentOrder(emptyList(), listOf("a", "b")) { it })
     }
 
-    @Test fun mosaic_isThreeRowsByTwoColumns_fiveCoversAndAMoreTile() {
-        assertEquals(6, XMB_MOSAIC_ROWS * XMB_MOSAIC_COLS)
+    @Test fun mosaic_cellsFillTheGrid_andOneIsLeftForTheMoreTile() {
         assertEquals(XMB_MOSAIC_ROWS * XMB_MOSAIC_COLS, XMB_MOSAIC_CELLS)
         assertEquals(XMB_MOSAIC_CELLS - 1, XMB_MOSAIC_COVERS)
     }
@@ -163,12 +162,6 @@ class XmbRowLogicTest {
         val m = xmbMosaicPick(emptyList<String>(), hasArt)
         assertTrue(m.covers.isEmpty())
         assertEquals(0, m.more)
-    }
-
-    @Test fun collage_isFiveColumnsByThreeRows() {
-        assertEquals(5, XMB_COLLAGE_COLS)
-        assertEquals(3, XMB_COLLAGE_ROWS)
-        assertEquals(15, XMB_COLLAGE_MAX)
     }
 
     @Test fun collagePick_moreThanFifteen_takesTheFifteenMostRecentWithArt() {

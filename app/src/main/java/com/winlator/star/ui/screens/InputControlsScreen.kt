@@ -97,10 +97,10 @@ import com.winlator.star.inputcontrols.SteamControllerBackend
 import com.winlator.star.ui.DeckDialogBars
 import com.winlator.star.ui.DeckDialogScaled
 import com.winlator.star.ui.components.PlayerSlotsEditor
+import com.winlator.star.ui.controllertest.SettingsControllerTestDialog
 import com.winlator.star.ui.deck.XmbInk
 import com.winlator.star.ui.deck.rememberXmbFocusGroup
 import com.winlator.star.ui.deck.rememberXmbHighlightItem
-import com.winlator.star.ui.controllertest.SettingsControllerTestDialog
 import com.winlator.star.util.InAppFilePicker
 import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicInteger

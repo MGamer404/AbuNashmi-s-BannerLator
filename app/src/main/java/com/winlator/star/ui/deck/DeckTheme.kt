@@ -13,9 +13,6 @@ import androidx.compose.material3.Shapes
 import androidx.compose.material3.Text
 import androidx.compose.material3.Typography
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.unit.Density
-import androidx.compose.ui.platform.LocalDensity
-import com.winlator.star.ui.LocalDeckDensity
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -28,13 +25,16 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.winlator.star.R
+import com.winlator.star.ui.LocalDeckDensity
 
 // Deck look: Sora for headings and Nunito Sans for body text, both under the SIL Open Font License 1.1.
 // The TTFs are static instances from Google Fonts; the attribution is in THIRD-PARTY-LICENSES.md.
@@ -129,12 +129,12 @@ internal fun deckCardFill(): Color = xmbPageFrost()?.card ?: MaterialTheme.color
 
 /** Hairline around cards and bars. */
 @Composable
-internal fun deckLine(): Color = xmbPageFrost()?.line ?: MaterialTheme.colorScheme.outline.copy(alpha = 0.8f)
+internal fun deckLine(): Color = xmbPageFrost()?.line ?: MaterialTheme.colorScheme.outline.copy(alpha = DECK_LINE_BASE_ALPHA)
 
-// The XMB glass turns `surfaceVariant` into translucent white (alpha 0.12) and `deckLine()` into white at 13%. The settings controls
-// (segmented tracks, selects, chips, fields) used `surfaceVariant.copy(alpha = 0.55f)` and `deckLine().copy(alpha = 0.5f)`: `copy(alpha)`
-// REPLACES the alpha, so on the glass they became white at 55% / 50%, the washed light-grey tracks with a bright white border. These two
-// keep the intent (an inset fill, a soft line) on the glass and are exactly the old expressions everywhere else.
+// On the XMB glass `surfaceVariant` is translucent white (alpha 0.12) and `deckLine()` is white at 13%. `copy(alpha)` REPLACES the
+// alpha, so the settings controls (segmented tracks, selects, chips, fields) written as `surfaceVariant.copy(alpha = 0.55f)` or
+// `deckLine().copy(alpha = 0.5f)` would turn into washed light-grey tracks with a bright white border there. The helpers below keep
+// the intent (an inset fill, a soft line) on the glass and are exactly those expressions everywhere else.
 
 /** The alpha [deckLine] has outside the glass; [deckSoftLine] scales a softer line from it. */
 internal const val DECK_LINE_BASE_ALPHA = 0.8f
@@ -223,8 +223,7 @@ internal fun DeckGlyph(text: String, kind: GlyphKind, modifier: Modifier = Modif
             .defaultMinSize(minWidth = if (kind == GlyphKind.BUMPER) 30.dp else 22.dp, minHeight = 22.dp)
             .background(fill, shape)
             .then(
-                if (round && kind != GlyphKind.A && kind != GlyphKind.B) Modifier.border(1.5.dp, cs.onSurfaceVariant.copy(alpha = 0.6f), shape)
-                else if (!round) Modifier.border(1.5.dp, cs.onSurfaceVariant.copy(alpha = 0.6f), shape)
+                if (kind != GlyphKind.A && kind != GlyphKind.B) Modifier.border(1.5.dp, cs.onSurfaceVariant.copy(alpha = 0.6f), shape)
                 else Modifier
             )
             .padding(horizontal = 5.dp),

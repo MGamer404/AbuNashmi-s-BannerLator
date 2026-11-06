@@ -107,14 +107,14 @@ internal const val XMB_HL_HIDE_GRACE_MS = 140L
 internal const val XMB_INK_MIN_CONTRAST = 4.5
 
 /** How the outline gets to a new target rect. */
-internal enum class XmbMove { SNAP, GLIDE }
+internal enum class XmbHighlightMove { SNAP, GLIDE }
 
 /**
  * SNAP when the outline was hidden (it appears in place), or when the same item only moved because the page scrolled; GLIDE
  * when the hot item changed, or when a glide is still running (the new target replaces it, keeping the speed).
  */
-internal fun xmbMoveFor(wasHidden: Boolean, itemChanged: Boolean, animating: Boolean): XmbMove =
-    if (wasHidden) XmbMove.SNAP else if (itemChanged || animating) XmbMove.GLIDE else XmbMove.SNAP
+internal fun xmbMoveFor(wasHidden: Boolean, itemChanged: Boolean, animating: Boolean): XmbHighlightMove =
+    if (wasHidden) XmbHighlightMove.SNAP else if (itemChanged || animating) XmbHighlightMove.GLIDE else XmbHighlightMove.SNAP
 
 /**
  * Which of the focused items (all on one focus path, so each contains the next) is the hot one: the smallest, that is the
@@ -361,7 +361,7 @@ internal class XmbHighlightHost internal constructor(internal val view: View) {
                 }
             }
             if (alpha.value < 1f) launch { alpha.animateTo(1f, tween(XMB_HL_FADE_IN_MS)) }
-            if (move == XmbMove.SNAP) {
+            if (move == XmbHighlightMove.SNAP) {
                 rect.snapTo(target)
                 corner.snapTo(c)
             } else {
@@ -493,7 +493,7 @@ internal fun xmbHighlightHostOrNull(): XmbHighlightHost? {
 
 /**
  * Registers this element as a stop of the highlight. Put it BEFORE the clickable / focusable it observes (the same place as
- * the old deckFocusRing), after the modifiers that size and place the element so the outline gets its real bounds.
+ * [deckFocusRing]), after the modifiers that size and place the element so the outline gets its real bounds.
  *
  * With a host above it draws nothing itself: the host's outline moves here when the element holds focus. Without a host
  * (the XMB shell has not wrapped this screen yet, or a popup window) it falls back to a plain 2 dp accent border, so
@@ -512,12 +512,12 @@ internal fun Modifier.xmbHighlight(
     onFocused: (() -> Unit)? = null,
 ): Modifier {
     val host = xmbHighlightHostOrNull()
-    val accent = MaterialTheme.colorScheme.primary
     val onFocusedNow by rememberUpdatedState(onFocused)
     item.shape = shape
     item.tint = tint
     item.dimWhenInside = dimWhenInside
     if (host == null) {
+        val accent = MaterialTheme.colorScheme.primary
         var lit by remember { mutableStateOf(false) }
         return this
             .onFocusChanged { st ->

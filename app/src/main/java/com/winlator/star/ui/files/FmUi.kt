@@ -80,8 +80,8 @@ import java.io.File
 // ── Look ──
 
 /**
- * The file manager's backdrop: two soft glows of the theme colour over the background. On the XMB glow
- * pages the page already has its glow, so nothing is drawn there.
+ * The file manager's backdrop: two soft glows of the theme colour over the background. On the XMB glass
+ * pages the page already has its glass, so nothing is drawn there.
  */
 @Composable
 internal fun Modifier.fmBackdrop(): Modifier {
@@ -104,7 +104,7 @@ internal fun Modifier.fmBackdrop(): Modifier {
     }
 }
 
-/** A frosted card: glass on the XMB glow, else a see-through surface over the backdrop with a hairline. */
+/** A frosted card: glass on the XMB glass, else a see-through surface over the backdrop with a hairline. */
 @Composable
 internal fun Modifier.fmGlass(
     shape: Shape = RoundedCornerShape(14.dp),

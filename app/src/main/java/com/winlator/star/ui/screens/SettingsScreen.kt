@@ -24,7 +24,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import com.winlator.star.ui.LocalXmbHintInset
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -78,6 +77,7 @@ import androidx.compose.ui.unit.sp
 import androidx.preference.PreferenceManager
 import com.winlator.star.R
 import com.winlator.star.SettingsFragment
+import com.winlator.star.ui.LocalXmbHintInset
 import com.winlator.star.util.InAppFilePicker
 import com.winlator.star.box64.Box64Preset
 import com.winlator.star.box64.Box64PresetManager

@@ -217,6 +217,7 @@ private fun DriverItem(
         margin = 16.dp,
         vGap = 6.dp,
     ) {
+        // Read again inside the card: its text takes the accent ink only through the theme the card provides.
         val cs = MaterialTheme.colorScheme
         Icon(
             imageVector = Icons.Filled.Memory,

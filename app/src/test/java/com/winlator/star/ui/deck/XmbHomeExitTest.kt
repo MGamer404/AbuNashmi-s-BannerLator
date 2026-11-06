@@ -44,18 +44,7 @@ class XmbHomeExitTest {
         val exit = XmbHomeExit()
         exit.press(1_000L)
         exit.reset()
-        assertFalse(exit.pending(1_100L))
         assertFalse(exit.press(1_200L))
-    }
-
-    @Test
-    fun pendingIsTrueOnlyInsideTheWindow() {
-        val exit = XmbHomeExit()
-        assertFalse(exit.pending(0L))
-        exit.press(5_000L)
-        assertTrue(exit.pending(5_000L))
-        assertTrue(exit.pending(5_000L + XMB_EXIT_WINDOW_MS))
-        assertFalse(exit.pending(5_000L + XMB_EXIT_WINDOW_MS + 1))
     }
 
     @Test

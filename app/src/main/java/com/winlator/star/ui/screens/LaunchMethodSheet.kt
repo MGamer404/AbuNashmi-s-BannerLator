@@ -72,6 +72,8 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -79,8 +81,6 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
@@ -777,6 +777,8 @@ private fun DeckLandscapeCard(
             val h = if (constraints.hasBoundedHeight) maxHeight * 0.88f else (cfg.screenHeightDp * 0.88f).dp
             // A short card drops the shared options' one-line subtitles so the right column still fits unscrolled.
             val roomy = h >= 340.dp
+            // XMB only: the rows are raised panels, so they sit further apart (their shadows reach 6 dp above and 14 dp below).
+            val raised = popRaised()
             Surface(
                 modifier = Modifier.width(w).height(h),
                 shape = RoundedCornerShape(20.dp),
@@ -822,8 +824,7 @@ private fun DeckLandscapeCard(
                                         }
                                     }
                                     .focusable(),
-                                // 8 dp between the raised rows: their shadows reach 6 dp above and 14 dp below.
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(if (raised) 8.dp else 6.dp),
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     MicroLabel("Launch with")
@@ -852,8 +853,8 @@ private fun DeckLandscapeCard(
                                     .weight(0.40f)
                                     .fillMaxHeight()
                                     .verticalScroll(rememberScrollState())
-                                    // 16 dp at the sides and bottom: the raised rows' shadows reach 10 dp aside and 14 dp below, and the scroll clips them.
-                                    .padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 16.dp),
+                                    // XMB: 16 dp at the bottom, the raised rows' shadows reach 14 dp below and the scroll clips them.
+                                    .padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = if (raised) 16.dp else 12.dp),
                             ) {
                                 MicroLabel(methodLabel(method, rawLabel))
                                 Spacer(Modifier.height(6.dp))
@@ -871,13 +872,13 @@ private fun DeckLandscapeCard(
                                         subtitle = SUB_PASSTHROUGH,
                                         accent = accent, onHelp = { toggleHelp(HELP_PASS) }, onClick = { onPassthrough(!passthrough) },
                                     ) { DeckPill(passthrough, accent) }
-                                    Spacer(Modifier.height(8.dp))
+                                    if (raised) Spacer(Modifier.height(8.dp))
                                     DeckOptionRow(
                                         title = "Steam Input", badge = "NEW",
                                         subtitle = SUB_STEAM_INPUT,
                                         accent = accent, onHelp = { toggleHelp(HELP_STEAMINPUT) }, onClick = { onSteamInput(!steamInput) },
                                     ) { DeckPill(steamInput, accent) }
-                                    Spacer(Modifier.height(8.dp))
+                                    if (raised) Spacer(Modifier.height(8.dp))
                                     DeckOptionRow(
                                         title = "Requires secure (VAC) launch", badge = "NEW",
                                         subtitle = vacSubtitle(detectedVac),
@@ -897,8 +898,7 @@ private fun DeckLandscapeCard(
                                     .weight(0.33f)
                                     .fillMaxHeight()
                                     .padding(horizontal = 14.dp, vertical = 12.dp),
-                                // 8 dp between the raised rows and buttons: their shadows reach 6 dp above and 14 dp below.
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(if (raised) 8.dp else 4.dp),
                             ) {
                                 MicroLabel("Options")
                                 if (hasDetails) {
@@ -917,6 +917,7 @@ private fun DeckLandscapeCard(
                                 ) { DeckPill(rememberChoice, accent) }
                                 // Steam-only game-files maintenance.
                                 if (isSteam && appId > 0 && (onVerifyFiles != null || onUpdateFiles != null)) {
+                                    if (!raised) Spacer(Modifier.height(4.dp))
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         val shape = RoundedCornerShape(9.dp)
                                         if (onVerifyFiles != null) {
@@ -1070,8 +1071,8 @@ private fun DeckPill(checked: Boolean, accent: Color) {
 private fun DeckGoldbergList(mode: GoldbergMode, accent: Color, onSelected: (GoldbergMode) -> Unit, toggleHelp: (String) -> Unit) {
     val cs = MaterialTheme.colorScheme
     val raised = popRaised()
-    // 8 dp between the rows: their shadows reach 6 dp above and 14 dp below.
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    // XMB: 8 dp between the raised rows (their shadows reach 6 dp above and 14 dp below).
+    Column(verticalArrangement = Arrangement.spacedBy(if (raised) 8.dp else 6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             MicroLabel("Goldberg mode")
             Spacer(Modifier.width(6.dp))

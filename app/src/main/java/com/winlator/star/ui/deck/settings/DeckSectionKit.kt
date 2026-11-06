@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -21,9 +22,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.winlator.star.ui.deck.DeckInk
@@ -35,9 +38,6 @@ import com.winlator.star.ui.deck.deckLineAt
 import com.winlator.star.ui.deck.rememberXmbFocusGroup
 import com.winlator.star.ui.deck.rememberXmbHome
 import com.winlator.star.ui.deck.xmbInner
-import androidx.compose.material3.ColorScheme
-import androidx.compose.ui.focus.focusProperties
-import androidx.compose.ui.unit.Dp
 
 // What the Deck settings pages share besides their rows: a section (a list, a picker, an order, an
 // action) that a host screen adds to a category page, the action lines those sections show, and the

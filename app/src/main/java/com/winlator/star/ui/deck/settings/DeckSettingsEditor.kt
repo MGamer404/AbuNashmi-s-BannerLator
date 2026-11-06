@@ -28,6 +28,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -49,6 +50,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -61,13 +63,15 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchColors
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextFieldColors
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextFieldColors
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -84,7 +88,13 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -97,55 +107,44 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.preference.PreferenceManager
+import com.winlator.star.ui.LocalXmbHintInset
+import com.winlator.star.ui.deck.DeckInk
+import com.winlator.star.ui.deck.LocalXmbGroup
+import com.winlator.star.ui.deck.ScreenScale
+import com.winlator.star.ui.deck.XmbEditState
+import com.winlator.star.ui.deck.XmbEditTapCatcher
+import com.winlator.star.ui.deck.XmbGroupItem
+import com.winlator.star.ui.deck.XmbRailState
+import com.winlator.star.ui.deck.deckFocusRingInk
+import com.winlator.star.ui.deck.deckInset
+import com.winlator.star.ui.deck.deckLineAt
 import com.winlator.star.ui.deck.isDeckCompact
 import com.winlator.star.ui.deck.DeckGlyph
 import com.winlator.star.ui.deck.GlyphKind
 import com.winlator.star.ui.deck.LocalDeckActions
 import com.winlator.star.ui.deck.DeckEntryFocus
-import com.winlator.star.ui.deck.DeckInk
-import com.winlator.star.ui.deck.LocalXmbGroup
 import com.winlator.star.ui.deck.SoraFamily
-import com.winlator.star.ui.deck.XmbEditState
-import com.winlator.star.ui.deck.XmbEditTapCatcher
-import com.winlator.star.ui.deck.XmbGroupItem
 import com.winlator.star.ui.deck.deckCardFill
 import com.winlator.star.ui.deck.deckFocusRing
-import com.winlator.star.ui.deck.deckFocusRingInk
 import com.winlator.star.ui.deck.deckGlass
-import com.winlator.star.ui.deck.deckInset
 import com.winlator.star.ui.deck.deckLine
-import com.winlator.star.ui.deck.deckLineAt
-import com.winlator.star.ui.deck.ScreenScale
 import com.winlator.star.ui.deck.rememberScreenScale
-import com.winlator.star.ui.deck.xmbPageFrost
 import com.winlator.star.ui.deck.rememberXmbEdit
 import com.winlator.star.ui.deck.rememberXmbFocusGroup
-import com.winlator.star.ui.deck.XmbRailState
 import com.winlator.star.ui.deck.rememberXmbHome
 import com.winlator.star.ui.deck.rememberXmbRailState
 import com.winlator.star.ui.deck.xmbDoneActions
-import com.winlator.star.ui.deck.xmbRailGroup
-import com.winlator.star.ui.deck.xmbRailItem
-import com.winlator.star.ui.deck.xmbSelectedInk
 import com.winlator.star.ui.deck.xmbEditField
 import com.winlator.star.ui.deck.xmbGlassCard
 import com.winlator.star.ui.deck.xmbGlassSlice
 import com.winlator.star.ui.deck.xmbInner
 import com.winlator.star.ui.deck.xmbLandingIndex
-import com.winlator.star.ui.deck.xmbSliderNudge
-import androidx.compose.material3.ColorScheme
+import com.winlator.star.ui.deck.xmbPageFrost
+import com.winlator.star.ui.deck.xmbRailGroup
+import com.winlator.star.ui.deck.xmbRailItem
+import com.winlator.star.ui.deck.xmbSelectedInk
 import com.winlator.star.ui.deck.xmbSkipFocus
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.runtime.MutableState
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.ui.focus.focusProperties
-import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
-import com.winlator.star.ui.LocalXmbHintInset
+import com.winlator.star.ui.deck.xmbSliderNudge
 import com.winlator.star.ui.screens.OutlinedAlertDialog
 import com.winlator.star.ui.screens.UnsavedChangesDialog
 import kotlin.math.roundToInt
@@ -1138,7 +1137,7 @@ internal fun GroupCard(first: Boolean, last: Boolean, highlight: Boolean, conten
             .fillMaxWidth()
             // The glass card, a slice at a time: its sheen and edge light are on the top of the whole group card, so only its
             // first slice carries them; every slice paints its part of the shadow round the card.
-            .xmbGlassSlice(shape, first, last, 18f)
+            .xmbGlassSlice(shape, first, last)
             .background(if (highlight) cs.primary.copy(alpha = 0.12f) else Color.Transparent),
     ) {
         if (!first) HorizontalDivider(thickness = 1.dp, color = deckLineAt(0.6f))

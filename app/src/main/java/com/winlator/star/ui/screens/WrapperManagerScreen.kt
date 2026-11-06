@@ -9,7 +9,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +24,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -69,9 +69,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import com.winlator.star.R
-import com.winlator.star.ui.deck.rememberXmbFocusGroup
-import com.winlator.star.ui.deck.rememberXmbHome
-import com.winlator.star.ui.deck.xmbOnGlass
 import com.winlator.star.contents.WrapperCatalog
 import com.winlator.star.contents.WrapperCatalogDownloader
 import com.winlator.star.contents.WrapperCatalogEntry
@@ -79,6 +76,9 @@ import com.winlator.star.contents.WrapperManager
 import com.winlator.star.contents.WrapperSettingsDictionary
 import com.winlator.star.core.GPUInformation
 import com.winlator.star.core.StringUtils
+import com.winlator.star.ui.deck.rememberXmbFocusGroup
+import com.winlator.star.ui.deck.rememberXmbHome
+import com.winlator.star.ui.deck.xmbOnGlass
 import com.winlator.star.ui.findActivity
 import com.winlator.star.util.InAppFilePicker
 import kotlinx.coroutines.Dispatchers

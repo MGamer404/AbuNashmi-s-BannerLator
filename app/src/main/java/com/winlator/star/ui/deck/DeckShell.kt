@@ -58,7 +58,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -83,7 +82,6 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.focus.FocusDirection
@@ -117,9 +115,9 @@ import com.winlator.star.core.UpdateManager
 import com.winlator.star.ui.AccountAvatar
 import com.winlator.star.ui.AccountUiBus
 import com.winlator.star.ui.AppNavGraph
-import com.winlator.star.ui.ComponentReturnBus
 import com.winlator.star.ui.LocalTopBarActions
 import com.winlator.star.ui.LocalTopBarTransparent
+import com.winlator.star.ui.LocalXmbHintInset
 import com.winlator.star.ui.Screen
 import com.winlator.star.ui.deck.settings.BindDeckSettingsBus
 import com.winlator.star.ui.deck.settings.DeckSettingsRoutes
@@ -159,7 +157,6 @@ import com.winlator.star.ui.DeckSideLists
 import com.winlator.star.ui.DeckWindow
 import com.winlator.star.ui.LocalDeckSideLists
 import com.winlator.star.ui.LocalHostedInDeck
-import com.winlator.star.ui.LocalXmbHintInset
 
 /** Below this width (dp) a portrait Deck shell uses the phone layout: bottom bar, no legend. */
 internal const val DECK_COMPACT_WIDTH_DP = 720
@@ -228,7 +225,7 @@ internal fun DeckShell(
     val onHome = (route?.destination?.route ?: DeckRoutes.HOME) == DeckRoutes.HOME
     DeckTheme {
         // XMB mode: every page but Home sits on the charcoal glass, so its own `colorScheme.background` fill goes clear; Home is plain black under its own backdrop.
-        XmbWashTheme(xmbHome, glass = !onHome) {
+        XmbGlassTheme(xmbHome, glass = !onHome) {
             XmbKeyboardHost(xmbHome) {
                 DeckShellContent(navController, startRoute, pendingRoute, onPendingRouteConsumed, onAbout, onLaunchStore)
             }
@@ -579,7 +576,7 @@ private fun DeckShellContent(
                 else WindowInsets.systemBars.union(WindowInsets.displayCutout)
             // Edge to edge (XMB home) the window no longer makes room for the keyboard, so the pages do.
             val insets = if (xmbHome) baseInsets.union(WindowInsets.ime) else baseInsets
-            // Home's XMB takes the whole screen, under the camera hole too; the shell floats its tabs and Search over it.
+            // Home's XMB takes the whole screen, under the camera hole too; the shell floats its tabs and Back / Search hints over it.
             Column(modifier = Modifier.fillMaxSize().then(if (homeBleed) Modifier else Modifier.windowInsetsPadding(insets))) {
                 // The My-account sheet opens over the current page (DeckGameActionsHost).
                 val onAccount = { AccountUiBus.requestMyAccount() }
@@ -607,205 +604,205 @@ private fun DeckShellContent(
                 }
                 // Landscape is rails | content (in the XMB mode: the page's own tab rail | content, under the floating tab bar);
                 // portrait keeps the top bar over the content. The NavHost stays in one slot either way.
-                // Framed (XMB mode, tabs other than Home), only this middle part sits inside the even camera frame.
                 // XMB mode: the one gliding highlight outline of the window (XmbHighlight.kt) is hosted here, over the rails and the
                 // page, so every hosted page (Deck-native and classic) registers with it through deckFocusRing. Off: a plain Box.
                 XmbHighlightHost(enabled = xmbHome, modifier = Modifier.weight(1f).fillMaxWidth()) {
-                Row(modifier = Modifier.fillMaxSize().padding(horizontal = frame)) {
-                    if (rails && !full) {
-                        if (!topTabs) {
-                            DeckSideRail(
-                                cutoutStart = cutoutStart,
-                                current = tab,
-                                tabRequesters = tabRequesters,
-                                avatarUrl = account?.displayAvatarUrl,
-                                onTab = { nav.goTab(it) },
-                                onCycle = { nav.cycle(it) },
-                                onTabsFocus = onTabsFocus,
-                                onEnterContent = enterContent,
-                                onAccount = onAccount,
-                                onSearch = openSearch,
-                            )
+                    // Framed (XMB mode, tabs other than Home), only this middle part sits inside the even camera frame.
+                    Row(modifier = Modifier.fillMaxSize().padding(horizontal = frame)) {
+                        if (rails && !full) {
+                            if (!topTabs) {
+                                DeckSideRail(
+                                    cutoutStart = cutoutStart,
+                                    current = tab,
+                                    tabRequesters = tabRequesters,
+                                    avatarUrl = account?.displayAvatarUrl,
+                                    onTab = { nav.goTab(it) },
+                                    onCycle = { nav.cycle(it) },
+                                    onTabsFocus = onTabsFocus,
+                                    onEnterContent = enterContent,
+                                    onAccount = onAccount,
+                                    onSearch = openSearch,
+                                )
+                            }
+                            val pageTabs = deckActions.pageTabs.value
+                            if (settingsPages) {
+                                val pages = listOf(Screen.Settings.route to DeckTabItem("Settings", Icons.Filled.Settings), Screen.Appearance.route to DeckTabItem("Appearance", Icons.Filled.Palette))
+                                DeckPageTabRail(
+                                    tabs = pages.map { it.second },
+                                    selected = pages.indexOfFirst { it.first == currentRoute }.coerceAtLeast(0),
+                                    compact = false,
+                                    onSelect = { i -> if (pages[i].first != currentRoute) nav.open(pages[i].first) },
+                                    onFocus = { deckActions.stripFocused.value = it },
+                                    glass = !framed,
+                                )
+                            } else if (pageTabs != null && isDeckPage(currentRoute) && pageTabs.tabs.isNotEmpty()) {
+                                DeckPageTabRail(
+                                    tabs = pageTabs.tabs,
+                                    selected = pageTabs.selected,
+                                    compact = pageTabs.compact || sideLists.count.intValue > 0,
+                                    onSelect = { i -> pageTabs.onSelect(i) },
+                                    onFocus = { deckActions.stripFocused.value = it },
+                                    glass = !framed,
+                                )
+                            }
                         }
-                        val pageTabs = deckActions.pageTabs.value
-                        if (settingsPages) {
-                            val pages = listOf(Screen.Settings.route to DeckTabItem("Settings", Icons.Filled.Settings), Screen.Appearance.route to DeckTabItem("Appearance", Icons.Filled.Palette))
-                            DeckPageTabRail(
-                                tabs = pages.map { it.second },
-                                selected = pages.indexOfFirst { it.first == currentRoute }.coerceAtLeast(0),
-                                compact = false,
-                                onSelect = { i -> if (pages[i].first != currentRoute) nav.open(pages[i].first) },
-                                onFocus = { deckActions.stripFocused.value = it },
-                                glass = !framed,
-                            )
-                        } else if (pageTabs != null && isDeckPage(currentRoute) && pageTabs.tabs.isNotEmpty()) {
-                            DeckPageTabRail(
-                                tabs = pageTabs.tabs,
-                                selected = pageTabs.selected,
-                                compact = pageTabs.compact || sideLists.count.intValue > 0,
-                                onSelect = { i -> pageTabs.onSelect(i) },
-                                onFocus = { deckActions.stripFocused.value = it },
-                                glass = !framed,
-                            )
-                        }
-                    }
-                    Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                        if (full || homeBleed || floatTabs) {
-                            // No top bar here: none over the XMB, and the XMB home floats its own (above, or over Home).
-                        } else if (compact) {
-                            DeckCompactTopBar(tab = tab, avatarUrl = account?.displayAvatarUrl, onAccount = onAccount, onSearch = openSearch, dpad = !xmbHome)
-                        } else if (!rails) {
-                            DeckTopBar(
-                                current = tab,
-                                wide = cfg.screenWidthDp >= DECK_WIDE_TABS_DP,
-                                tabRequesters = tabRequesters,
-                                avatarUrl = account?.displayAvatarUrl,
-                                onTab = { nav.goTab(it) },
-                                onCycle = { nav.cycle(it) },
-                                onTabsFocus = onTabsFocus,
-                                onEnterContent = enterContent,
-                                onAccount = onAccount,
-                                onSearch = openSearch,
-                            )
-                        }
+                        Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                            if (full || homeBleed || floatTabs) {
+                                // No top bar here: none over the XMB, and the XMB home floats its own (above, or over Home).
+                            } else if (compact) {
+                                DeckCompactTopBar(tab = tab, avatarUrl = account?.displayAvatarUrl, onAccount = onAccount, onSearch = openSearch, dpad = !xmbHome)
+                            } else if (!rails) {
+                                DeckTopBar(
+                                    current = tab,
+                                    wide = cfg.screenWidthDp >= DECK_WIDE_TABS_DP,
+                                    tabRequesters = tabRequesters,
+                                    avatarUrl = account?.displayAvatarUrl,
+                                    onTab = { nav.goTab(it) },
+                                    onCycle = { nav.cycle(it) },
+                                    onTabsFocus = onTabsFocus,
+                                    onEnterContent = enterContent,
+                                    onAccount = onAccount,
+                                    onSearch = openSearch,
+                                )
+                            }
 
-                        val pageTitle = deckActions.pageInfo.value
-                        if (full) {
-                            // No title line over the XMB.
-                        } else if (rails) {
-                            // One slim line: the page's title (description behind the info button) and the screen's own actions.
-                            // Home and the game page draw their own hero instead.
-                            if (!isDeckPage(currentRoute)) {
-                                DeckTitleLine(
-                                    endInset = cutoutEnd,
+                            val pageTitle = deckActions.pageInfo.value
+                            if (full) {
+                                // No title line over the XMB.
+                            } else if (rails) {
+                                // One slim line: the page's title (description behind the info button) and the screen's own actions.
+                                // Home and the game page draw their own hero instead.
+                                if (!isDeckPage(currentRoute)) {
+                                    DeckTitleLine(
+                                        endInset = cutoutEnd,
+                                        title = deckPageTitle(context, currentRoute, backstackEntry?.arguments?.getInt("id") ?: -1),
+                                        description = null,
+                                        showBack = currentRoute != tab.root && !settingsPages,
+                                        onBack = goBack,
+                                        actions = topBarActionsState.value,
+                                    )
+                                } else if (pageTitle != null && currentRoute != DeckRoutes.HOME && !currentRoute.startsWith("deck_game")) {
+                                    DeckTitleLine(
+                                        endInset = cutoutEnd,
+                                        title = pageTitle.title,
+                                        description = pageTitle.description,
+                                        showBack = false,
+                                        onBack = goBack,
+                                        actions = topBarActionsState.value,
+                                    )
+                                }
+                            } else if (!isDeckPage(currentRoute)) {
+                                // Deck pages draw their own header.
+                                DeckPageBar(
                                     title = deckPageTitle(context, currentRoute, backstackEntry?.arguments?.getInt("id") ?: -1),
-                                    description = null,
-                                    showBack = currentRoute != tab.root && !settingsPages,
+                                    showBack = currentRoute != tab.root,
                                     onBack = goBack,
+                                    settingsSubTabs = tab == DeckTab.SETTINGS,
+                                    onSettingsSubTab = { route -> nav.open(route) },
+                                    currentRoute = currentRoute,
                                     actions = topBarActionsState.value,
                                 )
-                            } else if (pageTitle != null && currentRoute != DeckRoutes.HOME && !currentRoute.startsWith("deck_game")) {
-                                DeckTitleLine(
+                            }
+
+                            Box(modifier = Modifier.weight(1f).fillMaxWidth().padding(end = if (homeBleed) 0.dp else cutoutEnd)) {
+                                CompositionLocalProvider(
+                                    LocalHostedInDeck provides rails,
+                                    LocalDeckSideLists provides sideLists,
+                                ) {
+                                    AppNavGraph(
+                                        navController = navController,
+                                        startRoute = DeckRoutes.HOME,
+                                        modifier = Modifier.fillMaxSize(),
+                                        containerEditorRoute = DeckSettingsRoutes::containerEditorFor,
+                                        instantPages = xmbHome,
+                                        extraRoutes = {
+                                            composable(DeckRoutes.HOME) {
+                                                DeckHome(
+                                                    onOpenGame = { shortcut -> nav.open(DeckRoutes.game(shortcut.file.path)) },
+                                                    onOpenContainer = { id -> nav.open(DeckSettingsRoutes.containerEditorFor(id) ?: "container_detail?id=$id") },
+                                                    // "Add games" opens over Home (DeckGameActionsHost).
+                                                    onAddGame = {
+                                                        GamesScreenRequests.pending = GamesScreenRequests.Request(GameMenuAction.ADD_GAME)
+                                                    },
+                                                    onBigPicture = { nav.open(Screen.BigPicture.route) },
+                                                    onLaunchStore = onLaunchStore,
+                                                )
+                                            }
+                                            composable(
+                                                route = DeckRoutes.GAME,
+                                                arguments = listOf(navArgument(DeckRoutes.GAME_ARG) { type = NavType.StringType; defaultValue = "" }),
+                                            ) { entry ->
+                                                DeckGamePage(
+                                                    shortcutPath = entry.arguments?.getString(DeckRoutes.GAME_ARG).orEmpty(),
+                                                    onBack = { nav.back() },
+                                                    onOpenContainer = { id -> nav.open(DeckSettingsRoutes.containerEditorFor(id) ?: "container_detail?id=$id") },
+                                                )
+                                            }
+                                            composable(DeckRoutes.STORES) {
+                                                DeckStoresPage(
+                                                    onLaunchStore = onLaunchStore,
+                                                    onOpenAppearance = { nav.open(Screen.Appearance.route) },
+                                                    onOpenGame = { path -> nav.open(DeckRoutes.game(path)) },
+                                                )
+                                            }
+                                            composable(DeckRoutes.COMPONENTS) { DeckComponentsPage() }
+                                            composable(DeckRoutes.CONTROLS) { DeckControlsPage() }
+                                            deckSettingsRoutes(navController, onAbout)
+                                            composable(DeckRoutes.TOOLS) {
+                                                DeckToolsPage(
+                                                    onNavigate = { route -> nav.open(route) },
+                                                    onMyAccount = onAccount,
+                                                    onAbout = onAbout,
+                                                )
+                                            }
+                                        },
+                                    )
+                                }
+                                // Add games, My account and the game actions the settings pages hand over: dialogs over whatever page is up.
+                                DeckGameActionsHost()
+                                // Update pill: over the content, under the title line / top bar (Classic's place relative to its top bar).
+                                val upd = pillUpdate
+                                if (upd != null && !searchOpen) {
+                                    com.winlator.star.ui.UpdatePill(
+                                        info = upd,
+                                        visible = pillVisible,
+                                        onDismiss = {
+                                            pillVisible = false
+                                            UpdateManager.dismissedThisSession = upd.versionCode
+                                        },
+                                        onView = {
+                                            pillVisible = false
+                                            UpdateManager.dismissedThisSession = upd.versionCode
+                                            scope.launch {
+                                                kotlinx.coroutines.delay(com.winlator.star.ui.UPDATE_PILL_EXIT_MS)
+                                                highlightsFor = upd
+                                            }
+                                        },
+                                        // On the XMB home it sits under the floating status line instead of on it.
+                                        modifier = Modifier.align(Alignment.TopEnd).padding(top = if (homeBleed) 52.dp else 8.dp, end = 12.dp),
+                                    )
+                                }
+                            }
+                            // App-wide minimized progress pill for a running archive unpack (renders nothing when idle).
+                            com.winlator.star.ui.UnpackProgressPill()
+
+                            // XMB mode: no legend on any tab, only the floating Back / Search hints below.
+                            if (!compact && !full && !xmbHome) {
+                                DeckLegend(
+                                    thin = rails,
                                     endInset = cutoutEnd,
-                                    title = pageTitle.title,
-                                    description = pageTitle.description,
-                                    showBack = false,
+                                    atHome = currentRoute == DeckRoutes.HOME,
+                                    subTabLabel = if (deckActions.subTab.value != null) deckActions.subTabLabel.value else null,
+                                    optionsLabel = if (deckActions.options.value != null) deckActions.optionsLabel.value else null,
+                                    onCycle = { switchMenu(1) },
+                                    onSubCycle = { deckActions.subTab.value?.invoke(1) },
                                     onBack = goBack,
-                                    actions = topBarActionsState.value,
+                                    onOptions = { deckActions.options.value?.invoke() },
+                                    onSearch = { (deckActions.search.value ?: openSearch)() },
                                 )
                             }
-                        } else if (!isDeckPage(currentRoute)) {
-                            // Deck pages draw their own header.
-                            DeckPageBar(
-                                title = deckPageTitle(context, currentRoute, backstackEntry?.arguments?.getInt("id") ?: -1),
-                                showBack = currentRoute != tab.root,
-                                onBack = goBack,
-                                settingsSubTabs = tab == DeckTab.SETTINGS,
-                                onSettingsSubTab = { route -> nav.open(route) },
-                                currentRoute = currentRoute,
-                                actions = topBarActionsState.value,
-                            )
-                        }
-
-                        Box(modifier = Modifier.weight(1f).fillMaxWidth().padding(end = if (homeBleed) 0.dp else cutoutEnd)) {
-                            CompositionLocalProvider(
-                                LocalHostedInDeck provides rails,
-                                LocalDeckSideLists provides sideLists,
-                            ) {
-                                AppNavGraph(
-                                    navController = navController,
-                                    startRoute = DeckRoutes.HOME,
-                                    modifier = Modifier.fillMaxSize(),
-                                    containerEditorRoute = DeckSettingsRoutes::containerEditorFor,
-                                    instantPages = xmbHome,
-                                    extraRoutes = {
-                                        composable(DeckRoutes.HOME) {
-                                            DeckHome(
-                                                onOpenGame = { shortcut -> nav.open(DeckRoutes.game(shortcut.file.path)) },
-                                                onOpenContainer = { id -> nav.open(DeckSettingsRoutes.containerEditorFor(id) ?: "container_detail?id=$id") },
-                                                // "Add games" opens over Home (DeckGameActionsHost).
-                                                onAddGame = {
-                                                    GamesScreenRequests.pending = GamesScreenRequests.Request(GameMenuAction.ADD_GAME)
-                                                },
-                                                onBigPicture = { nav.open(Screen.BigPicture.route) },
-                                                onLaunchStore = onLaunchStore,
-                                            )
-                                        }
-                                        composable(
-                                            route = DeckRoutes.GAME,
-                                            arguments = listOf(navArgument(DeckRoutes.GAME_ARG) { type = NavType.StringType; defaultValue = "" }),
-                                        ) { entry ->
-                                            DeckGamePage(
-                                                shortcutPath = entry.arguments?.getString(DeckRoutes.GAME_ARG).orEmpty(),
-                                                onBack = { nav.back() },
-                                                onOpenContainer = { id -> nav.open(DeckSettingsRoutes.containerEditorFor(id) ?: "container_detail?id=$id") },
-                                            )
-                                        }
-                                        composable(DeckRoutes.STORES) {
-                                            DeckStoresPage(
-                                                onLaunchStore = onLaunchStore,
-                                                onOpenAppearance = { nav.open(Screen.Appearance.route) },
-                                                onOpenGame = { path -> nav.open(DeckRoutes.game(path)) },
-                                            )
-                                        }
-                                        composable(DeckRoutes.COMPONENTS) { DeckComponentsPage() }
-                                        composable(DeckRoutes.CONTROLS) { DeckControlsPage() }
-                                        deckSettingsRoutes(navController, onAbout)
-                                        composable(DeckRoutes.TOOLS) {
-                                            DeckToolsPage(
-                                                onNavigate = { route -> nav.open(route) },
-                                                onMyAccount = onAccount,
-                                                onAbout = onAbout,
-                                            )
-                                        }
-                                    },
-                                )
-                            }
-                            // Add games, My account and the game actions the settings pages hand over: dialogs over whatever page is up.
-                            DeckGameActionsHost()
-                            // Update pill: over the content, under the title line / top bar (Classic's place relative to its top bar).
-                            val upd = pillUpdate
-                            if (upd != null && !searchOpen) {
-                                com.winlator.star.ui.UpdatePill(
-                                    info = upd,
-                                    visible = pillVisible,
-                                    onDismiss = {
-                                        pillVisible = false
-                                        UpdateManager.dismissedThisSession = upd.versionCode
-                                    },
-                                    onView = {
-                                        pillVisible = false
-                                        UpdateManager.dismissedThisSession = upd.versionCode
-                                        scope.launch {
-                                            kotlinx.coroutines.delay(com.winlator.star.ui.UPDATE_PILL_EXIT_MS)
-                                            highlightsFor = upd
-                                        }
-                                    },
-                                    // On the XMB home it sits under the floating status line instead of on it.
-                                    modifier = Modifier.align(Alignment.TopEnd).padding(top = if (homeBleed) 52.dp else 8.dp, end = 12.dp),
-                                )
-                            }
-                        }
-                        // App-wide minimized progress pill for a running archive unpack (renders nothing when idle).
-                        com.winlator.star.ui.UnpackProgressPill()
-
-                        // XMB mode: no legend on any tab, only the floating Search below.
-                        if (!compact && !full && !xmbHome) {
-                            DeckLegend(
-                                thin = rails,
-                                endInset = cutoutEnd,
-                                atHome = currentRoute == DeckRoutes.HOME,
-                                subTabLabel = if (deckActions.subTab.value != null) deckActions.subTabLabel.value else null,
-                                optionsLabel = if (deckActions.options.value != null) deckActions.optionsLabel.value else null,
-                                onCycle = { switchMenu(1) },
-                                onSubCycle = { deckActions.subTab.value?.invoke(1) },
-                                onBack = goBack,
-                                onOptions = { deckActions.options.value?.invoke() },
-                                onSearch = { (deckActions.search.value ?: openSearch)() },
-                            )
                         }
                     }
-                }
                 }
                 if (compact && !full) {
                     DeckBottomBar(current = tab, tabs = tabs, onTab = { nav.goTab(it) }, dpad = !xmbHome)
@@ -847,7 +844,7 @@ private fun DeckShellContent(
                     // The same back action as B: a sub-page pops, Home asks for the second press (homeBack). Drawn with Search's
                     // glyph look (the round grey one), not the red B.
                     DeckFloatingHint("B", GlyphKind.Y, "Back", { if (backDispatcher != null) backDispatcher.onBackPressed() else nav.back() })
-                    DeckFloatingSearch(onSearch = { (deckActions.search.value ?: openSearch)() })
+                    DeckFloatingHint("Y", GlyphKind.Y, "Search", { (deckActions.search.value ?: openSearch)() })
                 }
             }
 
@@ -1329,16 +1326,11 @@ private fun FloatingBumper(text: String, onClick: () -> Unit) {
     }
 }
 
-/** The XMB home's only hint, on every tab: a muted "Y Search" in the bottom-right corner, tappable like the button. */
-@Composable
-private fun DeckFloatingSearch(onSearch: () -> Unit, modifier: Modifier = Modifier) {
-    DeckFloatingHint("Y", GlyphKind.Y, "Search", onSearch, modifier)
-}
-
 /**
  * A floating hint with no box around it: the button's [glyph] (none = not drawn, for a touch-only screen), an optional [icon]
- * and a [label], muted and tappable. The one look behind the Search hint and the All Games page's Back / View / Sort. A
- * [modifier] height or width minimum (applied first) widens the tap area without changing how it looks.
+ * and a [label], muted and tappable. The one look behind the XMB hints: Back and Search on every page, and the All Games
+ * page's Back / View / Sort. A [modifier] height or width minimum (applied first) widens the tap area without changing how it
+ * looks.
  */
 @Composable
 internal fun DeckFloatingHint(
@@ -1648,23 +1640,22 @@ private fun DeckPageTabRail(
             // XMB mode (a highlight host above): the outline marks the focused tab, so the selected one is a faint accent fill with
             // accent icon, not the solid accent (an outline on it would vanish); the focused tab's icon and text turn accent (XmbInk).
             val item = rememberXmbHighlightItem()
-            val xmb = xmbHighlightHostOrNull() != null
             val itemModifier = Modifier
                 .xmbRailItem(railState, sel) {
                     // The page this opens must not pull the focus off the rail (DeckEntryFocus waits this out).
                     deckActions.entryHoldUntil = SystemClock.uptimeMillis() + RAIL_ENTRY_HOLD_MS
                     onSelect(i)
                 }
-                .railFocus(shape, item)
+                .deckFocusRingInk(shape, item, scaleTo = 1f)
                 .clip(shape)
-                .background(if (!sel) Color.Transparent else if (xmb) cs.primary.copy(alpha = 0.16f) else cs.primary)
+                .background(if (!sel) Color.Transparent else if (xmbRail) cs.primary.copy(alpha = 0.16f) else cs.primary)
                 .clickable { if (!sel) onSelect(i) }
             XmbInk(item) {
                 // Read inside XmbInk: while the tab is focused this scheme is the one moved towards the accent.
                 val ink = MaterialTheme.colorScheme
-                val iconTint = if (!sel) ink.onSurfaceVariant else if (xmb) ink.primary else ink.onPrimary
+                val iconTint = if (!sel) ink.onSurfaceVariant else if (xmbRail) ink.primary else ink.onPrimary
                 // The selected tab keeps its accent text when the outline moves on into the page (selectedInk), as when it is hot.
-                val tint = if (!sel) ink.onSurfaceVariant else if (xmb) (selectedInk ?: ink.onSurface) else ink.onPrimary
+                val tint = if (!sel) ink.onSurfaceVariant else if (xmbRail) (selectedInk ?: ink.onSurface) else ink.onPrimary
                 if (compact) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1693,7 +1684,7 @@ private fun DeckPageTabRail(
                         )
                         if (t.badge != null && t.badge > 0) {
                             // The badge flips against the solid accent of the selected tab; on the faint fill it stays an accent chip.
-                            val flip = sel && !xmb
+                            val flip = sel && !xmbRail
                             Box(
                                 contentAlignment = Alignment.Center,
                                 modifier = Modifier.size(20.dp).background(if (flip) cs.onPrimary else cs.primary, CircleShape),
@@ -1710,14 +1701,6 @@ private fun DeckPageTabRail(
 
 /** How long after a D-pad tab switch on the page rail the new page may not take focus (see [DeckActions.entryHoldUntil]). */
 private const val RAIL_ENTRY_HOLD_MS = 800L
-
-/**
- * The focus mark of a rail / header control: in the XMB mode (a highlight host above) it registers [item] with the window's
- * gliding outline, which the control hands to [XmbInk] too; everywhere else it is the usual [deckFocusRing], unchanged.
- */
-@Composable
-private fun Modifier.railFocus(shape: Shape, item: XmbHighlightItem): Modifier =
-    if (xmbHighlightHostOrNull() != null) xmbHighlight(shape, item) else deckFocusRing(shape, scaleTo = 1f)
 
 /**
  * Landscape page header: one slim line with the title, an info button that shows the page's description
@@ -1748,7 +1731,7 @@ private fun DeckTitleLine(
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .railFocus(CircleShape, backItem)
+                    .deckFocusRingInk(CircleShape, backItem, scaleTo = 1f)
                     .clip(CircleShape)
                     .clickable(onClick = onBack)
                     .size(36.dp),
@@ -1774,7 +1757,7 @@ private fun DeckTitleLine(
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .railFocus(CircleShape, infoItem)
+                    .deckFocusRingInk(CircleShape, infoItem, scaleTo = 1f)
                     .clip(CircleShape)
                     .background(if (infoOpen) cs.primary.copy(alpha = 0.16f) else Color.Transparent)
                     .clickable { infoOpen = !infoOpen }
@@ -1844,7 +1827,7 @@ private fun DeckPageBar(
                     val tabItem = rememberXmbHighlightItem()
                     Box(
                         modifier = Modifier
-                            .railFocus(shape, tabItem)
+                            .deckFocusRingInk(shape, tabItem, scaleTo = 1f)
                             .clip(shape)
                             .background(if (selected) cs.primary.copy(alpha = 0.16f) else Color.Transparent)
                             .clickable { if (!selected) onSettingsSubTab(route) }

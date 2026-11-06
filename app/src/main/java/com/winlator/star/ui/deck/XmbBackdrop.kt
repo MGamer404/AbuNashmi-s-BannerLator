@@ -37,12 +37,10 @@ import kotlin.math.roundToInt
 
 // The XMB interface's backgrounds.
 //
-// Home is not tinted by the preset at all: black under the focused game's blurred art (see ShortcutsXmbView).
-//
-// The All Games page keeps the flat wash: the theme colour as an even, soft tint over the preset's own background,
-// with no gradient and nothing depending on the position (a gradient or a scrim read as the colour "dimming" towards
-// the left). It is composited ahead of time into one opaque colour ([XmbWash.flat]), so it looks
-// the same on every Android version and a page painting it twice doesn't get a second layer of tint.
+// Home and the All Games page are not tinted by the preset at all: black under the focused game's blurred art (see
+// ShortcutsXmbView). The theme's `background` there is the flat wash: the theme colour as an even, soft tint over the preset's
+// own background, composited ahead of time into one opaque colour ([XmbWash.flat]) so it looks the same on every Android
+// version and a part painting it twice doesn't get a second layer of tint.
 //
 // Every other XMB page (the Deck tabs and their sub-pages, the store screens, the downloads, the search and the dialogs) sits
 // on neutral charcoal glass: a near-black base with one faint lighter sweep toward the top-left, and the cards on top as
@@ -61,7 +59,7 @@ internal const val XMB_WASH_MAX_ALPHA = 0.20f
 internal const val XMB_WASH_VEIL_ALPHA = 0.04f
 
 /** WCAG AA for body text; the secondary text colour is held to it too. */
-internal const val XMB_WASH_MIN_CONTRAST = 4.5
+internal const val XMB_GLASS_MIN_CONTRAST = 4.5
 
 private fun channelToLinear(c: Float): Double {
     val v = c.toDouble()
@@ -101,7 +99,7 @@ internal fun xmbWashVeil(background: Color): Float = if (isDarkBase(background))
 
 /**
  * How much of [accent] to mix into [background]: [XMB_WASH_MAX_ALPHA] unless that would drop the contrast of any of [texts]
- * on the washed colour below [XMB_WASH_MIN_CONTRAST], then the largest value that keeps it (down to no tint at all). The
+ * on the washed colour below [XMB_GLASS_MIN_CONTRAST], then the largest value that keeps it (down to no tint at all). The
  * presets all pass at the maximum; this keeps a very light custom accent, or a light scheme, readable too.
  */
 internal fun xmbWashAlpha(background: Color, accent: Color, texts: List<Color>): Float {
@@ -111,7 +109,7 @@ internal fun xmbWashAlpha(background: Color, accent: Color, texts: List<Color>):
         val a = steps / 100f
         val rgb = xmbWashedRgb(background, accent, a, veil)
         val lum = xmbLuminance(rgb[0], rgb[1], rgb[2])
-        if (texts.all { xmbContrast(xmbLuminance(it.red, it.green, it.blue), lum) >= XMB_WASH_MIN_CONTRAST }) return a
+        if (texts.all { xmbContrast(xmbLuminance(it.red, it.green, it.blue), lum) >= XMB_GLASS_MIN_CONTRAST }) return a
         steps--
     }
     return 0f
@@ -134,10 +132,9 @@ internal fun xmbWashFor(background: Color, accent: Color, texts: List<Color>): X
 /**
  * The fills of the glass on the base. [card] is a card or panel, [raised] something on a card (a chip, a button, a field),
  * [bar] a top strip / rail / bottom bar (a veil of the base, so content scrolling under it stays out of its text), [line] the
- * thin border round them, [sheen] the light at the top of a panel (it fades to nothing by [SHEEN_REACH] of its height) and
- * [tint] the colour [card] / [raised] are made of.
+ * thin border round them and [sheen] the light at the top of a panel (it fades to nothing by [SHEEN_REACH] of its height).
  */
-internal class XmbFrost(val card: Color, val raised: Color, val bar: Color, val line: Color, val sheen: Color, val tint: Color)
+internal class XmbFrost(val card: Color, val raised: Color, val bar: Color, val line: Color, val sheen: Color)
 
 /**
  * One glass: the opaque [base], the lighter [sweep] it fades from at the top-left, [panel] (a card's opaque colour over the
@@ -191,7 +188,7 @@ internal const val SHEEN_REACH = 0.6f
 /** How much of the base a bar keeps over the page behind it. */
 private const val FROST_BAR_ALPHA = 0.72f
 
-/** The contrast the glass is tuned to; the extra 0.1 over [XMB_WASH_MIN_CONTRAST] covers the 8-bit rounding of what is drawn. */
+/** The contrast the glass is tuned to; the extra 0.1 over [XMB_GLASS_MIN_CONTRAST] covers the 8-bit rounding of what is drawn. */
 internal const val XMB_GLASS_TARGET_CONTRAST = 4.6
 
 private fun mixColor(a: Color, b: Color, t: Float): Color =
@@ -257,17 +254,14 @@ internal fun xmbGlassBase(background: Color, surface: Color, lift: Float = 0f): 
 }
 
 /** The glass fills for a [dark] or light theme over [base]. */
-internal fun xmbFrostFor(dark: Boolean, base: Color): XmbFrost {
-    val tint = Color.White
-    return XmbFrost(
-        card = tint.copy(alpha = if (dark) FROST_CARD_ALPHA else FROST_CARD_ALPHA_LIGHT),
-        raised = tint.copy(alpha = if (dark) FROST_RAISED_ALPHA else FROST_RAISED_ALPHA_LIGHT),
-        bar = if (dark) base.copy(alpha = FROST_BAR_ALPHA) else Color.White.copy(alpha = 0.72f),
+internal fun xmbFrostFor(dark: Boolean, base: Color): XmbFrost =
+    XmbFrost(
+        card = Color.White.copy(alpha = if (dark) FROST_CARD_ALPHA else FROST_CARD_ALPHA_LIGHT),
+        raised = Color.White.copy(alpha = if (dark) FROST_RAISED_ALPHA else FROST_RAISED_ALPHA_LIGHT),
+        bar = if (dark) base.copy(alpha = FROST_BAR_ALPHA) else Color.White.copy(alpha = FROST_BAR_ALPHA),
         line = if (dark) Color.White.copy(alpha = FROST_LINE_ALPHA) else Color.Black.copy(alpha = 0.12f),
         sheen = Color.White.copy(alpha = if (dark) FROST_SHEEN_ALPHA else FROST_SHEEN_ALPHA_LIGHT),
-        tint = tint,
     )
-}
 
 /**
  * Every opaque colour text can end up on: the page (the base, and the sweep at its lightest), a card on it with and without the
@@ -315,31 +309,20 @@ internal fun xmbGlassFor(background: Color, surface: Color, onBackground: Color,
     return XmbGlass(base, sweep, overColor(base, frost.card), frost, secondary)
 }
 
-/** The lowest contrast any of [texts] gets on any ground of [glass] (see [xmbGlassGrounds]). */
-internal fun xmbGlassWorstContrast(glass: XmbGlass, texts: List<Color>): Double {
-    val inks = texts.map { xmbLuminance(it.red, it.green, it.blue) }
-    var worst = Double.MAX_VALUE
-    for (ground in xmbGlassGrounds(glass.base, glass.sweep, glass.frost)) {
-        val lum = xmbLuminance(ground.red, ground.green, ground.blue)
-        for (ink in inks) worst = min(worst, xmbContrast(ink, lum))
-    }
-    return worst
-}
-
 // ---------------------------------------------------------------------------------------------------------------------
 // The glass: drawing and theming.
 // ---------------------------------------------------------------------------------------------------------------------
 
-/** The wash [XmbWashTheme] settled on for this subtree, so a nested reader doesn't wash the already washed background again. */
+/** The wash [XmbGlassTheme] settled on for this subtree, so a nested reader doesn't wash the already washed background again. */
 private val LocalXmbWash = staticCompositionLocalOf<XmbWash?> { null }
 
-/** The glass [XmbWashTheme] settled on (set in every XMB subtree, glass pages or not), for the panels that draw their own. */
+/** The glass [XmbGlassTheme] settled on (set in every XMB subtree, glass pages or not), for the panels that draw their own. */
 private val LocalXmbGlass = staticCompositionLocalOf<XmbGlass?> { null }
 
 /** True where the page itself sits on the glass (every XMB page but Home), so its cards turn to glass. */
 private val LocalXmbOnGlass = staticCompositionLocalOf { false }
 
-/** The scheme [XmbWashTheme] started from, before the glass changed some of it: [XmbFlatTheme] goes back to it. */
+/** The scheme [XmbGlassTheme] started from, before the glass changed some of it: [XmbFlatTheme] goes back to it. */
 private val LocalXmbBaseScheme = staticCompositionLocalOf<ColorScheme?> { null }
 
 /** The wash for the current theme; recomputed only when the colour scheme changes. */
@@ -380,7 +363,7 @@ internal fun xmbGlassDraw(glass: XmbGlass): Modifier = Modifier.drawWithCache {
 
 /**
  * The glass behind this element, drawn straight into it (no layer of its own): for a screen whose root is a scrolling column
- * or grid, which must not become a layer. Needs the glass of the current theme, so use it under [XmbWashTheme].
+ * or grid, which must not become a layer. Needs the glass of the current theme, so use it under [XmbGlassTheme].
  */
 @Composable
 internal fun Modifier.xmbGlassBackground(): Modifier {
@@ -455,9 +438,9 @@ internal fun xmbShadowLayers(): List<XmbShadowLayer> {
     )
 }
 
-private val XMB_SHADOW_LAYERS = xmbShadowLayers()
+internal val XMB_SHADOW_LAYERS = xmbShadowLayers()
 
-private fun CacheDrawScope.shapePath(shape: Shape): Path {
+internal fun CacheDrawScope.shapePath(shape: Shape): Path {
     val path = Path()
     when (val outline = shape.createOutline(size, layoutDirection, this)) {
         is Outline.Rectangle -> path.addRect(outline.rect)
@@ -513,8 +496,8 @@ private fun xmbGlassTopDraw(shape: Shape, sheen: Color?): Modifier = Modifier.dr
 
 /**
  * A card on the glass: `clip(shape)`, the [fill], the sheen, and what makes it pop: a soft shadow round it and a hairline of
- * light along its top edge. A drop-in for the `.clip(shape).background(fill).xmbSheen()` the cards had (the border, if any,
- * still goes after it). Shapes without corners work too (the shadow just has square corners).
+ * light along its top edge. The card's border, if any, goes after it. Shapes without corners work too (the shadow just has
+ * square corners).
  *
  * On a glass page the shadow is cut out of the card's own outline, so a translucent card shows the page, not a darkened
  * patch. In a dialog, menu or sheet (see [xmbPageFrost]) the panel stays opaque, with only the hairline and no shadow; off the
@@ -550,11 +533,11 @@ private fun ColorScheme.onGlass(glass: XmbGlass): ColorScheme =
 /**
  * In XMB mode, a theme for the pages inside. With [glass] (every page but Home) the pages sit on [XmbGlassBackdrop]: their own
  * `colorScheme.background` fills go clear so the glass shows through, the two raised surfaces become glass and the secondary
- * text is lifted where it has to be to stay readable on it. Without it (Home) `background` is the flat wash, as before.
+ * text is lifted where it has to be to stay readable on it. Without it (Home) `background` is the flat wash.
  * Everything else in the scheme is untouched, so stock dialogs, menus and sheets keep their opaque surfaces. Off: [content] as is.
  */
 @Composable
-internal fun XmbWashTheme(enabled: Boolean, glass: Boolean = true, content: @Composable () -> Unit) {
+internal fun XmbGlassTheme(enabled: Boolean, glass: Boolean = true, content: @Composable () -> Unit) {
     if (!enabled) {
         content()
         return
@@ -604,15 +587,6 @@ internal fun XmbFlatTheme(content: @Composable () -> Unit) {
 }
 
 /**
- * The wash already settled on the theme background, as one opaque fill: for a screen that is the bottom layer of Home or the
- * All Games page (the glass pages use [XmbGlassBackdrop]). It is one colour, so a fill under [XmbWashTheme] and a fill painted
- * again on top of it look the same, and a host without the shell still gets the wash. In XMB mode only; elsewhere keep the
- * plain `background(colorScheme.background)`.
- */
-@Composable
-internal fun Modifier.xmbWashBackground(): Modifier = this.background(rememberXmbWash().flat)
-
-/**
  * The page background as a solid colour, for something drawn in it (a fade into the page, a cut-out). On the glass pages the
  * scheme's `background` is clear, which would draw nothing, so this is the glass's own base there; elsewhere the scheme's.
  */
@@ -631,7 +605,7 @@ internal fun xmbCardFill(fallback: Color): Color = xmbPageFrost()?.card ?: fallb
 internal fun xmbCardLine(fallback: Color): Color = xmbPageFrost()?.line ?: fallback
 
 /**
- * A solid chip fill for a label over artwork (a badge on a cover). `surfaceContainerHighest`, as before, except on the glass
+ * A solid chip fill for a label over artwork (a badge on a cover). `surfaceContainerHighest`, except on the glass
  * pages where that is glass: the artwork would show through it, so there it is the opaque `surfaceContainerHigh`.
  */
 @Composable
@@ -678,7 +652,7 @@ private fun inFloatingWindow(): Boolean {
  * The look of a panel in a window of its own (a dialog, the search overlay): clipped to [shape], the glass panel's opaque
  * colour, the sheen over it and the thin border round it. A panel can't be see-through (the dimmed page is behind it), so it
  * carries the colour a card would have over the base instead. Only on a glass page (or inside [XmbPanelTheme]), where the text
- * is the one the glass was tuned for; elsewhere [fill] and the Deck hairline, as before.
+ * is the one the glass was tuned for; elsewhere [fill] and the Deck hairline.
  */
 @Composable
 internal fun Modifier.xmbPanel(shape: Shape, fill: Color): Modifier {
@@ -700,7 +674,7 @@ internal const val XMB_POP_LIFT_SMALL = FROST_RAISED_ALPHA
 /**
  * The opaque fill of a raised element sitting on the opaque [surface] of a popup: [lift] of white over it, then (for a selected
  * one) [tint] at [tintAlpha] over that. The lift backs off, down to none, until every one of [inks] (the colours of the text and
- * icons drawn on it) keeps [XMB_WASH_MIN_CONTRAST] on the result; if it already fails on the plain [surface] that is the theme's
+ * icons drawn on it) keeps [XMB_GLASS_MIN_CONTRAST] on the result; if it already fails on the plain [surface] that is the theme's
  * own doing and the lift just goes to none. Never translucent.
  */
 internal fun xmbPopFillOf(surface: Color, lift: Float, tint: Color?, tintAlpha: Float, inks: List<Color>): Color {
@@ -712,7 +686,7 @@ internal fun xmbPopFillOf(surface: Color, lift: Float, tint: Color?, tintAlpha: 
     }
     fun readable(fill: Color): Boolean {
         val lum = xmbLuminance(fill.red, fill.green, fill.blue)
-        return inks.all { xmbContrast(xmbLuminance(it.red, it.green, it.blue), lum) >= XMB_WASH_MIN_CONTRAST }
+        return inks.all { xmbContrast(xmbLuminance(it.red, it.green, it.blue), lum) >= XMB_GLASS_MIN_CONTRAST }
     }
     var steps = (lift.coerceIn(0f, 1f) * 1000f).roundToInt()
     var fill = build(steps)

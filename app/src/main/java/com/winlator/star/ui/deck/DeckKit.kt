@@ -24,20 +24,16 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.focus.focusProperties
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.ClipOp
-import androidx.compose.ui.graphics.Outline
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.material3.ColorScheme
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.draw.CacheDrawScope
 import kotlin.math.max
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -170,29 +166,17 @@ internal fun xmbSliceLayerBounds(w: Float, h: Float, spread: Float, dy: Float, f
 internal fun xmbSliceClip(w: Float, h: Float, first: Boolean, last: Boolean, reach: Float): FloatArray =
     floatArrayOf(-reach, if (first) -reach else 0f, w + reach, if (last) h + reach else h)
 
-private val XMB_SLICE_LAYERS = xmbShadowLayers()
-
-private fun CacheDrawScope.outlinePathOf(shape: Shape): Path {
-    val path = Path()
-    when (val outline = shape.createOutline(size, layoutDirection, this)) {
-        is Outline.Rectangle -> path.addRect(outline.rect)
-        is Outline.Rounded -> path.addRoundRect(outline.roundRect)
-        is Outline.Generic -> path.addPath(outline.path)
-    }
-    return path
-}
-
-/** The card shadow of one slice (put it BEFORE the clip), continuous with its neighbours'. [cornerDp] is the card's corner radius. */
-private fun xmbSliceShadow(shape: Shape, first: Boolean, last: Boolean, cornerDp: Float): Modifier = Modifier.drawWithCache {
-    val cutOut = outlinePathOf(shape)
-    val corner = cornerDp.dp.toPx()
+/** The card shadow of one slice (put it BEFORE the clip), continuous with its neighbours'. The card's corner radius is 18 dp. */
+private fun xmbSliceShadow(shape: Shape, first: Boolean, last: Boolean): Modifier = Modifier.drawWithCache {
+    val cutOut = shapePath(shape)
+    val corner = 18.dp.toPx()
     val overshoot = XMB_SLICE_OVERSHOOT_DP.dp.toPx()
     val reach = XMB_SLICE_OVERSHOOT_DP.dp.toPx()
     onDrawBehind {
         val c = xmbSliceClip(size.width, size.height, first, last, reach)
         clipPath(cutOut, ClipOp.Difference) {
             clipRect(c[0], c[1], c[2], c[3]) {
-                for (layer in XMB_SLICE_LAYERS) {
+                for (layer in XMB_SHADOW_LAYERS) {
                     val spread = layer.spreadDp.dp.toPx()
                     val b = xmbSliceLayerBounds(size.width, size.height, spread, layer.dyDp.dp.toPx(), first, last, overshoot)
                     drawRoundRect(
@@ -209,7 +193,7 @@ private fun xmbSliceShadow(shape: Shape, first: Boolean, last: Boolean, cornerDp
 
 /** The edge light of a card's first slice: a 1 dp line along its edge, brightest at the top, gone by the slice's bottom. */
 private fun xmbSliceHairline(shape: Shape): Modifier = Modifier.drawWithCache {
-    val edge = outlinePathOf(shape)
+    val edge = shapePath(shape)
     val brush = Brush.verticalGradient(
         listOf(Color.White.copy(alpha = XMB_HAIRLINE_TOP_ALPHA), Color.White.copy(alpha = 0f)),
         startY = 0f,
@@ -223,13 +207,13 @@ private fun xmbSliceHairline(shape: Shape): Modifier = Modifier.drawWithCache {
 /**
  * One slice of a card made of stacked rows (the settings pages' group cards: each row is its own lazy item). Pops like
  * [xmbGlassCard] on the glass pages: a shadow round the whole card (every slice paints its own part and they join up), the sheen
- * and an edge light on the [first] slice. [cornerDp] is the card's corner radius. Off the glass pages it is `clip + background`,
+ * and an edge light on the [first] slice. Off the glass pages it is `clip + background`,
  * as the slices were.
  */
 @Composable
-internal fun Modifier.xmbGlassSlice(shape: Shape, first: Boolean, last: Boolean, cornerDp: Float, fill: Color = deckCardFill()): Modifier {
+internal fun Modifier.xmbGlassSlice(shape: Shape, first: Boolean, last: Boolean, fill: Color = deckCardFill()): Modifier {
     if (xmbPageFrost() == null) return this.clip(shape).background(fill)
-    val shadow = remember(shape, first, last, cornerDp) { xmbSliceShadow(shape, first, last, cornerDp) }
+    val shadow = remember(shape, first, last) { xmbSliceShadow(shape, first, last) }
     val hairline = remember(shape) { xmbSliceHairline(shape) }
     return this
         .then(shadow)
@@ -465,6 +449,7 @@ internal fun DeckCategoryRail(
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val cs = MaterialTheme.colorScheme
     if (deckCompact()) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -485,37 +470,35 @@ internal fun DeckCategoryRail(
             }
             val sel = item.key == selectedKey
             val shape = RoundedCornerShape(14.dp)
-            DeckInk { hl, cs ->
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 2.dp)
-                        .deckFocusRingInk(shape, hl, scaleTo = 1f)
-                        .clip(shape)
-                        .background(if (sel) cs.primary.copy(alpha = 0.16f) else Color.Transparent)
-                        .clickable { onSelect(item.key) }
-                        .heightIn(min = 52.dp)
-                        .padding(horizontal = 16.dp),
-                ) {
-                    Icon(item.icon, contentDescription = null, tint = if (sel) cs.primary else cs.onSurfaceVariant, modifier = Modifier.size(22.dp))
-                    Spacer(Modifier.width(14.dp))
-                    Text(
-                        text = item.label,
-                        color = if (sel) cs.onSurface else cs.onSurfaceVariant,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                    if (item.count != null) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier.size(26.dp).background(cs.surfaceVariant, CircleShape),
-                        ) {
-                            Text("${item.count}", color = cs.onSurfaceVariant, fontWeight = FontWeight.ExtraBold, fontSize = 11.5.sp)
-                        }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 2.dp)
+                    .deckFocusRing(shape, scaleTo = 1f)
+                    .clip(shape)
+                    .background(if (sel) cs.primary.copy(alpha = 0.16f) else Color.Transparent)
+                    .clickable { onSelect(item.key) }
+                    .heightIn(min = 52.dp)
+                    .padding(horizontal = 16.dp),
+            ) {
+                Icon(item.icon, contentDescription = null, tint = if (sel) cs.primary else cs.onSurfaceVariant, modifier = Modifier.size(22.dp))
+                Spacer(Modifier.width(14.dp))
+                Text(
+                    text = item.label,
+                    color = if (sel) cs.onSurface else cs.onSurfaceVariant,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                if (item.count != null) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.size(26.dp).background(cs.surfaceVariant, CircleShape),
+                    ) {
+                        Text("${item.count}", color = cs.onSurfaceVariant, fontWeight = FontWeight.ExtraBold, fontSize = 11.5.sp)
                     }
                 }
             }

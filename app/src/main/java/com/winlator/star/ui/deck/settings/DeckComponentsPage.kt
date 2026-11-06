@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -64,12 +65,11 @@ import com.winlator.star.components.GameRecommendations
 import com.winlator.star.components.PrefixInstalledDetector
 import com.winlator.star.container.Container
 import com.winlator.star.ui.deck.DeckGlyph
-import com.winlator.star.ui.deck.GlyphKind
-import com.winlator.star.ui.deck.XmbTapToEdit
 import com.winlator.star.ui.deck.DeckInk
+import com.winlator.star.ui.deck.GlyphKind
 import com.winlator.star.ui.deck.XmbHighlightItem
+import com.winlator.star.ui.deck.XmbTapToEdit
 import com.winlator.star.ui.deck.deckFocusRingInk
-import androidx.compose.material3.ColorScheme
 import com.winlator.star.ui.deck.deckInset
 import com.winlator.star.ui.deck.deckLineAt
 import com.winlator.star.ui.deck.rememberXmbEdit

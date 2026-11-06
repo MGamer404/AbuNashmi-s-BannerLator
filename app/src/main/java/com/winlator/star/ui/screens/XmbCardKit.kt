@@ -79,13 +79,13 @@ internal fun xmbListPadding(base: PaddingValues = PaddingValues(0.dp)): PaddingV
 
 /** The screen's own text colour, or the theme's `onSurface` in the XMB interface (so the accent ink of [XmbInk] reaches it). */
 @Composable
-internal fun xmbOnSurface(classic: Color = OnSurface): Color =
-    if (rememberXmbHome()) MaterialTheme.colorScheme.onSurface else classic
+internal fun xmbOnSurface(): Color =
+    if (rememberXmbHome()) MaterialTheme.colorScheme.onSurface else OnSurface
 
 /** [xmbOnSurface] for the secondary text and icons. */
 @Composable
-internal fun xmbOnSurfaceVariant(classic: Color = OnSurfaceVariant): Color =
-    if (rememberXmbHome()) MaterialTheme.colorScheme.onSurfaceVariant else classic
+internal fun xmbOnSurfaceVariant(): Color =
+    if (rememberXmbHome()) MaterialTheme.colorScheme.onSurfaceVariant else OnSurfaceVariant
 
 /**
  * A list card: on the XMB glass a glass panel that pops (shadow, top hairline, lighter fill, [shape]'s corners); anywhere else
@@ -164,7 +164,6 @@ internal fun XmbGroupRow(
     rowModifier: Modifier = Modifier,
     margin: Dp = 0.dp,
     vGap: Dp = XMB_CARD_GAP,
-    accent: Boolean = false,
     content: @Composable RowScope.() -> Unit,
 ) {
     if (!rememberXmbHome()) {
@@ -173,7 +172,7 @@ internal fun XmbGroupRow(
     }
     if (card) {
         XmbGroupItem(group, shape, Modifier.fillMaxWidth().padding(horizontal = margin, vertical = vGap)) {
-            XmbListCard(Modifier.fillMaxWidth(), shape, MaterialTheme.colorScheme.surface, null, contentPadding, accent) {
+            XmbListCard(Modifier.fillMaxWidth(), shape, MaterialTheme.colorScheme.surface, null, contentPadding) {
                 Row(Modifier.fillMaxWidth().then(rowModifier), verticalAlignment = verticalAlignment, content = content)
             }
         }
@@ -193,8 +192,6 @@ internal fun XmbPanelColumn(
     shape: Shape,
     classicModifier: Modifier,
     contentPadding: PaddingValues = PaddingValues(0.dp),
-    margin: Dp = 0.dp,
-    vGap: Dp = XMB_CARD_GAP,
     verticalArrangement: Arrangement.Vertical = Arrangement.Top,
     content: @Composable ColumnScope.() -> Unit,
 ) {
@@ -202,7 +199,7 @@ internal fun XmbPanelColumn(
         Column(classicModifier, verticalArrangement = verticalArrangement, content = content)
         return
     }
-    Column(Modifier.fillMaxWidth().padding(horizontal = margin, vertical = vGap).xmbGlassCard(shape).padding(contentPadding), verticalArrangement = verticalArrangement, content = content)
+    Column(Modifier.fillMaxWidth().padding(vertical = XMB_CARD_GAP).xmbGlassCard(shape).padding(contentPadding), verticalArrangement = verticalArrangement, content = content)
 }
 
 /** Each side of a card's outer margin in the XMB interface: with the 10 dp the lists put between cards that is 16 dp, over the 12 dp the shadow needs. */
@@ -221,8 +218,6 @@ internal fun XmbGroupCard(
     shape: Shape,
     classicColor: Color,
     classicBorder: BorderStroke? = null,
-    onActivate: (() -> Unit)? = null,
-    accent: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     if (!rememberXmbHome()) {
@@ -235,8 +230,8 @@ internal fun XmbGroupCard(
         )
         return
     }
-    XmbGroupItem(group, shape, modifier, onActivate) {
-        XmbListCard(Modifier.fillMaxWidth(), shape, classicColor, classicBorder, accent = accent, content = content)
+    XmbGroupItem(group, shape, modifier) {
+        XmbListCard(Modifier.fillMaxWidth(), shape, classicColor, classicBorder, content = content)
     }
 }
 

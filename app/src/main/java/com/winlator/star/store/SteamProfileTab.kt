@@ -328,136 +328,136 @@ private fun IdentityCard(c: ProfileTabContent) {
     val group = rememberXmbFocusGroup()
 
     XmbGroupItem(group, shape, Modifier.padding(horizontal = 14.dp, vertical = 12.dp).fillMaxWidth()) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .xmbGlassCard(shape, xmbCardFill(MaterialTheme.colorScheme.surfaceContainer))
-            .border(1.dp, xmbCardLine(MaterialTheme.colorScheme.outline), shape),
-    ) {
-        // Banner: an accent wash, the same gradient treatment ProfileHero uses. When the account has
-        // an equipped profile background, that art is drawn over it.
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(72.dp)
-                .background(
-                    Brush.linearGradient(
-                        listOf(accent.copy(alpha = 0.34f), MaterialTheme.colorScheme.surfaceContainer),
+                .xmbGlassCard(shape, xmbCardFill(MaterialTheme.colorScheme.surfaceContainer))
+                .border(1.dp, xmbCardLine(MaterialTheme.colorScheme.outline), shape),
+        ) {
+            // Banner: an accent wash, the same gradient treatment ProfileHero uses. When the account has
+            // an equipped profile background, that art is drawn over it.
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(72.dp)
+                    .background(
+                        Brush.linearGradient(
+                            listOf(accent.copy(alpha = 0.34f), MaterialTheme.colorScheme.surfaceContainer),
+                        ),
                     ),
-                ),
-        ) {
-            c.profile?.equipped?.profileBackground?.imageUrl(large = true)?.let { url ->
-                AsyncImage(
-                    model = url,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-        }
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .offset(y = (-22).dp)
-                .padding(horizontal = 13.dp),
-        ) {
-            // Avatar + presence dot. FriendAvatar is the roster's own avatar composable, reused so
-            // our face renders identically to everyone else's.
-            Box {
-                val me = c.self
-                val cachedAvatar = c.profile?.avatarUrl
-                when {
-                    // Live persona — the richest source (nickname, presence-aware).
-                    me != null -> FriendAvatar(friend = me, size = 62.dp)
-
-                    // No persona yet, but the cached profile carries an avatar URL. This is the
-                    // whole point of painting from cache: the image starts downloading on the first
-                    // frame instead of waiting for the persona round-trip that used to gate it.
-                    cachedAvatar != null -> AsyncImage(
-                        model = cachedAvatar,
+            ) {
+                c.profile?.equipped?.profileBackground?.imageUrl(large = true)?.let { url ->
+                    AsyncImage(
+                        model = url,
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .size(62.dp)
-                            .clip(RoundedCornerShape(9.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant),
-                    )
-
-                    else -> Box(
-                        modifier = Modifier
-                            .size(62.dp)
-                            .clip(RoundedCornerShape(9.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                        modifier = Modifier.fillMaxSize(),
                     )
                 }
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .offset(x = 3.dp, y = 3.dp)
-                        .size(15.dp)
-                        .clip(CircleShape)
-                        .background(xmbCardFill(MaterialTheme.colorScheme.surfaceContainer))
-                        .padding(2.5.dp)
-                        .clip(CircleShape)
-                        .background(dotColor(presenceOf(c.personaState))),
-                )
             }
-            Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f).padding(top = 26.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (editing) {
-                        PersonaNameField(
-                            initial = c.displayName,
-                            onDone = { editing = false; c.onRename(it) },
-                            onCancel = { editing = false },
-                            modifier = Modifier.weight(1f),
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .offset(y = (-22).dp)
+                    .padding(horizontal = 13.dp),
+            ) {
+                // Avatar + presence dot. FriendAvatar is the roster's own avatar composable, reused so
+                // our face renders identically to everyone else's.
+                Box {
+                    val me = c.self
+                    val cachedAvatar = c.profile?.avatarUrl
+                    when {
+                        // Live persona — the richest source (nickname, presence-aware).
+                        me != null -> FriendAvatar(friend = me, size = 62.dp)
+
+                        // No persona yet, but the cached profile carries an avatar URL. This is the
+                        // whole point of painting from cache: the image starts downloading on the first
+                        // frame instead of waiting for the persona round-trip that used to gate it.
+                        cachedAvatar != null -> AsyncImage(
+                            model = cachedAvatar,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .size(62.dp)
+                                .clip(RoundedCornerShape(9.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
                         )
-                    } else {
-                        Text(
-                            text = c.displayName,
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false),
+
+                        else -> Box(
+                            modifier = Modifier
+                                .size(62.dp)
+                                .clip(RoundedCornerShape(9.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
                         )
-                        // Steam level — public data, but still null when the CM declined it or the
-                        // JavaSteam engine is driving. Absent is NOT level 0, so the chip hides.
-                        c.profile?.level?.let { lvl ->
+                    }
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .offset(x = 3.dp, y = 3.dp)
+                            .size(15.dp)
+                            .clip(CircleShape)
+                            .background(xmbCardFill(MaterialTheme.colorScheme.surfaceContainer))
+                            .padding(2.5.dp)
+                            .clip(CircleShape)
+                            .background(dotColor(presenceOf(c.personaState))),
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f).padding(top = 26.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (editing) {
+                            PersonaNameField(
+                                initial = c.displayName,
+                                onDone = { editing = false; c.onRename(it) },
+                                onCancel = { editing = false },
+                                modifier = Modifier.weight(1f),
+                            )
+                        } else {
+                            Text(
+                                text = c.displayName,
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
+                            // Steam level — public data, but still null when the CM declined it or the
+                            // JavaSteam engine is driving. Absent is NOT level 0, so the chip hides.
+                            c.profile?.level?.let { lvl ->
+                                Spacer(Modifier.width(8.dp))
+                                LevelChip(lvl)
+                            }
                             Spacer(Modifier.width(8.dp))
-                            LevelChip(lvl)
+                            MiniButton("Edit", first = true) { editing = true }
                         }
-                        Spacer(Modifier.width(8.dp))
-                        MiniButton("Edit", first = true) { editing = true }
+                    }
+                    Text(
+                        text = listOfNotNull(
+                            personaLabel(c.personaState),
+                            c.profile?.country?.takeIf { it.isNotBlank() },
+                        ).joinToString("  ·  "),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                    c.profile?.memberSince?.let {
+                        Text(
+                            text = it,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Spacer(Modifier.height(7.dp))
+                    SteamIdRow(c.steamId) {
+                        copyToClipboard(ctx, "Steam ID", c.steamId.toString())
+                        c.onMessage("Steam ID copied")
                     }
                 }
-                Text(
-                    text = listOfNotNull(
-                        personaLabel(c.personaState),
-                        c.profile?.country?.takeIf { it.isNotBlank() },
-                    ).joinToString("  ·  "),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 2.dp),
-                )
-                c.profile?.memberSince?.let {
-                    Text(
-                        text = it,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Spacer(Modifier.height(7.dp))
-                SteamIdRow(c.steamId) {
-                    copyToClipboard(ctx, "Steam ID", c.steamId.toString())
-                    c.onMessage("Steam ID copied")
-                }
             }
+            ChangeAccountButton(c.onChangeAccount)
         }
-        ChangeAccountButton(c.onChangeAccount)
-    }
     }
 }
 
@@ -975,22 +975,22 @@ private fun RecentRow(game: SteamFriendsStore.RecentGame, onClick: () -> Unit) {
             shape = RoundedCornerShape(5.dp),
         )
         XmbInk(hl) {
-        Text(
-            text = game.name,
-            style = MaterialTheme.typography.bodySmall,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        Text(
-            text = "${fmtCount(game.hours.roundToInt())}h",
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary,
-            maxLines = 1,
-        )
+            Text(
+                text = game.name,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = "${fmtCount(game.hours.roundToInt())}h",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+            )
         }
     }
 }

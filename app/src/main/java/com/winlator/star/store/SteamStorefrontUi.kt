@@ -191,19 +191,12 @@ fun StoreSectionHeader(title: String, sub: String? = null, modifier: Modifier = 
  *
  * Selected = filled accent with on-accent ink; unselected = raised container with an outline. Both
  * states carry [steamFocusRing], so a D-pad user can see where they are.
+ *
+ * [modifier] goes first: a chip that is an inner button of a two-level card passes `Modifier.xmbInner(group, first = true)`
+ * (XmbFocusGroup.kt), so its focus properties apply to the chip's own focus target.
  */
 @Composable
-fun StoreFilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    StoreFilterChip(label, selected, Modifier, onClick)
-}
-
-/**
- * [StoreFilterChip] with a [modifier], for a chip that is an inner button of a two-level card: pass `Modifier.xmbInner(group,
- * first = true)` (XmbFocusGroup.kt) so the card's A lands on it. The modifier goes first, so its focus properties apply to the
- * chip's own focus target.
- */
-@Composable
-internal fun StoreFilterChip(label: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+fun StoreFilterChip(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val shape = RoundedCornerShape(20.dp)
     val hl = rememberXmbHighlightItem()
     Box(

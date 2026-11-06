@@ -55,11 +55,11 @@ class XmbPopCardTest {
         val surface = Color(0xFF202020)
         val ink = Color(0xFF9A9A9A)
         val plain = contrastOn(ink, surface)
-        assertTrue("setup: $plain", plain >= XMB_WASH_MIN_CONTRAST)
+        assertTrue("setup: $plain", plain >= XMB_GLASS_MIN_CONTRAST)
         val lifted = xmbPopFillOf(surface, 0.5f, null, 0f, emptyList())
-        assertTrue(contrastOn(ink, lifted) < XMB_WASH_MIN_CONTRAST)
+        assertTrue(contrastOn(ink, lifted) < XMB_GLASS_MIN_CONTRAST)
         val fill = xmbPopFillOf(surface, 0.5f, null, 0f, listOf(ink))
-        assertTrue("${contrastOn(ink, fill)} after the back-off", contrastOn(ink, fill) >= XMB_WASH_MIN_CONTRAST)
+        assertTrue("${contrastOn(ink, fill)} after the back-off", contrastOn(ink, fill) >= XMB_GLASS_MIN_CONTRAST)
         assertTrue(lum(fill) >= lum(surface))
     }
 
@@ -82,9 +82,9 @@ class XmbPopCardTest {
                 assertEquals(1f, fill.alpha, 0f)
                 for (t in inks) {
                     // Only a preset whose own panel already reads is held to it: the lift never makes it worse than that.
-                    if (contrastOn(t, p.surface) >= XMB_WASH_MIN_CONTRAST) {
+                    if (contrastOn(t, p.surface) >= XMB_GLASS_MIN_CONTRAST) {
                         val ratio = contrastOn(t, fill)
-                        assertTrue("${p.name}: $ratio on the raised fill", ratio >= XMB_WASH_MIN_CONTRAST)
+                        assertTrue("${p.name}: $ratio on the raised fill", ratio >= XMB_GLASS_MIN_CONTRAST)
                     }
                 }
             }

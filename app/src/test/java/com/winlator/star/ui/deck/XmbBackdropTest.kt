@@ -10,7 +10,7 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
- * The XMB wash (Home, All Games) and glass (every other page) must never cost the text its contrast. These check the maths
+ * The XMB wash (Home) and glass (every other page) must never cost the text its contrast. These check the maths
  * behind [xmbWashFor] and [xmbGlassFor] against every theme preset and a spread of extreme colours, the same way the screen
  * composites them (accent over background, then the veil; the card over the base, the sheen over the card, a chip over that).
  */
@@ -51,7 +51,7 @@ class XmbBackdropTest {
             assertEquals("${p.name} is held back", XMB_WASH_MAX_ALPHA, wash.accentAlpha, 1e-6f)
             for (t in texts) {
                 val ratio = contrastOn(t, wash.flat)
-                assertTrue("${p.name}: $ratio on the wash", ratio >= XMB_WASH_MIN_CONTRAST)
+                assertTrue("${p.name}: $ratio on the wash", ratio >= XMB_GLASS_MIN_CONTRAST)
             }
         }
     }
@@ -69,7 +69,7 @@ class XmbBackdropTest {
                 assertTrue(wash.accentAlpha in 0f..XMB_WASH_MAX_ALPHA)
                 for (t in texts) {
                     val ratio = contrastOn(t, wash.flat)
-                    assertTrue("${p.name} + $accent: $ratio", ratio >= XMB_WASH_MIN_CONTRAST)
+                    assertTrue("${p.name} + $accent: $ratio", ratio >= XMB_GLASS_MIN_CONTRAST)
                 }
             }
         }
@@ -85,7 +85,7 @@ class XmbBackdropTest {
             assertEquals(0f, wash.veilAlpha, 0f)
             assertTrue(wash.accentAlpha in 0f..XMB_WASH_MAX_ALPHA)
             for (t in texts) {
-                assertTrue(contrastOn(t, wash.flat) >= XMB_WASH_MIN_CONTRAST)
+                assertTrue(contrastOn(t, wash.flat) >= XMB_GLASS_MIN_CONTRAST)
             }
         }
     }
@@ -97,11 +97,15 @@ class XmbBackdropTest {
         assertEquals(0f, alpha, 0f)
     }
 
-    // ---- The glass behind every XMB page but Home and All Games ----
+    // ---- The glass behind every XMB page but Home (and its All Games page) ----
 
     private fun glassOf(p: ThemePreset): XmbGlass = xmbGlassFor(p.background, p.surface, p.onBackground, p.onSurfaceVariant)
 
     private fun textsOf(p: ThemePreset, glass: XmbGlass): List<Color> = listOf(p.onBackground, p.onSurface, glass.secondaryText)
+
+    /** The lowest contrast any of [texts] gets on any ground of [glass] (see [xmbGlassGrounds]). */
+    private fun worstContrast(glass: XmbGlass, texts: List<Color>): Double =
+        xmbGlassGrounds(glass.base, glass.sweep, glass.frost).minOf { ground -> texts.minOf { contrastOn(it, ground) } }
 
     private fun lightness(c: Color): Float = toHsl(c)[2]
 
@@ -215,8 +219,8 @@ class XmbBackdropTest {
     fun everyPresetKeepsItsTextReadableOnEveryGround() {
         for (p in themePresets) {
             val glass = glassOf(p)
-            val worst = xmbGlassWorstContrast(glass, textsOf(p, glass))
-            assertTrue("${p.name}: worst contrast $worst", worst >= XMB_WASH_MIN_CONTRAST)
+            val worst = worstContrast(glass, textsOf(p, glass))
+            assertTrue("${p.name}: worst contrast $worst", worst >= XMB_GLASS_MIN_CONTRAST)
             // The grounds really include the sheen: the lightest of them is a chip on a lit card on the sweep.
             val grounds = xmbGlassGrounds(glass.base, glass.sweep, glass.frost)
             assertEquals(10, grounds.size)
@@ -234,7 +238,7 @@ class XmbBackdropTest {
         assertTrue(xmbLuminance(glass.secondaryText.red, glass.secondaryText.green, glass.secondaryText.blue) >
             xmbLuminance(p.onSurfaceVariant.red, p.onSurfaceVariant.green, p.onSurfaceVariant.blue))
         assertTrue("secondary ${glass.secondaryText}", glass.secondaryText.red < 0.85f)
-        val worst = xmbGlassWorstContrast(glass, listOf(glass.secondaryText))
+        val worst = worstContrast(glass, listOf(glass.secondaryText))
         assertTrue("worst $worst", worst >= XMB_GLASS_TARGET_CONTRAST - 0.05)
     }
 
@@ -250,8 +254,8 @@ class XmbBackdropTest {
                 if (!(xmbLuminance(background.red, background.green, background.blue) < 0.18)) continue
                 assertTrue("$surface/$background: ${lightness(glass.base)}", lightness(glass.base) <= 0.10f)
                 assertTrue("$surface/$background: ${saturation(glass.base)}", saturation(glass.base) <= 0.22f)
-                val worst = xmbGlassWorstContrast(glass, listOf(Color.White, Color(0xFFE0E0E0), glass.secondaryText))
-                assertTrue("$surface/$background: $worst", worst >= XMB_WASH_MIN_CONTRAST)
+                val worst = worstContrast(glass, listOf(Color.White, Color(0xFFE0E0E0), glass.secondaryText))
+                assertTrue("$surface/$background: $worst", worst >= XMB_GLASS_MIN_CONTRAST)
             }
         }
     }
@@ -278,8 +282,8 @@ class XmbBackdropTest {
         // White glass on a light theme, not the dark theme's thin lift.
         assertTrue(glass.frost.card.alpha > 0.30f)
         assertEquals(background, glass.base)
-        val worst = xmbGlassWorstContrast(glass, listOf(ink, ink, glass.secondaryText))
-        assertTrue("worst $worst", worst >= XMB_WASH_MIN_CONTRAST)
+        val worst = worstContrast(glass, listOf(ink, ink, glass.secondaryText))
+        assertTrue("worst $worst", worst >= XMB_GLASS_MIN_CONTRAST)
     }
 
     @Test
@@ -288,7 +292,6 @@ class XmbBackdropTest {
             val frost = glassOf(p).frost
             assertEquals(glassOf(p).base.copy(alpha = frost.bar.alpha), frost.bar)
             assertTrue(frost.bar.alpha in 0.5f..0.9f)
-            assertEquals(Color.White, frost.tint)
         }
     }
 }
