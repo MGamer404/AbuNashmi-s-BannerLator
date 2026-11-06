@@ -164,6 +164,7 @@ internal fun XmbGroupRow(
     rowModifier: Modifier = Modifier,
     margin: Dp = 0.dp,
     vGap: Dp = XMB_CARD_GAP,
+    accent: Boolean = false,
     content: @Composable RowScope.() -> Unit,
 ) {
     if (!rememberXmbHome()) {
@@ -172,7 +173,7 @@ internal fun XmbGroupRow(
     }
     if (card) {
         XmbGroupItem(group, shape, Modifier.fillMaxWidth().padding(horizontal = margin, vertical = vGap)) {
-            XmbListCard(Modifier.fillMaxWidth(), shape, MaterialTheme.colorScheme.surface, null, contentPadding) {
+            XmbListCard(Modifier.fillMaxWidth(), shape, MaterialTheme.colorScheme.surface, null, contentPadding, accent) {
                 Row(Modifier.fillMaxWidth().then(rowModifier), verticalAlignment = verticalAlignment, content = content)
             }
         }
