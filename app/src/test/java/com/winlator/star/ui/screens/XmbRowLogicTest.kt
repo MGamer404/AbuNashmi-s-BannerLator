@@ -97,28 +97,38 @@ class XmbRowLogicTest {
         assertEquals(listOf("a", "b"), xmbRecentOrder(emptyList(), listOf("a", "b")) { it })
     }
 
-    @Test fun mosaic_moreThanFour_threeCoversAndTheRestCounted() {
+    @Test fun mosaic_isThreeRowsByTwoColumns_fiveCoversAndAMoreTile() {
+        assertEquals(6, XMB_MOSAIC_ROWS * XMB_MOSAIC_COLS)
+        assertEquals(XMB_MOSAIC_ROWS * XMB_MOSAIC_COLS, XMB_MOSAIC_CELLS)
+        assertEquals(XMB_MOSAIC_CELLS - 1, XMB_MOSAIC_COVERS)
+    }
+
+    @Test fun mosaic_moreThanSix_fiveCoversAndTheRestCounted() {
         val m = xmbMosaicPick((1..8).map { "g$it" }, hasArt)
-        assertEquals(listOf("g1", "g2", "g3"), m.covers)
-        assertEquals(5, m.more)
+        assertEquals(listOf("g1", "g2", "g3", "g4", "g5"), m.covers)
+        assertEquals(3, m.more)
+        assertEquals(1, xmbMosaicPick((1..7).map { "g$it" }, hasArt).more)
     }
 
     @Test fun mosaic_skipsGamesWithoutArtWhenItCan() {
-        val m = xmbMosaicPick(listOf("xa", "b", "xc", "d", "e", "f"), hasArt)
-        assertEquals(listOf("b", "d", "e"), m.covers)
+        val m = xmbMosaicPick(listOf("xa", "b", "xc", "d", "e", "f", "g", "h"), hasArt)
+        assertEquals(listOf("b", "d", "e", "f", "g"), m.covers)
         assertEquals(3, m.more)
     }
 
     @Test fun mosaic_fewGamesWithArt_areFilledUpWithTheOthersInOrder() {
-        val m = xmbMosaicPick(listOf("xa", "b", "xc", "xd", "xe"), hasArt)
-        assertEquals(listOf("b", "xa", "xc"), m.covers)
+        val m = xmbMosaicPick(listOf("xa", "b", "xc", "xd", "xe", "xf", "xg"), hasArt)
+        assertEquals(listOf("b", "xa", "xc", "xd", "xe"), m.covers)
         assertEquals(2, m.more)
     }
 
-    @Test fun mosaic_fourOrFewerGames_showEveryCoverAndNoMoreTile() {
-        val four = xmbMosaicPick(listOf("a", "b", "c", "d"), hasArt)
-        assertEquals(listOf("a", "b", "c", "d"), four.covers)
-        assertEquals(0, four.more)
+    @Test fun mosaic_sixOrFewerGames_showEveryCoverAndNoMoreTile() {
+        val six = xmbMosaicPick((1..6).map { "g$it" }, hasArt)
+        assertEquals((1..6).map { "g$it" }, six.covers)
+        assertEquals(0, six.more)
+        val five = xmbMosaicPick((1..5).map { "g$it" }, hasArt)
+        assertEquals((1..5).map { "g$it" }, five.covers)
+        assertEquals(0, five.more)
         val three = xmbMosaicPick(listOf("a", "b", "c"), hasArt)
         assertEquals(listOf("a", "b", "c"), three.covers)
         assertEquals(0, three.more)
@@ -133,52 +143,87 @@ class XmbRowLogicTest {
         assertEquals(0, m.more)
     }
 
-    @Test fun mosaic_fiveGames_threeCoversAndTwoMore() {
-        val m = xmbMosaicPick((1..5).map { "g$it" }, hasArt)
-        assertEquals(3, m.covers.size)
-        assertEquals(2, m.more)
+    @Test fun collage_isFiveColumnsByThreeRows() {
+        assertEquals(5, XMB_COLLAGE_COLS)
+        assertEquals(3, XMB_COLLAGE_ROWS)
+        assertEquals(15, XMB_COLLAGE_MAX)
     }
 
-    @Test fun collagePick_onlyGamesWithArt_atMostNine() {
-        val games = listOf("xa") + (1..12).map { "g$it" }
-        assertEquals((1..9).map { "g$it" }, xmbCollagePick(games, hasArt))
-        assertEquals(listOf("b"), xmbCollagePick(listOf("xa", "b", "xc"), hasArt))
-        assertTrue(xmbCollagePick(listOf("xa"), hasArt).isEmpty())
+    @Test fun collagePick_moreThanFifteen_takesTheFifteenMostRecentWithArt() {
+        val games = listOf("xa") + (1..20).map { "g$it" }
+        assertEquals((1..15).map { "g$it" }, xmbCollagePick(games, hasArt))
+    }
+
+    @Test fun collagePick_exactlyFifteen_isThemInOrder() {
+        assertEquals((1..15).map { "g$it" }, xmbCollagePick((1..15).map { "g$it" }, hasArt))
+    }
+
+    @Test fun collagePick_fewerThanFifteen_repeatsCyclicallyUntilAllCellsAreFilled() {
+        val p = xmbCollagePick(listOf("xa", "a", "b", "c", "xd"), hasArt)
+        assertEquals(15, p.size)
+        assertEquals(listOf("a", "b", "c", "a", "b", "c", "a", "b", "c", "a", "b", "c", "a", "b", "c"), p)
+        val one = xmbCollagePick(listOf("only"), hasArt)
+        assertEquals(List(15) { "only" }, one)
+        val fourteen = xmbCollagePick((1..14).map { "g$it" }, hasArt)
+        assertEquals((1..14).map { "g$it" } + "g1", fourteen)
+    }
+
+    @Test fun collagePick_noGameWithArt_isEmpty() {
+        assertTrue(xmbCollagePick(listOf("xa", "xb"), hasArt).isEmpty())
+        assertTrue(xmbCollagePick(emptyList<String>(), hasArt).isEmpty())
     }
 
     @Test fun collageSpec_noCovers_isNone() {
         assertNull(xmbCollageSpec(2.2f, 0))
     }
 
-    @Test fun collageSpec_wideScreen_isAWideGrid() {
-        val s = xmbCollageSpec(2.2f, 9)!!
-        assertEquals(4, s.cols)
-        assertEquals(2, s.rows)
-        assertEquals(XMB_COLLAGE_HEIGHT, s.height)
-        assertEquals(792, s.width)
-    }
-
-    @Test fun collageSpec_portraitScreen_isATallGrid() {
-        val s = xmbCollageSpec(0.46f, 9)!!
-        assertEquals(2, s.cols)
-        assertEquals(3, s.rows)
-    }
-
-    @Test fun collageSpec_neverNeedsMoreCoversThanThereAre() {
+    @Test fun collageSpec_alwaysFiveByThree() {
         for (aspect in listOf(0.46f, 1f, 1.78f, 2.2f)) {
-            for (n in 1..14) {
-                val s = xmbCollageSpec(aspect, n)!!
-                assertTrue(s.cols * s.rows in 1..minOf(n, XMB_COLLAGE_MAX))
-            }
+            val s = xmbCollageSpec(aspect, XMB_COLLAGE_MAX)!!
+            assertEquals(5, s.cols)
+            assertEquals(3, s.rows)
         }
-        val one = xmbCollageSpec(2.2f, 1)!!
-        assertEquals(1, one.cols * one.rows)
+    }
+
+    @Test fun collageSpec_landscape_is540TallAndFollowsTheShape() {
+        val s = xmbCollageSpec(1.78f, 15)!!
+        assertEquals(XMB_COLLAGE_HEIGHT, s.height)
+        assertEquals(961, s.width)
+    }
+
+    @Test fun collageSpec_veryWideScreen_isCappedAtTheMaxSide() {
+        val s = xmbCollageSpec(2.2f, 15)!!
+        assertEquals(XMB_COLLAGE_HEIGHT, s.height)
+        assertEquals(XMB_COLLAGE_MAX_SIDE, s.width)
+    }
+
+    @Test fun collageSpec_portrait_is540WideAtMostAndFollowsTheShape() {
+        val s = xmbCollageSpec(0.5f, 15)!!
+        assertEquals(540, s.width)
+        assertEquals(1080, s.height)
+        val tall = xmbCollageSpec(0.46f, 15)!!
+        assertEquals(XMB_COLLAGE_MAX_SIDE, tall.height)
+        assertEquals(497, tall.width)
+    }
+
+    @Test fun collageSpec_staysUnderTwoAndAHalfMegabytes() {
+        for (aspect in listOf(0.3f, 0.46f, 0.75f, 1f, 1.78f, 2.2f, 3f)) {
+            val s = xmbCollageSpec(aspect, 15)!!
+            assertTrue(s.width * s.height * 4 <= 2_500_000)
+        }
+    }
+
+    @Test fun collageBackdrop_isSofterThanTheOtherBackdrops() {
+        // Below API 31 the collage is shrunk far less than a cover (here by 1 = not at all), and the divisor never goes below 1.
+        assertEquals(1080 to 540, xmbBackdropSoftSize(1080, 540, XMB_COLLAGE_SOFT_DIV))
+        assertEquals(1080 to 540, xmbBackdropSoftSize(1080, 540, 0))
+        assertTrue(XMB_COLLAGE_SOFT_DIV < XMB_BACKDROP_SOFT_DIV)
     }
 
     @Test fun collageSpec_nonsenseAspect_stillGivesAGrid() {
         val s = xmbCollageSpec(0f, 4)!!
         assertEquals(XMB_COLLAGE_HEIGHT, s.height)
-        assertTrue(s.cols * s.rows in 1..4)
+        assertEquals(5 * 3, s.cols * s.rows)
     }
 
     @Test fun cellRect_cellsTileThePictureExactly() {

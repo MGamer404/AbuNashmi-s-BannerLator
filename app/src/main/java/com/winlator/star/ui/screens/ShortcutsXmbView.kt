@@ -109,9 +109,12 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -436,7 +439,8 @@ internal fun ShortcutsXmbView(
     val clipTop = ss.dp(XMB_PEEK_CLIP).value
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val m = remember(maxWidth, maxHeight, topInset) { XmbMetrics(maxWidth.value, maxHeight.value - topInset.value) }
-        // The collage behind the hovered All Games card: a grid shaped to the screen, drawn once off the main thread.
+        // The collage behind the hovered All Games card: a 5 x 3 grid of covers (repeated when the library is small), drawn once
+        // off the main thread.
         val collageSpec = xmbCollageSpec(maxWidth.value / maxHeight.value.coerceAtLeast(1f), collageArts.size)
         val collageState = remember(collageArts, collageSpec) { mutableStateOf<Bitmap?>(null) }
         LaunchedEffect(collageState, onAll) {
@@ -602,21 +606,14 @@ internal fun ShortcutsXmbView(
             val collage = collageState.value
             // Keyed on the card's art and icon (not the card itself, whose lambdas change every recomposition).
             val picture: Any? = card?.let { c -> c.art?.let { XmbBackdropArt(it, c.icon) } } ?: focused?.icon
-                ?: (if (onAll && !upperOpen) collage else null)
+                ?: (if (onAll && !upperOpen) collage?.let { XmbCollagePicture(it) } else null)
             // Modifier.blur does nothing below API 31, where the art is drawn pre-shrunk and scaled up instead.
             val nativeBlur = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
             Crossfade(targetState = picture, animationSpec = tween(600), label = "xmbBackdrop") { pic ->
                 when (pic) {
-                    is Bitmap -> {
-                        val art = remember(pic, nativeBlur) { if (nativeBlur) pic else xmbBackdropSoftBitmap(pic) }
-                        if (art != null) Image(
-                            bitmap = remember(art) { art.asImageBitmap() },
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            filterQuality = if (nativeBlur) FilterQuality.Low else FilterQuality.Medium,
-                            modifier = Modifier.fillMaxSize().blur(XMB_BACKDROP_BLUR),
-                        )
-                    }
+                    is Bitmap -> XmbBackdropBitmap(pic, nativeBlur, XMB_BACKDROP_BLUR, XMB_BACKDROP_SOFT_DIV)
+                    // The collage is only slightly blurred (each crossfade layer has its own blur).
+                    is XmbCollagePicture -> XmbBackdropBitmap(pic.bitmap, nativeBlur, XMB_COLLAGE_BLUR, XMB_COLLAGE_SOFT_DIV)
                     is XmbBackdropArt -> Box(
                         Modifier.fillMaxSize().blur(XMB_BACKDROP_BLUR).background(Brush.linearGradient(pic.art.colors)),
                         contentAlignment = Alignment.Center,
@@ -967,7 +964,7 @@ private fun XmbCover(
             XmbMonogram(shortcut.name, accent)
         }
         // Bottom-end, so it clears the selection mark at the top-end; it scales with the cover.
-        XmbStoreMark(mark, Modifier.align(Alignment.BottomEnd).padding(5.dp), (m.fW * 0.2f).coerceIn(18f, 26f).dp)
+        XmbStoreMark(mark, Modifier.align(Alignment.BottomEnd).padding(5.dp), (m.fW * 0.25f).coerceIn(22.5f, 32.5f).dp)
         if (selectionMode) {
             Box(
                 Modifier
@@ -1006,10 +1003,11 @@ private fun Modifier.xmbCoverSlot(index: Int, pos: MutableFloatState, m: XmbMetr
         alpha = ((if (u >= 0f) 0.82f else 0.82f + u * 0.32f) + 0.18f * t).coerceIn(0f, 1f)
     }
 
-// The last card of the row: the grid glyph, "All Games" and the game count on the same plain surface as the upper row's Add game
-// card, 2:3 like a cover and ringed like the focused one. It opens the All Games page and has no game behind it, so there is no
-// store mark and no selection mark. One flat opaque fill and nothing nested: a see-through fill would let the focus shadow show
-// through as a dark inner box.
+// The last card of the row: a folder-like 3 x 2 preview of the library (the grid glyph when there are no games) on the same plain
+// surface as the upper row's Add game card, 2:3 like a cover and ringed like the focused one. Its name and game count are the
+// title beside the card (like every card's), so only the semantics carry them here. It opens the All Games page and has no game
+// behind it, so there is no store mark and no selection mark. One flat opaque fill and nothing nested: a see-through fill would
+// let the focus shadow show through as a dark inner box.
 @Composable
 private fun XmbAllGamesCover(
     index: Int,
@@ -1024,6 +1022,7 @@ private fun XmbAllGamesCover(
 ) {
     val shape = RoundedCornerShape(8.dp)
     val src = remember { MutableInteractionSource() }
+    val description = stringResource(R.string.xmb_all_games) + ", " + count
     Box(
         Modifier
             .xmbCoverSlot(index, pos, m, focused, grow)
@@ -1031,48 +1030,38 @@ private fun XmbAllGamesCover(
             .clip(shape)
             .background(Brush.linearGradient(XMB_PLAIN_CARD))
             .border(if (focused) 2.dp else 1.dp, if (focused) accent else Color.White.copy(alpha = 0.14f), shape)
+            .semantics(mergeDescendants = true) { contentDescription = description }
             .xmbClick(src, onClick),
         contentAlignment = Alignment.Center,
     ) {
         if (mosaic.covers.isEmpty()) {
             // No games yet: the grid glyph.
             Icon(Icons.Filled.GridView, contentDescription = null, tint = Color.White, modifier = Modifier.size((m.fW * 0.44f).dp))
-            XmbAllGamesLabel(count, Modifier.align(Alignment.BottomStart).padding(10.dp))
         } else {
-            // Like a folder: a 2 x 2 preview of the games above the label. Everything is sized in dp inside the card, so it
+            // Like a folder: a 3 x 2 preview of the games filling the card. Everything is sized in dp inside the card, so it
             // scales with the card (the card itself is scaled by its graphics layer).
-            Column(Modifier.fillMaxSize().padding(start = 8.dp, top = 8.dp, end = 8.dp, bottom = 10.dp)) {
-                XmbAllGamesMosaic(mosaic, accent, Modifier.weight(1f).fillMaxWidth())
-                XmbAllGamesLabel(count, Modifier.padding(start = 2.dp, top = 7.dp))
-            }
+            XmbAllGamesMosaic(mosaic, accent, Modifier.fillMaxSize().padding(6.dp))
         }
     }
 }
 
-// "All Games" and the game count, at the bottom of the All Games card.
-@Composable
-private fun XmbAllGamesLabel(count: String, modifier: Modifier) {
-    Column(modifier) {
-        Text(stringResource(R.string.xmb_all_games), color = Color.White.copy(alpha = 0.92f), fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 2, lineHeight = 15.sp)
-        Text(count, color = Color.White.copy(alpha = 0.7f), fontSize = 10.sp, maxLines = 1)
-    }
-}
-
-// The All Games card's folder-like preview: up to three covers and a "+N more" tile, in a 2 x 2 grid that fills the space it is
-// given (the cells share it equally and crop the covers to fit). Cells with no game stay faintly empty.
+// The All Games card's folder-like preview: up to five covers and a "+N more" tile, in a grid of XMB_MOSAIC_ROWS rows x
+// XMB_MOSAIC_COLS columns that fills the space it is given (the cells share it equally and crop the covers to fit, about square on
+// the 2:3 card). Cells with no game stay faintly empty.
 @Composable
 private fun XmbAllGamesMosaic(mosaic: XmbMosaic<Shortcut>, accent: Color, modifier: Modifier) {
     val gap = 3.dp
     val tileShape = RoundedCornerShape(3.dp)
     Column(modifier, verticalArrangement = Arrangement.spacedBy(gap)) {
-        for (row in 0 until 2) {
+        for (row in 0 until XMB_MOSAIC_ROWS) {
             Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(gap)) {
-                for (col in 0 until 2) {
-                    val i = row * 2 + col
+                for (col in 0 until XMB_MOSAIC_COLS) {
+                    val i = row * XMB_MOSAIC_COLS + col
                     val tile = Modifier.weight(1f).fillMaxHeight().clip(tileShape)
                     when {
                         i < mosaic.covers.size -> XmbMosaicCover(mosaic.covers[i], accent, tile)
                         i == mosaic.covers.size && mosaic.more > 0 -> Box(tile.background(Color(0xFF2E3138)), contentAlignment = Alignment.Center) {
+                            // In a small cell "+N more" wraps at the space: "+N" over "more".
                             Text(
                                 stringResource(R.string.xmb_all_games_more, mosaic.more), color = Color.White.copy(alpha = 0.92f),
                                 fontSize = 10.sp, lineHeight = 11.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, maxLines = 2,
@@ -1321,17 +1310,43 @@ internal const val XMB_BACKDROP_VEIL = 0.30f
 /** Below API 31 the backdrop art is shrunk to 1/this of its size and scaled back up, which looks blurred. */
 internal const val XMB_BACKDROP_SOFT_DIV = 16
 
-/** The size [xmbBackdropSoftBitmap] shrinks a [w] x [h] picture to; never below 1 px. */
-internal fun xmbBackdropSoftSize(w: Int, h: Int): Pair<Int, Int> =
-    max(1, w / XMB_BACKDROP_SOFT_DIV) to max(1, h / XMB_BACKDROP_SOFT_DIV)
+/** The collage behind the hovered All Games card is blurred only very slightly (a tenth of [XMB_BACKDROP_BLUR]). */
+private val XMB_COLLAGE_BLUR = 1.6.dp
+
+/** Below API 31 the collage is not shrunk at all (it is already a small bitmap, scaled up with filtering), so it stays only slightly soft. */
+internal const val XMB_COLLAGE_SOFT_DIV = 1
+
+/** The size [xmbBackdropSoftBitmap] shrinks a [w] x [h] picture to (by [div]); never below 1 px. */
+internal fun xmbBackdropSoftSize(w: Int, h: Int, div: Int = XMB_BACKDROP_SOFT_DIV): Pair<Int, Int> =
+    max(1, w / div.coerceAtLeast(1)) to max(1, h / div.coerceAtLeast(1))
+
+/** What the backdrop shows on the All Games card: the [bitmap] collage of its games (it gets its own, lighter blur). */
+private data class XmbCollagePicture(val bitmap: Bitmap)
+
+/**
+ * A backdrop picture: [bmp] filling the screen, blurred by [radius] (Modifier.blur, API 31+) or, below that, shrunk by [softDiv]
+ * and scaled back up (see [xmbBackdropSoftBitmap]).
+ */
+@Composable
+private fun XmbBackdropBitmap(bmp: Bitmap, nativeBlur: Boolean, radius: Dp, softDiv: Int) {
+    val art = remember(bmp, nativeBlur, softDiv) { if (nativeBlur) bmp else xmbBackdropSoftBitmap(bmp, softDiv) }
+    if (art != null) Image(
+        bitmap = remember(art) { art.asImageBitmap() },
+        contentDescription = null,
+        contentScale = ContentScale.Crop,
+        filterQuality = if (nativeBlur) FilterQuality.Low else FilterQuality.Medium,
+        modifier = Modifier.fillMaxSize().blur(radius),
+    )
+}
 
 /**
  * A tiny copy of [src] for the backdrop below API 31, where Modifier.blur does nothing: drawn scaled up with filtering it
  * looks blurred. Halved step by step, as one big filtered jump skips pixels and aliases. Null if the bitmap can't be scaled
- * (the backdrop then shows only its black base).
+ * (the backdrop then shows only its black base). With a [div] of 1 the picture is used as it is.
  */
-private fun xmbBackdropSoftBitmap(src: Bitmap): Bitmap? = runCatching {
-    val (w, h) = xmbBackdropSoftSize(src.width, src.height)
+private fun xmbBackdropSoftBitmap(src: Bitmap, div: Int = XMB_BACKDROP_SOFT_DIV): Bitmap? = runCatching {
+    if (div <= 1) return@runCatching src
+    val (w, h) = xmbBackdropSoftSize(src.width, src.height, div)
     var cur = src
     while (cur.width / 2 > w && cur.height / 2 > h) cur = Bitmap.createScaledBitmap(cur, cur.width / 2, cur.height / 2, true)
     Bitmap.createScaledBitmap(cur, w, h, true)
@@ -1339,8 +1354,8 @@ private fun xmbBackdropSoftBitmap(src: Bitmap): Bitmap? = runCatching {
 
 /**
  * The backdrop behind the hovered All Games card: [arts] (decoded covers, most recent first) tiled row by row into the grid of
- * [spec], each centre-cropped to its cell, as one small bitmap. The backdrop then treats it as any other picture (the same blur
- * and veil; below API 31 the same shrink-and-scale-up), so it costs one draw like a cover. Cells with no cover stay black; a
+ * [spec], each centre-cropped to its cell, as one small bitmap. The backdrop then treats it as any other picture (the same veil
+ * and crossfade, but a much lighter blur: XMB_COLLAGE_BLUR, XMB_COLLAGE_SOFT_DIV), so it costs one draw like a cover. Cells with no cover stay black; a
  * cover that can't be drawn is skipped. Null if the bitmap can't be made.
  */
 private fun xmbCollageBitmap(arts: List<Bitmap>, spec: XmbCollageSpec): Bitmap? = runCatching {

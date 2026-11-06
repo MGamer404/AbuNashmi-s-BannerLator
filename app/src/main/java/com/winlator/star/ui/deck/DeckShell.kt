@@ -838,12 +838,14 @@ private fun DeckShellContent(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(
-                            end = hintSs.dp(16f) + maxOf(frame, cutout.calculateEndPadding(dir)),
+                            // Home's place on every page (not the page's camera frame), so the hints never move between pages.
+                            end = hintSs.dp(16f) + cutout.calculateEndPadding(dir),
                             bottom = hintSs.dp(12f) + cutout.calculateBottomPadding(),
                         ),
                 ) {
-                    // The same back action as B: a sub-page pops, Home asks for the second press (homeBack).
-                    DeckFloatingHint("B", GlyphKind.B, "Back", { if (backDispatcher != null) backDispatcher.onBackPressed() else nav.back() })
+                    // The same back action as B: a sub-page pops, Home asks for the second press (homeBack). Drawn with Search's
+                    // glyph look (the round grey one), not the red B.
+                    DeckFloatingHint("B", GlyphKind.Y, "Back", { if (backDispatcher != null) backDispatcher.onBackPressed() else nav.back() })
                     DeckFloatingSearch(onSearch = { (deckActions.search.value ?: openSearch)() })
                 }
             }
@@ -1604,6 +1606,12 @@ private fun DeckPageTabRail(
     val line = deckLine()
     val count = tabs.size
     val width by animateDpAsState(if (compact) 60.dp else 150.dp, label = "deckPageRail")
+    // XMB mode (a highlight host above): no L2 / R2 glyphs (the triggers still switch the tabs), and Up / Down on the rail
+    // selects the tab it lands on; Left back from the page lands on the selected one (XmbRail.kt).
+    val xmbRail = xmbHighlightHostOrNull() != null
+    val railState = rememberXmbRailState()
+    val selectedInk = xmbSelectedInk()
+    val deckActions = LocalDeckActions.current
     Column(
         horizontalAlignment = if (compact) Alignment.CenterHorizontally else Alignment.Start,
         verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -1613,22 +1621,25 @@ private fun DeckPageTabRail(
             .then(if (glass) Modifier.background(deckGlass().copy(alpha = 0.45f)) else Modifier)
             .drawBehind { drawRect(line, topLeft = Offset(size.width - 1f, 0f), size = Size(1f, size.height)) }
             .onFocusChanged { onFocus(it.hasFocus) }
+            .xmbRailGroup(railState)
             .verticalScroll(rememberScrollState())
             .padding(horizontal = if (compact) 4.dp else 8.dp, vertical = 10.dp),
     ) {
-        val l2: @Composable () -> Unit = {
-            DeckGlyph("L2", GlyphKind.BUMPER, Modifier.clip(RoundedCornerShape(9.dp)).clickable { if (count > 0) onSelect((selected - 1 + count) % count) })
-        }
-        val r2: @Composable () -> Unit = {
-            DeckGlyph("R2", GlyphKind.BUMPER, Modifier.clip(RoundedCornerShape(9.dp)).clickable { if (count > 0) onSelect((selected + 1) % count) })
-        }
-        if (compact) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(bottom = 4.dp)) { l2(); r2() }
-        } else {
-            Row(
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, bottom = 4.dp),
-            ) { l2(); r2() }
+        if (!xmbRail) {
+            val l2: @Composable () -> Unit = {
+                DeckGlyph("L2", GlyphKind.BUMPER, Modifier.clip(RoundedCornerShape(9.dp)).clickable { if (count > 0) onSelect((selected - 1 + count) % count) })
+            }
+            val r2: @Composable () -> Unit = {
+                DeckGlyph("R2", GlyphKind.BUMPER, Modifier.clip(RoundedCornerShape(9.dp)).clickable { if (count > 0) onSelect((selected + 1) % count) })
+            }
+            if (compact) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(bottom = 4.dp)) { l2(); r2() }
+            } else {
+                Row(
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, bottom = 4.dp),
+                ) { l2(); r2() }
+            }
         }
         tabs.forEachIndexed { i, t ->
             val sel = i == selected
@@ -1638,6 +1649,11 @@ private fun DeckPageTabRail(
             val item = rememberXmbHighlightItem()
             val xmb = xmbHighlightHostOrNull() != null
             val itemModifier = Modifier
+                .xmbRailItem(railState, sel) {
+                    // The page this opens must not pull the focus off the rail (DeckEntryFocus waits this out).
+                    deckActions.entryHoldUntil = SystemClock.uptimeMillis() + RAIL_ENTRY_HOLD_MS
+                    onSelect(i)
+                }
                 .railFocus(shape, item)
                 .clip(shape)
                 .background(if (!sel) Color.Transparent else if (xmb) cs.primary.copy(alpha = 0.16f) else cs.primary)
@@ -1646,7 +1662,8 @@ private fun DeckPageTabRail(
                 // Read inside XmbInk: while the tab is focused this scheme is the one moved towards the accent.
                 val ink = MaterialTheme.colorScheme
                 val iconTint = if (!sel) ink.onSurfaceVariant else if (xmb) ink.primary else ink.onPrimary
-                val tint = if (!sel) ink.onSurfaceVariant else if (xmb) ink.onSurface else ink.onPrimary
+                // The selected tab keeps its accent text when the outline moves on into the page (selectedInk), as when it is hot.
+                val tint = if (!sel) ink.onSurfaceVariant else if (xmb) (selectedInk ?: ink.onSurface) else ink.onPrimary
                 if (compact) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1689,6 +1706,9 @@ private fun DeckPageTabRail(
         }
     }
 }
+
+/** How long after a D-pad tab switch on the page rail the new page may not take focus (see [DeckActions.entryHoldUntil]). */
+private const val RAIL_ENTRY_HOLD_MS = 800L
 
 /**
  * The focus mark of a rail / header control: in the XMB mode (a highlight host above) it registers [item] with the window's

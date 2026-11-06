@@ -376,12 +376,14 @@ internal fun DeckTabStrip(
         }
         return
     }
+    // XMB mode: no L2 / R2 glyphs either side (the triggers still switch the tabs).
+    val bumperGlyphs = !deckCompact() && !rememberXmbHome()
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         modifier = modifier.fillMaxWidth(),
     ) {
-        if (!deckCompact()) {
+        if (bumperGlyphs) {
             DeckGlyph("L2", GlyphKind.BUMPER, Modifier.clip(RoundedCornerShape(9.dp)).clickable { currentOnSelect((selected - 1 + count) % count) })
         }
         Row(
@@ -440,7 +442,7 @@ internal fun DeckTabStrip(
                 }
             }
         }
-        if (!deckCompact()) {
+        if (bumperGlyphs) {
             DeckGlyph("R2", GlyphKind.BUMPER, Modifier.clip(RoundedCornerShape(9.dp)).clickable { currentOnSelect((selected + 1) % count) })
         }
     }

@@ -297,9 +297,9 @@ internal fun XmbAllGamesPage(
                         val pick = { selPath = s.file.path; onPlay(s) }
                         val st = stats[s.file.path]
                         when (view) {
-                            AllView.GRID -> CoverCell(s, i == sel, accent, markSize = ss.dp(20f), big = false, stat = null, onClick = pick)
-                            AllView.BIG -> CoverCell(s, i == sel, accent, markSize = ss.dp(28f), big = true, stat = st, onClick = pick)
-                            AllView.LIST -> ListRow(s, i == sel, accent, st, markSize = ss.dp(18f), onClick = pick)
+                            AllView.GRID -> CoverCell(s, i == sel, accent, markSize = ss.dp(25f), big = false, stat = null, onClick = pick)
+                            AllView.BIG -> CoverCell(s, i == sel, accent, markSize = ss.dp(35f), big = true, stat = st, onClick = pick)
+                            AllView.LIST -> ListRow(s, i == sel, accent, st, markSize = ss.dp(22.5f), onClick = pick)
                         }
                     }
                 }

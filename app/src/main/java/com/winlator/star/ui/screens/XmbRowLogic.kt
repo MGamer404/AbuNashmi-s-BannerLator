@@ -1,7 +1,5 @@
 package com.winlator.star.ui.screens
 
-import kotlin.math.abs
-import kotlin.math.ln
 import kotlin.math.roundToInt
 
 // The index maths of the XMB games row and of the All Games page, kept free of Compose and Android so it can be unit-tested.
@@ -63,16 +61,24 @@ internal fun xmbGridMove(sel: Int, move: XmbMove, cols: Int, count: Int, page: I
     }
 }
 
-// The All Games card's mosaic (a folder-like 2 x 2 preview of the library) and the collage behind it when it is hovered.
+// The All Games card's mosaic (a folder-like 3 x 2 preview of the library) and the collage behind it when it is hovered.
 
-/** The All Games card's mosaic shows this many covers, and a "+N more" tile as the fourth cell when the library has more. */
-internal const val XMB_MOSAIC_COVERS = 3
+/** The All Games card's mosaic shows this many covers, and a "+N more" tile as the sixth cell when the library has more. */
+internal const val XMB_MOSAIC_COVERS = 5
 
-/** The mosaic is a 2 x 2 grid: a library of up to this many games is shown cover by cover, without a "+N more" tile. */
-internal const val XMB_MOSAIC_CELLS = 4
+/** The mosaic is a 3 rows x 2 columns grid: a library of up to this many games is shown cover by cover, without a "+N more" tile. */
+internal const val XMB_MOSAIC_CELLS = 6
 
-/** The collage behind the hovered All Games card is built from at most this many covers. */
-internal const val XMB_COLLAGE_MAX = 9
+/** The mosaic's grid: rows x columns. */
+internal const val XMB_MOSAIC_ROWS = 3
+internal const val XMB_MOSAIC_COLS = 2
+
+/** The collage behind the hovered All Games card is a grid of this many columns x rows (on every screen shape). */
+internal const val XMB_COLLAGE_COLS = 5
+internal const val XMB_COLLAGE_ROWS = 3
+
+/** The collage always has this many cells; with fewer games the covers repeat to fill them. */
+internal const val XMB_COLLAGE_MAX = XMB_COLLAGE_COLS * XMB_COLLAGE_ROWS
 
 /** The covers a mosaic shows ([covers], in cell order) and the games left out of it ([more], 0 = no "+N more" tile). */
 internal data class XmbMosaic<T>(val covers: List<T>, val more: Int)
@@ -84,9 +90,9 @@ internal data class XmbMosaic<T>(val covers: List<T>, val more: Int)
 internal fun <T> xmbRecentOrder(row: List<T>, all: List<T>, key: (T) -> String): List<T> = (row + all).distinctBy(key)
 
 /**
- * What the mosaic shows for [ordered] games (most recent first): up to four games are shown cover by cover, more than that
- * [XMB_MOSAIC_COVERS] covers and a "+N more" tile counting the rest. Games with art come first (the rest only fill up when
- * fewer than that have any), each group keeping its order, so the pick never changes between recompositions.
+ * What the mosaic shows for [ordered] games (most recent first): up to [XMB_MOSAIC_CELLS] games are shown cover by cover, more
+ * than that [XMB_MOSAIC_COVERS] covers and a "+N more" tile counting the rest. Games with art come first (the rest only fill up
+ * when fewer than that have any), each group keeping its order, so the pick never changes between recompositions.
  */
 internal fun <T> xmbMosaicPick(ordered: List<T>, hasArt: (T) -> Boolean): XmbMosaic<T> {
     val total = ordered.size
@@ -95,35 +101,43 @@ internal fun <T> xmbMosaicPick(ordered: List<T>, hasArt: (T) -> Boolean): XmbMos
     return XmbMosaic(covers, if (total <= XMB_MOSAIC_CELLS) 0 else total - covers.size)
 }
 
-/** The covers the collage is built from: the most recent [XMB_COLLAGE_MAX] games that have art. */
-internal fun <T> xmbCollagePick(ordered: List<T>, hasArt: (T) -> Boolean): List<T> = ordered.filter(hasArt).take(XMB_COLLAGE_MAX)
+/**
+ * The covers the collage is built from, one per cell ([XMB_COLLAGE_MAX]): the most recent games that have art, repeated in the
+ * same order when there are fewer of them than cells (game 0, 1, 2, ... then 0 again). Empty when no game has art.
+ */
+internal fun <T> xmbCollagePick(ordered: List<T>, hasArt: (T) -> Boolean): List<T> {
+    val arts = ordered.filter(hasArt).take(XMB_COLLAGE_MAX)
+    if (arts.isEmpty()) return emptyList()
+    return List(XMB_COLLAGE_MAX) { arts[it % arts.size] }
+}
 
 /** The collage bitmap's grid ([cols] x [rows] covers) and size in pixels. */
 internal data class XmbCollageSpec(val cols: Int, val rows: Int, val width: Int, val height: Int)
 
-/** The collage bitmap is this tall; its width follows the screen's shape. It stays small because it is blurred and scaled up. */
-internal const val XMB_COLLAGE_HEIGHT = 360
+/** The collage bitmap's short side (its height on a landscape screen); the other side follows the screen's shape. */
+internal const val XMB_COLLAGE_HEIGHT = 540
+
+/** The collage bitmap's longest side at most, which keeps it near 2 MB. */
+internal const val XMB_COLLAGE_MAX_SIDE = 1080
 
 /**
- * The collage grid for a screen [aspect] (width / height) with [available] covers: the most covers (up to [XMB_COLLAGE_MAX], never
- * more than there are) in cells that stay close to a cover's 2:3 shape, so a wide screen gets a wide grid and a portrait one a
- * tall one. Null when there are no covers.
+ * The collage grid for a screen [aspect] (width / height) with [available] covers: always [XMB_COLLAGE_COLS] x [XMB_COLLAGE_ROWS]
+ * cells, drawn as a bitmap the shape of the screen (540 px tall on a landscape one, 540 px wide on a portrait one, the long side
+ * at most [XMB_COLLAGE_MAX_SIDE]). Null when there are no covers.
  */
 internal fun xmbCollageSpec(aspect: Float, available: Int): XmbCollageSpec? {
-    val n = minOf(available, XMB_COLLAGE_MAX)
-    if (n <= 0) return null
+    if (available <= 0) return null
     val a = if (aspect.isFinite() && aspect > 0.1f) aspect else 1f
-    var best = 1 to 1
-    var bestScore = Float.MAX_VALUE
-    for (rows in 1..3) for (cols in 1..5) {
-        val tiles = cols * rows
-        if (tiles > n) continue
-        // How far a cell's shape is from 2:3, in log terms (so too wide and too tall weigh the same), less a bonus per cover.
-        val cell = a * rows / cols
-        val score = abs(ln(cell / (2f / 3f))) - 0.1f * tiles
-        if (score < bestScore - 1e-6f) { bestScore = score; best = cols to rows }
+    val w: Int
+    val h: Int
+    if (a >= 1f) {
+        h = XMB_COLLAGE_HEIGHT
+        w = (h * a).roundToInt().coerceIn(1, XMB_COLLAGE_MAX_SIDE)
+    } else {
+        h = (XMB_COLLAGE_HEIGHT / a).roundToInt().coerceIn(1, XMB_COLLAGE_MAX_SIDE)
+        w = (h * a).roundToInt().coerceAtLeast(1)
     }
-    return XmbCollageSpec(best.first, best.second, (XMB_COLLAGE_HEIGHT * a).roundToInt().coerceIn(1, 1280), XMB_COLLAGE_HEIGHT)
+    return XmbCollageSpec(XMB_COLLAGE_COLS, XMB_COLLAGE_ROWS, w, h)
 }
 
 /** A rectangle in pixels (right and bottom exclusive). */

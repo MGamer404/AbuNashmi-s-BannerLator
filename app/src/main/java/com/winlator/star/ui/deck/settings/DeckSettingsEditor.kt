@@ -110,8 +110,13 @@ import com.winlator.star.ui.deck.deckGlass
 import com.winlator.star.ui.deck.deckLine
 import com.winlator.star.ui.deck.rememberXmbEdit
 import com.winlator.star.ui.deck.rememberXmbFocusGroup
+import com.winlator.star.ui.deck.XmbRailState
 import com.winlator.star.ui.deck.rememberXmbHome
+import com.winlator.star.ui.deck.rememberXmbRailState
 import com.winlator.star.ui.deck.xmbDoneActions
+import com.winlator.star.ui.deck.xmbRailGroup
+import com.winlator.star.ui.deck.xmbRailItem
+import com.winlator.star.ui.deck.xmbSelectedInk
 import com.winlator.star.ui.deck.xmbEditField
 import com.winlator.star.ui.deck.xmbGlassCard
 import com.winlator.star.ui.deck.xmbGlassSlice
@@ -682,11 +687,14 @@ private fun CategoryList(
     focusKey: Int = 0,
     modifier: Modifier,
 ) {
-    val requester = remember { FocusRequester() }
+    // XMB two-pane layout: Up / Down on the list shows the category it lands on, and Left back from the page lands on the shown one
+    // (XmbRail.kt); the shown category then carries the rail's requester instead of its own.
+    val xmbRail: XmbRailState? = if (!compact && rememberXmbHome()) rememberXmbRailState() else null
+    val requester = xmbRail?.selectedRequester ?: remember { FocusRequester() }
     // The controller starts on the list, on the category being shown (and comes back to it when [focusKey] changes).
     DeckEntryFocus(focusKey) { requester.requestFocus() }
     LazyColumn(
-        modifier = modifier,
+        modifier = if (xmbRail != null) modifier.xmbRailGroup(xmbRail) else modifier,
         contentPadding = PaddingValues(start = if (compact) 16.dp else 20.dp, end = if (compact) 16.dp else 8.dp, top = 6.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
@@ -697,9 +705,11 @@ private fun CategoryList(
                 badge = badge(c.id),
                 compact = compact,
                 onClick = { onSelect(c) },
-                // In the two-pane layout, moving the controller over a category shows it straight away.
-                onFocused = if (compact) null else ({ if (c.id != current) onSelect(c) }),
-                modifier = if (c.id == current) Modifier.focusRequester(requester) else Modifier,
+                // In the two-pane layout, moving the controller over a category shows it straight away. XMB does it through the
+                // rail (only a move inside the list selects, entering it from the page does not).
+                onFocused = if (compact || xmbRail != null) null else ({ if (c.id != current) onSelect(c) }),
+                rail = xmbRail,
+                modifier = if (c.id == current && xmbRail == null) Modifier.focusRequester(requester) else Modifier,
             )
         }
     }
@@ -714,14 +724,18 @@ private fun CategoryItem(
     onClick: () -> Unit,
     onFocused: (() -> Unit)?,
     modifier: Modifier,
+    rail: XmbRailState? = null,
 ) {
     val shape = RoundedCornerShape(14.dp)
+    // XMB: the shown category's text keeps its accent when the outline moves on into the page.
+    val shownInk = xmbSelectedInk()
     DeckInk { item, cs ->
         val accent = cs.primary
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = modifier
                 .fillMaxWidth()
+                .xmbRailItem(rail, selected, onClick)
                 .deckFocusRingInk(shape, item, scaleTo = 1.02f, onFocused = onFocused)
                 .clip(shape)
                 .background(if (selected) accent.copy(alpha = 0.16f) else Color.Transparent)
@@ -743,7 +757,7 @@ private fun CategoryItem(
             Spacer(Modifier.width(14.dp))
             Text(
                 text = category.label,
-                color = if (selected) cs.onSurface else cs.onSurfaceVariant,
+                color = if (selected) (shownInk ?: cs.onSurface) else cs.onSurfaceVariant,
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
                 fontSize = 16.sp,
                 maxLines = 1,

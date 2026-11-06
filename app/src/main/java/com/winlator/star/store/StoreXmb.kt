@@ -75,6 +75,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -98,6 +101,8 @@ import com.winlator.star.ui.deck.XmbHighlightHost
 import com.winlator.star.ui.deck.XmbHighlightItem
 import com.winlator.star.ui.deck.XmbInk
 import com.winlator.star.ui.deck.XmbKeyboardHost
+import com.winlator.star.ui.deck.XmbRailState
+import com.winlator.star.ui.deck.xmbRailItem
 import com.winlator.star.ui.deck.XmbTriggerGuard
 import com.winlator.star.ui.deck.XmbWashTheme
 import com.winlator.star.ui.deck.XmbScreenWindow
@@ -106,6 +111,7 @@ import com.winlator.star.ui.deck.xmbEditField
 import com.winlator.star.ui.deck.xmbEditStop
 import com.winlator.star.ui.deck.deckFocusRing
 import com.winlator.star.ui.deck.rememberScreenScale
+import com.winlator.star.ui.deck.rememberXmbHintDensity
 import com.winlator.star.ui.deck.rememberXmbHome
 import com.winlator.star.ui.deck.rememberXmbHighlightItem
 import com.winlator.star.ui.deck.xmbChipOverArt
@@ -160,8 +166,8 @@ internal fun StoreXmbScreen(content: @Composable () -> Unit) {
  * XMB home: the content of a store screen with a muted "B Back" hint floating at the bottom right, the look of the shell's
  * Search hint. A tap runs the same back action as the B button (the activity's back dispatcher: a section's own back handler
  * first, then the screen closes). It steps aside while the XMB keyboard panel is up, and it provides [LocalXmbHintInset] so
- * anything floating at the bottom can lift clear of it. [endInset] pushes it in from the right edge when the layer is outside
- * the screen's camera frame. Not [enabled]: [content] unchanged.
+ * anything floating at the bottom can lift clear of it. The hint is drawn at Home's size and place (the Deck density, 16 dp
+ * from the camera cut-out's end edge), so [endInset] is no longer used. Not [enabled]: [content] unchanged.
  */
 @Composable
 internal fun XmbBackHintLayer(enabled: Boolean, endInset: Dp = 0.dp, content: @Composable () -> Unit) {
@@ -172,20 +178,32 @@ internal fun XmbBackHintLayer(enabled: Boolean, endInset: Dp = 0.dp, content: @C
     val ss = rememberScreenScale()
     val keyboard = LocalXmbKeyboard.current
     val dispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
-    val edge = ss.dp(12f)
-    CompositionLocalProvider(LocalXmbHintInset provides edge + XMB_BACK_HINT_HEIGHT) {
+    // The hint is drawn at the Deck style's density and at Home's place (the shell's hint row), so it looks the same on every
+    // page. The inset the page lifts its floating buttons by is in this screen's own dp: convert it.
+    val outer = LocalDensity.current
+    val hintDensity = rememberXmbHintDensity()
+    val k = hintDensity.density / outer.density
+    val cutoutBottom = WindowInsets.displayCutout.asPaddingValues().calculateBottomPadding()
+    CompositionLocalProvider(LocalXmbHintInset provides (ss.dp(12f) + XMB_BACK_HINT_HEIGHT) * k + cutoutBottom) {
         Box(Modifier.fillMaxSize()) {
             content()
             if (keyboard?.panelOpen != true) {
-                DeckFloatingHint(
-                    glyph = "B",
-                    kind = GlyphKind.B,
-                    label = stringResource(R.string.xmb_store_back),
-                    onClick = { dispatcher?.onBackPressed() },
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(end = ss.dp(16f) + endInset, bottom = edge),
-                )
+                CompositionLocalProvider(LocalDensity provides hintDensity) {
+                    val dir = LocalLayoutDirection.current
+                    val cutout = WindowInsets.displayCutout.asPaddingValues()
+                    DeckFloatingHint(
+                        glyph = "B",
+                        kind = GlyphKind.Y,
+                        label = stringResource(R.string.xmb_store_back),
+                        onClick = { dispatcher?.onBackPressed() },
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(
+                                end = ss.dp(16f) + cutout.calculateEndPadding(dir),
+                                bottom = ss.dp(12f) + cutout.calculateBottomPadding(),
+                            ),
+                    )
+                }
             }
         }
     }
@@ -386,35 +404,6 @@ internal fun rememberXmbRailCycle(
     return stops
 }
 
-/** The L2 / R2 glyphs at the top of the store rail: they show the bar moves with the triggers, and a tap steps it too. */
-@Composable
-internal fun XmbRailBumpers() {
-    val s = rememberScreenScale()
-    val cs = MaterialTheme.colorScheme
-    // The Deck's bumper keycap, drawn smaller: two DeckGlyphs (30 dp each at least) don't fit side by side in the rail.
-    val cap = RoundedCornerShape(topStart = s.dp(7f), topEnd = s.dp(7f), bottomStart = s.dp(4f), bottomEnd = s.dp(4f))
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(s.dp(3f), Alignment.CenterHorizontally),
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().padding(vertical = s.dp(2f)),
-    ) {
-        listOf("L2" to -1, "R2" to 1).forEach { (glyph, delta) ->
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .clip(cap)
-                    .focusProperties { canFocus = false }
-                    .clickable { StoreXmbInput.onCycle?.invoke(delta) }
-                    .background(cs.surfaceContainerHigh.copy(alpha = 0.7f), cap)
-                    .border(1.dp, cs.onSurfaceVariant.copy(alpha = 0.6f), cap)
-                    .padding(horizontal = s.dp(4f), vertical = s.dp(2f)),
-            ) {
-                Text(glyph, color = cs.onSurfaceVariant, fontSize = s.sp(9f), fontWeight = FontWeight.ExtraBold, maxLines = 1)
-            }
-        }
-    }
-}
-
 /** The slim rail's width: room for the icons, and the current tab's short label under its icon. */
 internal fun ScreenScale.xmbRailWidth(): Dp = w(0.055f, min = 52.dp, max = 76.dp)
 
@@ -433,10 +422,13 @@ internal fun steamTallArt(appId: Int): String =
 
 /**
  * One rail entry, packed tight: just the icon, and on the tab you're on its one-line label (the count, if any, on a
- * second line) under it. The tabs sit edge to edge, each at least 40 dp tall so it stays easy to tap.
+ * second line) under it. The tabs sit edge to edge, each at least 40 dp tall so it stays easy to tap. Its selected look
+ * (accent fill, accent icon and label) follows [selected] only, never focus: when the outline moves on into the page the
+ * tab stays as it is. [rail] is the rail's [XmbRailState]: Up / Down onto the tab selects it, and Left back from the page
+ * lands on the selected one (null: neither).
  */
 @Composable
-internal fun XmbRailItem(label: String, icon: ImageVector, selected: Boolean, count: Int?, onClick: () -> Unit) {
+internal fun XmbRailItem(label: String, icon: ImageVector, selected: Boolean, count: Int?, onClick: () -> Unit, rail: XmbRailState? = null) {
     val s = rememberScreenScale()
     val shape = RoundedCornerShape(s.dp(10f))
     val hl = rememberXmbHighlightItem()
@@ -444,6 +436,7 @@ internal fun XmbRailItem(label: String, icon: ImageVector, selected: Boolean, co
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 4.dp)
+            .xmbRailItem(rail, selected, onClick)
             .xmbRing(shape, hl)
             .clip(shape)
             .background(if (selected) LocalAccentDim.current else Color.Transparent)
