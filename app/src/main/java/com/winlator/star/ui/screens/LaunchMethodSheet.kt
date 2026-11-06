@@ -79,6 +79,8 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
@@ -103,6 +105,9 @@ import com.winlator.star.ui.DeckDialogScaled
 import com.winlator.star.ui.deck.DeckInk
 import com.winlator.star.ui.deck.deckFocusRing
 import com.winlator.star.ui.deck.deckFocusRingInk
+import com.winlator.star.ui.deck.xmbPopActive
+import com.winlator.star.ui.deck.xmbPopCard
+import com.winlator.star.ui.deck.xmbPopFill
 import com.winlator.star.ui.theme.AppThemeState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -765,7 +770,7 @@ private fun DeckLandscapeCard(
         }
     }
 
-    androidx.compose.runtime.CompositionLocalProvider(LocalTouchOnlyChrome provides true) {
+    androidx.compose.runtime.CompositionLocalProvider(LocalTouchOnlyChrome provides true, LocalPopRaised provides true) {
         // Not fillMaxSize: the box wraps the card, so a tap outside it still dismisses the dialog as before.
         BoxWithConstraints(contentAlignment = Alignment.Center) {
             val w = if (constraints.hasBoundedWidth) maxWidth * 0.92f else (cfg.screenWidthDp * 0.92f).dp
@@ -817,7 +822,8 @@ private fun DeckLandscapeCard(
                                         }
                                     }
                                     .focusable(),
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                // 8 dp between the raised rows: their shadows reach 6 dp above and 14 dp below.
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     MicroLabel("Launch with")
@@ -846,7 +852,8 @@ private fun DeckLandscapeCard(
                                     .weight(0.40f)
                                     .fillMaxHeight()
                                     .verticalScroll(rememberScrollState())
-                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                    // 16 dp at the sides and bottom: the raised rows' shadows reach 10 dp aside and 14 dp below, and the scroll clips them.
+                                    .padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 16.dp),
                             ) {
                                 MicroLabel(methodLabel(method, rawLabel))
                                 Spacer(Modifier.height(6.dp))
@@ -864,11 +871,13 @@ private fun DeckLandscapeCard(
                                         subtitle = SUB_PASSTHROUGH,
                                         accent = accent, onHelp = { toggleHelp(HELP_PASS) }, onClick = { onPassthrough(!passthrough) },
                                     ) { DeckPill(passthrough, accent) }
+                                    Spacer(Modifier.height(8.dp))
                                     DeckOptionRow(
                                         title = "Steam Input", badge = "NEW",
                                         subtitle = SUB_STEAM_INPUT,
                                         accent = accent, onHelp = { toggleHelp(HELP_STEAMINPUT) }, onClick = { onSteamInput(!steamInput) },
                                     ) { DeckPill(steamInput, accent) }
+                                    Spacer(Modifier.height(8.dp))
                                     DeckOptionRow(
                                         title = "Requires secure (VAC) launch", badge = "NEW",
                                         subtitle = vacSubtitle(detectedVac),
@@ -888,7 +897,8 @@ private fun DeckLandscapeCard(
                                     .weight(0.33f)
                                     .fillMaxHeight()
                                     .padding(horizontal = 14.dp, vertical = 12.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                                // 8 dp between the raised rows and buttons: their shadows reach 6 dp above and 14 dp below.
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
                                 MicroLabel("Options")
                                 if (hasDetails) {
@@ -907,7 +917,6 @@ private fun DeckLandscapeCard(
                                 ) { DeckPill(rememberChoice, accent) }
                                 // Steam-only game-files maintenance.
                                 if (isSteam && appId > 0 && (onVerifyFiles != null || onUpdateFiles != null)) {
-                                    Spacer(Modifier.height(4.dp))
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         val shape = RoundedCornerShape(9.dp)
                                         if (onVerifyFiles != null) {
@@ -948,14 +957,22 @@ private fun DeckMethodRow(
 ) {
     val cs = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(12.dp)
+    val raised = popRaised()
+    // XMB: a raised panel (the selected one keeps its accent tint, ring and ink); the others get no border, the hairline is their edge.
+    val fill = popFill(
+        if (selected) accent.copy(alpha = 0.16f) else cs.surfaceContainerHigh,
+        tint = if (selected) accent else null, tintAlpha = 0.16f,
+    )
     Row(
         Modifier
             .fillMaxWidth()
             .height(48.dp)
             .then(if (focused) Modifier.shadow(18.dp, shape, ambientColor = accent, spotColor = accent) else Modifier)
-            .clip(shape)
-            .background(if (selected) accent.copy(alpha = 0.16f) else cs.surfaceContainerHigh)
-            .border(if (focused) 3.dp else 1.dp, if (selected) accent else cs.outline, shape)
+            .popCard(shape, fill)
+            .then(
+                if (raised && !selected && !focused) Modifier
+                else Modifier.border(if (focused) 3.dp else 1.dp, if (selected) accent else cs.outline, shape)
+            )
             .focusProperties { canFocus = false }
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 12.dp),
@@ -994,13 +1011,15 @@ private fun DeckOptionRow(
     trailing: @Composable () -> Unit,
 ) {
     val shape = RoundedCornerShape(10.dp)
+    // XMB: a raised panel (its fill is read out here: the ink below changes the text colours it is checked against).
+    val fill = popFill(Color.Unspecified)
     // XMB: the gliding outline marks the row and its text turns accent through the ink (a toggle row stays ONE stop: A flips it).
     DeckInk { item, cs ->
         Row(
             Modifier
                 .fillMaxWidth()
                 .deckFocusRingInk(shape, item, scaleTo = 1f)
-                .clip(shape)
+                .popCard(shape, fill)
                 .clickable(onClick = onClick)
                 .padding(vertical = 7.dp, horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -1050,7 +1069,9 @@ private fun DeckPill(checked: Boolean, accent: Color) {
 @Composable
 private fun DeckGoldbergList(mode: GoldbergMode, accent: Color, onSelected: (GoldbergMode) -> Unit, toggleHelp: (String) -> Unit) {
     val cs = MaterialTheme.colorScheme
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    val raised = popRaised()
+    // 8 dp between the rows: their shadows reach 6 dp above and 14 dp below.
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             MicroLabel("Goldberg mode")
             Spacer(Modifier.width(6.dp))
@@ -1059,14 +1080,17 @@ private fun DeckGoldbergList(mode: GoldbergMode, accent: Color, onSelected: (Gol
         GOLDBERG_OPTIONS.forEach { opt ->
             val sel = opt.mode == mode
             val shape = RoundedCornerShape(10.dp)
+            val fill = popFill(
+                if (sel) accent.copy(alpha = 0.14f) else cs.surfaceContainerHigh,
+                tint = if (sel) accent else null, tintAlpha = 0.14f,
+            )
             DeckInk { item, ink ->
                 Row(
                     Modifier
                         .fillMaxWidth()
                         .deckFocusRingInk(shape, item, scaleTo = 1f)
-                        .clip(shape)
-                        .background(if (sel) accent.copy(alpha = 0.14f) else cs.surfaceContainerHigh)
-                        .border(1.dp, if (sel) accent else cs.outline, shape)
+                        .popCard(shape, fill)
+                        .then(if (raised && !sel) Modifier else Modifier.border(1.dp, if (sel) accent else cs.outline, shape))
                         .clickable { onSelected(opt.mode) }
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -1087,6 +1111,14 @@ private fun DeckGoldbergList(mode: GoldbergMode, accent: Color, onSelected: (Gol
 private fun DeckFooter(accent: Color, onDismiss: () -> Unit, launch: (() -> Unit)?, launchLabel: String) {
     val cs = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(12.dp)
+    val raised = popRaised()
+    // XMB: Cancel is a raised panel, Launch keeps its accent fill with the same lift (opaque, so a disabled one is the accent mixed into the panel).
+    val cancelFill = popFill(Color.Unspecified)
+    val launchFill = when {
+        launch != null -> accent
+        raised -> lerp(cs.surface, accent, 0.38f)
+        else -> accent.copy(alpha = 0.38f)
+    }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         DeckInk { item, ink ->
             Box(
@@ -1094,8 +1126,8 @@ private fun DeckFooter(accent: Color, onDismiss: () -> Unit, launch: (() -> Unit
                     .weight(1f)
                     .height(46.dp)
                     .deckFocusRingInk(shape, item, scaleTo = 1f)
-                    .clip(shape)
-                    .border(1.dp, cs.outline, shape)
+                    .popCard(shape, cancelFill)
+                    .then(if (raised) Modifier else Modifier.border(1.dp, cs.outline, shape))
                     .clickable(onClick = onDismiss),
                 contentAlignment = Alignment.Center,
             ) {
@@ -1107,8 +1139,7 @@ private fun DeckFooter(accent: Color, onDismiss: () -> Unit, launch: (() -> Unit
                 .weight(1f)
                 .height(46.dp)
                 .deckFocusRing(shape, scaleTo = 1f)
-                .clip(shape)
-                .background(if (launch != null) accent else accent.copy(alpha = 0.38f))
+                .popCard(shape, launchFill)
                 .clickable(enabled = launch != null) { launch?.invoke() },
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
@@ -1641,11 +1672,12 @@ private fun MaintButton(
 ) {
     val cs = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(if (compact) 9.dp else 10.dp)
+    val raised = popRaised()
+    val fill = popFill(cs.surfaceContainerHigh, small = true)
     Row(
         modifier
-            .clip(shape)
-            .background(cs.surfaceContainerHigh)
-            .border(1.dp, cs.outline, shape)
+            .popCard(shape, fill)
+            .then(if (raised) Modifier else Modifier.border(1.dp, cs.outline, shape))
             .clickable(onClick = onClick)
             .padding(vertical = if (compact) 6.dp else 8.dp, horizontal = if (compact) 6.dp else 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1746,11 +1778,39 @@ private val LocalTouchOnlyChrome = androidx.compose.runtime.compositionLocalOf {
 private fun Modifier.touchOnlyChrome(): Modifier =
     if (LocalTouchOnlyChrome.current) this.focusProperties { canFocus = false } else this
 
+/**
+ * True inside the Deck landscape card (XMB): its buttons, rows and "?" dots are raised panels (opaque fill, a hairline of light
+ * along the top edge, a soft shadow; see xmbPopCard). Everywhere else the popup keeps its flat tiles.
+ */
+private val LocalPopRaised = androidx.compose.runtime.compositionLocalOf { false }
+
+/** [LocalPopRaised] and the XMB glass is there to draw it. */
+@Composable
+private fun popRaised(): Boolean = LocalPopRaised.current && xmbPopActive()
+
+/**
+ * The fill of an element: its raised tone in the Deck landscape card ([small]: the stronger lift of a chip; [tint] at [tintAlpha]
+ * over it when selected), else [plain] (Color.Unspecified: the element had none). Read it outside an XmbInk block.
+ */
+@Composable
+private fun popFill(plain: Color, small: Boolean = false, tint: Color? = null, tintAlpha: Float = 0f): Color =
+    if (popRaised()) xmbPopFill(small, tint, tintAlpha) else plain
+
+/** The element as a raised panel ([fill] from [popFill]) in the Deck landscape card; elsewhere what it was: clipped, and filled if it had a fill. */
+@Composable
+private fun Modifier.popCard(shape: Shape, fill: Color): Modifier =
+    if (popRaised()) this.xmbPopCard(shape, fill)
+    else if (fill != Color.Unspecified) this.clip(shape).background(fill)
+    else this.clip(shape)
+
 @Composable
 private fun CloseButton(onDismiss: () -> Unit, size: androidx.compose.ui.unit.Dp = 28.dp) {
     val cs = MaterialTheme.colorScheme
+    val raised = popRaised()
+    val shape = RoundedCornerShape(8.dp)
+    val fill = popFill(Color.Unspecified, small = true)
     Box(
-        Modifier.size(size).clip(RoundedCornerShape(8.dp)).border(1.dp, cs.outline, RoundedCornerShape(8.dp)).touchOnlyChrome().clickable(onClick = onDismiss),
+        Modifier.size(size).popCard(shape, fill).then(if (raised) Modifier else Modifier.border(1.dp, cs.outline, shape)).touchOnlyChrome().clickable(onClick = onDismiss),
         contentAlignment = Alignment.Center,
     ) {
         Icon(Icons.Filled.Close, contentDescription = "Close", tint = cs.onSurfaceVariant, modifier = Modifier.size(size * 0.55f))
@@ -1761,10 +1821,14 @@ private fun CloseButton(onDismiss: () -> Unit, size: androidx.compose.ui.unit.Dp
 @Composable
 private fun HelpDot(accent: Color, highlighted: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val cs = MaterialTheme.colorScheme
+    val raised = popRaised()
+    val fill = popFill(
+        if (highlighted) accent.copy(alpha = 0.16f) else cs.surfaceVariant,
+        small = true, tint = if (highlighted) accent else null, tintAlpha = 0.16f,
+    )
     Box(
-        modifier.size(16.dp).clip(CircleShape)
-            .background(if (highlighted) accent.copy(alpha = 0.16f) else cs.surfaceVariant)
-            .border(1.dp, if (highlighted) accent.copy(alpha = 0.55f) else cs.outline, CircleShape)
+        modifier.size(16.dp).popCard(CircleShape, fill)
+            .then(if (raised && !highlighted) Modifier else Modifier.border(1.dp, if (highlighted) accent.copy(alpha = 0.55f) else cs.outline, CircleShape))
             .touchOnlyChrome()
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,

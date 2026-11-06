@@ -591,7 +591,7 @@ internal fun DeckCard(modifier: Modifier = Modifier, content: @Composable Column
 /** Hairline between rows of a [DeckCard]. */
 @Composable
 internal fun DeckRowDivider() {
-    HorizontalDivider(color = deckLine().copy(alpha = 0.5f), thickness = 1.dp)
+    HorizontalDivider(color = deckLineAt(0.5f), thickness = 1.dp)
 }
 
 /**
@@ -777,7 +777,7 @@ internal fun DeckPill(text: String, modifier: Modifier = Modifier) {
         maxLines = 1,
         modifier = modifier
             .clip(RoundedCornerShape(14.dp))
-            .background(cs.surfaceVariant.copy(alpha = 0.8f))
+            .background(deckInset(0.8f))
             .padding(horizontal = 12.dp, vertical = 6.dp),
     )
 }

@@ -70,7 +70,8 @@ import com.winlator.star.ui.deck.DeckInk
 import com.winlator.star.ui.deck.XmbHighlightItem
 import com.winlator.star.ui.deck.deckFocusRingInk
 import androidx.compose.material3.ColorScheme
-import com.winlator.star.ui.deck.deckLine
+import com.winlator.star.ui.deck.deckInset
+import com.winlator.star.ui.deck.deckLineAt
 import com.winlator.star.ui.deck.rememberXmbEdit
 import com.winlator.star.ui.deck.rememberXmbHome
 import com.winlator.star.ui.screens.ComponentRemoveDialog
@@ -514,8 +515,8 @@ private fun StatePill(label: String, accent: Boolean, dim: Boolean, icon: ImageV
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier
             .clip(shape)
-            .background(if (accent && !dim) cs.primary.copy(alpha = 0.14f) else cs.surfaceVariant.copy(alpha = 0.45f))
-            .border(1.5.dp, if (accent && !dim) cs.primary else deckLine().copy(alpha = 0.6f), shape)
+            .background(if (accent && !dim) cs.primary.copy(alpha = 0.14f) else deckInset(0.45f))
+            .border(1.5.dp, if (accent && !dim) cs.primary else deckLineAt(0.6f), shape)
             .padding(horizontal = 14.dp, vertical = 7.dp),
     ) {
         icon?.let { Icon(it, contentDescription = null, tint = ink, modifier = Modifier.size(18.dp)) }

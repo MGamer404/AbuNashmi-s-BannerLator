@@ -131,6 +131,39 @@ internal fun deckCardFill(): Color = xmbPageFrost()?.card ?: MaterialTheme.color
 @Composable
 internal fun deckLine(): Color = xmbPageFrost()?.line ?: MaterialTheme.colorScheme.outline.copy(alpha = 0.8f)
 
+// The XMB glass turns `surfaceVariant` into translucent white (alpha 0.12) and `deckLine()` into white at 13%. The settings controls
+// (segmented tracks, selects, chips, fields) used `surfaceVariant.copy(alpha = 0.55f)` and `deckLine().copy(alpha = 0.5f)`: `copy(alpha)`
+// REPLACES the alpha, so on the glass they became white at 55% / 50%, the washed light-grey tracks with a bright white border. These two
+// keep the intent (an inset fill, a soft line) on the glass and are exactly the old expressions everywhere else.
+
+/** The alpha [deckLine] has outside the glass; [deckSoftLine] scales a softer line from it. */
+internal const val DECK_LINE_BASE_ALPHA = 0.8f
+
+/** How dark the inset controls are on the XMB glass: black over the card, so a track reads as a groove and its labels gain contrast. */
+internal const val XMB_INSET_BLACK_ALPHA = 0.26f
+
+/**
+ * The fill of an inset control (a track, a select, a chip, a small button) from the scheme's [variant] surface. On an opaque scheme
+ * that is [variant] at [alpha], as it always was. On the XMB glass the scheme's variant is translucent frost (alpha below 1), and
+ * laying it at [alpha] would paint it as near-white; there the control is a darker translucent black over the card instead.
+ */
+internal fun deckInsetFill(variant: Color, alpha: Float): Color =
+    if (variant.alpha < 1f) Color.Black.copy(alpha = XMB_INSET_BLACK_ALPHA) else variant.copy(alpha = alpha)
+
+@Composable
+internal fun deckInset(alpha: Float = 0.55f): Color = deckInsetFill(MaterialTheme.colorScheme.surfaceVariant, alpha)
+
+/** A softer [line] (a glass line, whose alpha is already low): its own alpha scaled by [alpha] relative to [DECK_LINE_BASE_ALPHA]. */
+internal fun deckSoftLine(line: Color, alpha: Float): Color =
+    line.copy(alpha = line.alpha * (alpha / DECK_LINE_BASE_ALPHA).coerceIn(0f, 1f))
+
+/** [deckLine] at [alpha]: `deckLine().copy(alpha = alpha)` outside the glass, a proportionally softer glass line on it. */
+@Composable
+internal fun deckLineAt(alpha: Float): Color {
+    val frost = xmbPageFrost() ?: return deckLine().copy(alpha = alpha)
+    return deckSoftLine(frost.line, alpha)
+}
+
 /**
  * The Deck focus treatment: the focused element scales up and gets an accent outline with a soft
  * accent glow. Put it BEFORE the clickable/focusable modifier so it can observe that node's focus.

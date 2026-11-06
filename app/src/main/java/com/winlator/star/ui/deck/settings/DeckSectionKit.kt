@@ -30,7 +30,8 @@ import com.winlator.star.ui.deck.DeckInk
 import com.winlator.star.ui.deck.XmbGroupItem
 import com.winlator.star.ui.deck.deckFocusRing
 import com.winlator.star.ui.deck.deckFocusRingInk
-import com.winlator.star.ui.deck.deckLine
+import com.winlator.star.ui.deck.deckInset
+import com.winlator.star.ui.deck.deckLineAt
 import com.winlator.star.ui.deck.rememberXmbFocusGroup
 import com.winlator.star.ui.deck.rememberXmbHome
 import com.winlator.star.ui.deck.xmbInner
@@ -242,8 +243,8 @@ internal fun DeckSmallButton(label: String, icon: ImageVector? = null, enabled: 
                 .deckFocusRingInk(shape, item, scaleTo = 1f)
                 .xmbInner()
                 .clip(shape)
-                .background(cs.surfaceVariant.copy(alpha = 0.45f))
-                .border(1.dp, deckLine().copy(alpha = 0.7f), shape)
+                .background(deckInset(0.45f))
+                .border(1.dp, deckLineAt(0.7f), shape)
                 .clickable(enabled = enabled, onClick = onClick)
                 .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {

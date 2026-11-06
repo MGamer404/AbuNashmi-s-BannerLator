@@ -689,6 +689,86 @@ internal fun Modifier.xmbPanel(shape: Shape, fill: Color): Modifier {
     return this.clip(shape).background(glass.panel).then(top).border(1.dp, glass.frost.line, shape)
 }
 
+// ---------------------------------------------------------------------------------------------------------------------
+// Raised elements on a popup's own panel (the launch popup): opaque fill, the top-edge hairline and the soft shadow.
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** White over the popup's panel for a raised row / tile / button, and for a small raised element (a "?" dot, a close button): the card and chip lifts of the glass. */
+internal const val XMB_POP_LIFT = FROST_CARD_ALPHA
+internal const val XMB_POP_LIFT_SMALL = FROST_RAISED_ALPHA
+
+/**
+ * The opaque fill of a raised element sitting on the opaque [surface] of a popup: [lift] of white over it, then (for a selected
+ * one) [tint] at [tintAlpha] over that. The lift backs off, down to none, until every one of [inks] (the colours of the text and
+ * icons drawn on it) keeps [XMB_WASH_MIN_CONTRAST] on the result; if it already fails on the plain [surface] that is the theme's
+ * own doing and the lift just goes to none. Never translucent.
+ */
+internal fun xmbPopFillOf(surface: Color, lift: Float, tint: Color?, tintAlpha: Float, inks: List<Color>): Color {
+    val ground = Color(surface.red, surface.green, surface.blue)
+    fun build(steps: Int): Color {
+        var fill = overColor(ground, Color.White.copy(alpha = steps / 1000f))
+        if (tint != null && tintAlpha > 0f) fill = overColor(fill, tint.copy(alpha = tintAlpha))
+        return fill
+    }
+    fun readable(fill: Color): Boolean {
+        val lum = xmbLuminance(fill.red, fill.green, fill.blue)
+        return inks.all { xmbContrast(xmbLuminance(it.red, it.green, it.blue), lum) >= XMB_WASH_MIN_CONTRAST }
+    }
+    var steps = (lift.coerceIn(0f, 1f) * 1000f).roundToInt()
+    var fill = build(steps)
+    while (steps > 0 && !readable(fill)) {
+        steps--
+        fill = build(steps)
+    }
+    return fill
+}
+
+/** True where a popup sits in the XMB interface (the glass is provided, on every XMB page and over Home): the raised look applies. */
+@Composable
+internal fun xmbPopActive(): Boolean = LocalXmbGlass.current != null
+
+/**
+ * The fill of a raised element on a popup's panel ([MaterialTheme]'s `surface`): a slightly lighter opaque tone ([small]: the
+ * stronger lift of a chip), [tint] (the accent) at [tintAlpha] over it for a selected one. Read it OUTSIDE an [XmbInk] block (the
+ * ink changes the text colours the lift is checked against). Not in XMB mode: the scheme's `surfaceContainerHigh`.
+ */
+@Composable
+internal fun xmbPopFill(small: Boolean = false, tint: Color? = null, tintAlpha: Float = 0f): Color {
+    val cs = MaterialTheme.colorScheme
+    val glass = LocalXmbGlass.current
+    return remember(glass, cs.surface, cs.onSurface, cs.onSurfaceVariant, cs.primary, small, tint, tintAlpha) {
+        if (glass == null) {
+            cs.surfaceContainerHigh
+        } else {
+            val inks = ArrayList<Color>(4)
+            inks.add(cs.onSurface)
+            inks.add(cs.onSurfaceVariant)
+            inks.add(xmbInkColor(cs.primary, cs.onSurface, glass.panel))
+            if (tint != null) inks.add(tint)
+            xmbPopFillOf(cs.surface, if (small) XMB_POP_LIFT_SMALL else XMB_POP_LIFT, tint, tintAlpha, inks)
+        }
+    }
+}
+
+/**
+ * A raised element on a popup's own opaque panel: `clip(shape)`, the opaque [fill] (see [xmbPopFill]; never translucent), the
+ * 1 dp hairline of light along the top edge and, with [shadow], the soft shadow of [xmbGlassCard] so it lifts off the panel (the
+ * shadow is cut out of the element's own outline, so it never darkens it). It is the dialog counterpart of [xmbGlassCard], which
+ * keeps a dialog flat because a see-through card would show the dimmed page; an element on the popup's own panel has no such page
+ * behind it. Not in XMB mode: exactly `clip(shape).background(fill)`.
+ *
+ * The shadow is drawn outside the element (before the clip) and reaches ~10 dp to the sides, 6 dp above and 14 dp below it (see
+ * [xmbShadowLayers]): keep 8 dp or more between raised elements and 10 dp or more of padding to a scrolling column's edge.
+ */
+@Composable
+internal fun Modifier.xmbPopCard(shape: Shape, fill: Color, shadow: Boolean = true): Modifier {
+    if (LocalXmbGlass.current == null) return this.clip(shape).background(fill)
+    val top = remember(shape) { xmbGlassTopDraw(shape, null) }
+    if (!shadow) return this.clip(shape).background(fill).then(top)
+    val drop = remember(shape) { xmbShadowDraw(shape) }
+    return this.then(drop).clip(shape).background(fill).then(top)
+}
+
 /**
  * For a panel that draws its own glass ([xmbPanel]) outside the glass pages (the search over Home): the same scheme the glass
  * pages have, so its text is the one the glass was tuned for. Not in XMB mode: [content] as is.

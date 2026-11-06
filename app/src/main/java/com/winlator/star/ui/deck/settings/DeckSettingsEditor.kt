@@ -55,9 +55,13 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchColors
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextFieldColors
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -89,6 +93,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.preference.PreferenceManager
@@ -107,7 +112,12 @@ import com.winlator.star.ui.deck.deckCardFill
 import com.winlator.star.ui.deck.deckFocusRing
 import com.winlator.star.ui.deck.deckFocusRingInk
 import com.winlator.star.ui.deck.deckGlass
+import com.winlator.star.ui.deck.deckInset
 import com.winlator.star.ui.deck.deckLine
+import com.winlator.star.ui.deck.deckLineAt
+import com.winlator.star.ui.deck.ScreenScale
+import com.winlator.star.ui.deck.rememberScreenScale
+import com.winlator.star.ui.deck.xmbPageFrost
 import com.winlator.star.ui.deck.rememberXmbEdit
 import com.winlator.star.ui.deck.rememberXmbFocusGroup
 import com.winlator.star.ui.deck.XmbRailState
@@ -199,6 +209,9 @@ internal fun DeckSettingsEditor(
     val context = LocalContext.current
     val env = source.env
     val compact = isDeckCompact(LocalConfiguration.current)
+    // XMB two-pane layout: no title block, the mode switch and the section header share one slim line (see SlimEditorTop / SlimPageLine).
+    // Classic, the plain Deck and the XMB phone layout keep the big header.
+    val slim = rememberXmbHome() && !compact
     val prefs = remember { PreferenceManager.getDefaultSharedPreferences(context) }
     var level by remember {
         mutableStateOf(runCatching { SettingLevel.valueOf(prefs.getString(LEVEL_PREF, null) ?: "") }.getOrDefault(SettingLevel.SIMPLE))
@@ -334,16 +347,26 @@ internal fun DeckSettingsEditor(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        EditorTop(
-            header = header,
-            level = level,
-            onLevel = changeLevel,
-            onSearch = { query = query ?: "" },
-            onBack = onExit?.let { exit -> { guard(exit) } },
-            onChainLink = { link -> onChainLink?.let { cb -> guard { cb(link) } } },
-            compact = compact,
-            extra = headerExtra,
-        )
+        if (slim) {
+            // Search is Y (and the shell's floating Search hint): both go through `deckActions.search` above, so the top line has no button.
+            SlimEditorTop(
+                header = header,
+                onBack = onExit?.let { exit -> { guard(exit) } },
+                onChainLink = { link -> onChainLink?.let { cb -> guard { cb(link) } } },
+                extra = headerExtra,
+            )
+        } else {
+            EditorTop(
+                header = header,
+                level = level,
+                onLevel = changeLevel,
+                onSearch = { query = query ?: "" },
+                onBack = onExit?.let { exit -> { guard(exit) } },
+                onChainLink = { link -> onChainLink?.let { cb -> guard { cb(link) } } },
+                compact = compact,
+                extra = headerExtra,
+            )
+        }
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             val page: @Composable (Modifier) -> Unit = { mod ->
                 val q = query
@@ -379,6 +402,7 @@ internal fun DeckSettingsEditor(
                         level = level,
                         overrideCount = over.size,
                         compact = compact,
+                        slim = slim,
                         jumpTo = jumpTo,
                         onJumpDone = { jumpTo = null },
                         flash = flash,
@@ -420,7 +444,25 @@ internal fun DeckSettingsEditor(
                         focusKey = listFocus,
                         modifier = Modifier.width(listWidth).fillMaxHeight(),
                     )
-                    page(Modifier.weight(1f).fillMaxHeight())
+                    if (slim) {
+                        // XMB: the section's own line (icon, name, hint, Reset, the mode switch) is pinned above its rows.
+                        Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                            val shown = current
+                            if (query == null && shown != null) {
+                                val over = overrides(shown.id)
+                                SlimPageLine(
+                                    category = shown,
+                                    overrideCount = over.size,
+                                    onResetAll = { over.forEach { source.reset(it) } },
+                                    level = level,
+                                    onLevel = changeLevel,
+                                )
+                            }
+                            page(Modifier.weight(1f).fillMaxWidth())
+                        }
+                    } else {
+                        page(Modifier.weight(1f).fillMaxHeight())
+                    }
                 }
             }
         }
@@ -578,21 +620,154 @@ private fun EditorTop(
 }
 
 @Composable
-private fun SquareButton(icon: ImageVector, description: String, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(14.dp)
+private fun SquareButton(icon: ImageVector, description: String, onClick: () -> Unit, size: Dp = 46.dp, iconSize: Dp = 22.dp) {
+    val shape = RoundedCornerShape(if (size < 40.dp) 11.dp else 14.dp)
     DeckInk { item, cs ->
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
-                .size(46.dp)
+                .size(size)
                 .deckFocusRingInk(shape, item, scaleTo = 1f)
                 .clip(shape)
                 .background(deckCardFill())
                 .border(1.dp, deckLine(), shape)
                 .clickable(onClick = onClick),
         ) {
-            Icon(icon, contentDescription = description, tint = cs.onSurface, modifier = Modifier.size(22.dp))
+            Icon(icon, contentDescription = description, tint = cs.onSurface, modifier = Modifier.size(iconSize))
         }
+    }
+}
+
+/** What the slim XMB lines grow with on a bigger screen: the base size, times the screen factor when that is above 1 (never below the base). */
+private fun ScreenScale.up(base: Float): Float = base * maxOf(factor, 1f)
+
+/**
+ * The XMB two-pane layout's top line: the page's own name and where it inherits from, in one slim wrapping row (back button, name
+ * with its small kicker, "Inherits from" chain, the Wine layer, a host's [extra]). The app Settings page has none of those (it is a
+ * tab's root, no back, no chain), so it has no top line at all and the panes start straight under the shell's bar.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SlimEditorTop(
+    header: EditorHeader,
+    onBack: (() -> Unit)?,
+    onChainLink: (ChainLink) -> Unit,
+    extra: (@Composable () -> Unit)?,
+) {
+    val named = onBack != null
+    if (!named && header.chain.isEmpty() && header.meta == null && extra == null) return
+    val cs = MaterialTheme.colorScheme
+    val ss = rememberScreenScale()
+    val rowH = ss.up(34f).dp
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 6.dp, bottom = 2.dp),
+    ) {
+        if (onBack != null) {
+            SquareButton(Icons.AutoMirrored.Filled.ArrowBack, "Back", onBack, size = rowH, iconSize = 20.dp)
+        }
+        if (named) {
+            Column(modifier = Modifier.height(rowH).widthIn(max = 300.dp), verticalArrangement = Arrangement.Center) {
+                Text(
+                    text = header.overline.uppercase(),
+                    color = cs.primary,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = ss.up(9.5f).sp,
+                    lineHeight = ss.up(11f).sp,
+                    letterSpacing = 1.5.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = header.title,
+                    color = cs.onSurface,
+                    fontFamily = SoraFamily,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = ss.up(17f).sp,
+                    lineHeight = ss.up(20f).sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        if (header.chain.isNotEmpty()) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.height(rowH).padding(start = if (named) 8.dp else 0.dp)) {
+                Icon(Icons.Filled.AccountTree, contentDescription = null, tint = cs.onSurfaceVariant, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(5.dp))
+                Text("Inherits from", color = cs.onSurfaceVariant, fontWeight = FontWeight.SemiBold, fontSize = ss.up(12.5f).sp, maxLines = 1)
+            }
+        }
+        header.chain.forEachIndexed { i, link ->
+            if (i > 0) {
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.height(rowH)) {
+                    Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = cs.onSurfaceVariant, modifier = Modifier.size(16.dp))
+                }
+            }
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.height(rowH)) {
+                ChainChip(link, onClick = { onChainLink(link) }, slim = true)
+            }
+        }
+        header.meta?.let {
+            Box(contentAlignment = Alignment.CenterStart, modifier = Modifier.height(rowH).padding(start = 6.dp)) {
+                Text(it, color = cs.onSurfaceVariant, fontWeight = FontWeight.SemiBold, fontSize = ss.up(12.5f).sp, maxLines = 1)
+            }
+        }
+        extra?.let { content ->
+            Box(contentAlignment = Alignment.CenterStart, modifier = Modifier.heightIn(min = rowH)) { content() }
+        }
+    }
+}
+
+/**
+ * The XMB two-pane layout's section line, pinned above the section's rows: a small icon, the name, its hint (one line, cut with an
+ * ellipsis where it does not fit), the small Reset pill when the section has overrides, and the compact Simple / Advanced / Expert
+ * switch at the right. It replaces the big icon tile and title and the old header row, so the rows get the room.
+ */
+@Composable
+private fun SlimPageLine(
+    category: SettingsCategory,
+    overrideCount: Int,
+    onResetAll: () -> Unit,
+    level: SettingLevel,
+    onLevel: (SettingLevel) -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    val ss = rememberScreenScale()
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = ss.up(40f).dp)
+            .padding(start = 18.dp, end = 24.dp, top = 3.dp, bottom = 3.dp),
+    ) {
+        Icon(category.icon, contentDescription = null, tint = cs.primary, modifier = Modifier.size(ss.up(20f).dp))
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = category.label,
+            color = cs.onSurface,
+            fontFamily = SoraFamily,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = ss.up(16f).sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.widthIn(max = 220.dp),
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = category.desc,
+            color = cs.onSurfaceVariant,
+            fontSize = ss.up(12.5f).sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        if (overrideCount > 0) {
+            Spacer(Modifier.width(8.dp))
+            ResetAllButton(overrideCount, onResetAll, slim = true)
+        }
+        Spacer(Modifier.width(10.dp))
+        LevelSwitch(level, onLevel, slim = true)
     }
 }
 
@@ -609,18 +784,19 @@ private fun IconTile(icon: ImageVector, size: Dp) {
 
 /** The editor's segmented look, for host screens (e.g. the All-containers architecture switch). */
 @Composable
-internal fun DeckSegmented(options: List<Opt>, value: String, onPick: (String) -> Unit) {
-    SegmentedPills(options, value, enabled = true, alignEnd = false, onPick = onPick)
+internal fun DeckSegmented(options: List<Opt>, value: String, onPick: (String) -> Unit, slim: Boolean = false) {
+    SegmentedPills(options, value, enabled = true, alignEnd = false, onPick = onPick, slim = slim)
 }
 
 @Composable
-private fun LevelSwitch(level: SettingLevel, onLevel: (SettingLevel) -> Unit) {
+private fun LevelSwitch(level: SettingLevel, onLevel: (SettingLevel) -> Unit, slim: Boolean = false) {
     SegmentedPills(
         options = SettingLevel.entries.map { Opt(it.name, it.label) },
         value = level.name,
         enabled = true,
         alignEnd = false,
         onPick = { onLevel(SettingLevel.valueOf(it)) },
+        slim = slim,
     )
 }
 
@@ -646,27 +822,28 @@ private fun SearchButton(onClick: () -> Unit) {
 }
 
 @Composable
-private fun ChainChip(link: ChainLink, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(19.dp)
+private fun ChainChip(link: ChainLink, onClick: () -> Unit, slim: Boolean = false) {
+    val chipH = if (slim) 30.dp else 38.dp
+    val shape = RoundedCornerShape(chipH / 2)
     val here = link.onClick == null
     DeckInk { item, cs ->
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (slim) 6.dp else 8.dp),
             modifier = Modifier
-                .height(38.dp)
+                .height(chipH)
                 .then(if (here) Modifier else Modifier.deckFocusRingInk(shape, item, scaleTo = 1f))
                 .clip(shape)
                 .background(if (here) cs.primary.copy(alpha = 0.16f) else Color.Transparent)
                 .then(if (here) Modifier else Modifier.border(1.dp, deckLine(), shape).clickable(onClick = onClick))
-                .padding(horizontal = 14.dp),
+                .padding(horizontal = if (slim) 11.dp else 14.dp),
         ) {
-            if (!here) Icon(link.icon, contentDescription = null, tint = cs.onSurface, modifier = Modifier.size(18.dp))
+            if (!here) Icon(link.icon, contentDescription = null, tint = cs.onSurface, modifier = Modifier.size(if (slim) 16.dp else 18.dp))
             Text(
                 text = link.label,
                 color = if (here) cs.primary else cs.onSurface,
                 fontWeight = FontWeight.Bold,
-                fontSize = 14.5.sp,
+                fontSize = if (slim) 13.sp else 14.5.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.widthIn(max = 260.dp),
@@ -787,7 +964,7 @@ private sealed interface PageItem {
 }
 private object HeaderItem : PageItem { override val key = "header" }
 private class ResetAllItem(val count: Int) : PageItem { override val key = "resetAll" }
-private class GroupItem(val label: String) : PageItem { override val key = "group:$label" }
+private class GroupItem(val label: String, val tight: Boolean = false) : PageItem { override val key = "group:$label" }
 private class RowItem(val def: SettingDef, val first: Boolean, val last: Boolean) : PageItem { override val key = "row:${def.id}" }
 private class HandoffItem(val handoff: Handoff, val first: Boolean, val last: Boolean) : PageItem { override val key = "handoff:${handoff.label}" }
 private class ExtraItem(val extra: PageExtra) : PageItem { override val key = "extra:${extra.key}" }
@@ -802,6 +979,7 @@ private fun CategoryPage(
     level: SettingLevel,
     overrideCount: Int,
     compact: Boolean,
+    slim: Boolean,
     jumpTo: String?,
     onJumpDone: () -> Unit,
     flash: String?,
@@ -817,11 +995,14 @@ private fun CategoryPage(
     modifier: Modifier,
 ) {
     val pageItems = buildList<PageItem> {
-        add(HeaderItem)
-        if (overrideCount > 0) add(ResetAllItem(overrideCount))
+        // XMB two-pane: the header and the Reset button are the pinned slim line above this list (SlimPageLine), not items of it.
+        if (!slim) {
+            add(HeaderItem)
+            if (overrideCount > 0) add(ResetAllItem(overrideCount))
+        }
         extra?.top?.invoke()?.forEach { add(ExtraItem(it)) }
         rows.groupBy { it.group }.forEach { (group, defs) ->
-            add(GroupItem(group))
+            add(GroupItem(group, tight = slim && isEmpty()))
             defs.forEachIndexed { i, d -> add(RowItem(d, first = i == 0, last = i == defs.lastIndex)) }
         }
         extra?.bottom?.invoke()?.forEach { add(ExtraItem(it)) }
@@ -863,7 +1044,7 @@ private fun CategoryPage(
                 when (item) {
                     is HeaderItem -> PageHeader(category, onBack)
                     is ResetAllItem -> ResetAllButton(item.count, onResetAll)
-                    is GroupItem -> GroupLabel(item.label)
+                    is GroupItem -> GroupLabel(item.label, top = if (item.tight) 4.dp else 16.dp)
                     is RowItem -> GroupCard(item.first, item.last, highlight = flash == item.def.id) {
                         SettingRow(
                             def = item.def,
@@ -906,36 +1087,42 @@ private fun PageHeader(category: SettingsCategory, onBack: (() -> Unit)?) {
 }
 
 @Composable
-private fun ResetAllButton(count: Int, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(14.dp)
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 6.dp)) {
+private fun ResetAllButton(count: Int, onClick: () -> Unit, slim: Boolean = false) {
+    val shape = RoundedCornerShape(if (slim) 12.dp else 14.dp)
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = if (slim) 0.dp else 6.dp)) {
         DeckInk { item, cs ->
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(if (slim) 6.dp else 10.dp),
                 modifier = Modifier
                     .deckFocusRingInk(shape, item, scaleTo = 1f)
                     .clip(shape)
                     .border(1.dp, deckLine(), shape)
                     .clickable(onClick = onClick)
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                    .padding(horizontal = if (slim) 10.dp else 16.dp, vertical = if (slim) 5.dp else 10.dp),
             ) {
-                Icon(Icons.Filled.Restore, contentDescription = null, tint = cs.onSurface, modifier = Modifier.size(20.dp))
-                Text(if (count == 1) "Reset 1 override" else "Reset $count overrides", color = cs.onSurface, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                Icon(Icons.Filled.Restore, contentDescription = null, tint = cs.onSurface, modifier = Modifier.size(if (slim) 15.dp else 20.dp))
+                Text(
+                    text = if (count == 1) "Reset 1 override" else "Reset $count overrides",
+                    color = cs.onSurface,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = if (slim) 12.sp else 15.sp,
+                    maxLines = 1,
+                )
             }
         }
     }
 }
 
 @Composable
-internal fun GroupLabel(label: String) {
+internal fun GroupLabel(label: String, top: Dp = 16.dp) {
     Text(
         text = label.uppercase(),
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         fontWeight = FontWeight.ExtraBold,
         fontSize = 12.5.sp,
         letterSpacing = 2.sp,
-        modifier = Modifier.padding(start = 6.dp, top = 16.dp, bottom = 8.dp),
+        modifier = Modifier.padding(start = 6.dp, top = top, bottom = 8.dp),
     )
 }
 
@@ -954,7 +1141,7 @@ internal fun GroupCard(first: Boolean, last: Boolean, highlight: Boolean, conten
             .xmbGlassSlice(shape, first, last, 18f)
             .background(if (highlight) cs.primary.copy(alpha = 0.12f) else Color.Transparent),
     ) {
-        if (!first) HorizontalDivider(thickness = 1.dp, color = deckLine().copy(alpha = 0.6f))
+        if (!first) HorizontalDivider(thickness = 1.dp, color = deckLineAt(0.6f))
         content()
     }
 }
@@ -1211,7 +1398,7 @@ private fun SourcePill(label: String) {
         modifier = Modifier
             .padding(top = 8.dp)
             .clip(RoundedCornerShape(10.dp))
-            .background(cs.surfaceVariant.copy(alpha = 0.6f))
+            .background(deckInset(0.6f))
             .padding(horizontal = 10.dp, vertical = 4.dp),
     )
 }
@@ -1245,6 +1432,34 @@ private fun labelFor(control: Control, v: String): String = when (control) {
 private fun Modifier.controlRing(shape: Shape): Modifier =
     if (LocalXmbGroup.current != null) this.xmbSkipFocus() else this.deckFocusRing(shape, scaleTo = 1f)
 
+/**
+ * The switch on the XMB glass: its off state is the stock one (an `outline` thumb on a `surfaceContainerHighest` track), and on the
+ * glass those are a near-black thumb on a frosted track, which almost vanishes. There the off thumb is the secondary text colour on
+ * an inset track with the soft line. Elsewhere the stock colours, as before.
+ */
+@Composable
+private fun deckSwitchColors(): SwitchColors {
+    if (xmbPageFrost() == null) return SwitchDefaults.colors()
+    return SwitchDefaults.colors(
+        uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        uncheckedTrackColor = deckInset(),
+        uncheckedBorderColor = deckLine(),
+    )
+}
+
+/** The outlined text fields on the XMB glass: an inset fill and a visible resting border (the stock `outline` is as dark as the card). */
+@Composable
+private fun deckFieldColors(): TextFieldColors {
+    if (xmbPageFrost() == null) return OutlinedTextFieldDefaults.colors()
+    val fill = deckInset()
+    return OutlinedTextFieldDefaults.colors(
+        focusedContainerColor = fill,
+        unfocusedContainerColor = fill,
+        disabledContainerColor = fill,
+        unfocusedBorderColor = deckLine(),
+    )
+}
+
 @Composable
 private fun ControlView(
     control: Control,
@@ -1263,6 +1478,7 @@ private fun ControlView(
             checked = value == "1",
             onCheckedChange = { onPick(if (it) "1" else "0") },
             enabled = enabled,
+            colors = deckSwitchColors(),
             modifier = Modifier.controlRing(RoundedCornerShape(20.dp)),
         )
         is Control.Segmented -> SegmentedPills(control.options, value, enabled, alignEnd, onPick)
@@ -1275,28 +1491,32 @@ private fun ControlView(
     }
 }
 
+/**
+ * A segmented choice. The track is an inset (see [deckInset]: on the XMB glass a darker translucent groove, not the near-white the
+ * frost surface turned into when its alpha was replaced) with a soft line; the selected pill keeps the accent. [slim] is the compact
+ * form of the XMB top lines: smaller type and padding, one row that never wraps.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun SegmentedPills(options: List<Opt>, value: String, enabled: Boolean, alignEnd: Boolean, onPick: (String) -> Unit) {
-    val cs = MaterialTheme.colorScheme
-    val outer = RoundedCornerShape(14.dp)
+private fun SegmentedPills(options: List<Opt>, value: String, enabled: Boolean, alignEnd: Boolean, onPick: (String) -> Unit, slim: Boolean = false) {
+    val outer = RoundedCornerShape(if (slim) 11.dp else 14.dp)
+    val ss = rememberScreenScale()
+    val trackFill = deckInset()
+    val trackLine = deckLineAt(0.5f)
     // Inside an XMB row the pills are its inner buttons: A on the row lands on `landing`, and the selected pill is a stop too
     // (so the pad can rest on the current value and walk away from it).
     val inRow = LocalXmbGroup.current != null
     val landing = xmbLandingIndex(options.map { it.value == value }, options.map { enabled && it.disabledReason == null })
-    FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(2.dp, if (alignEnd) Alignment.End else Alignment.Start),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
-        modifier = Modifier
-            .clip(outer)
-            .background(cs.surfaceVariant.copy(alpha = 0.55f))
-            .border(1.dp, deckLine().copy(alpha = 0.5f), outer)
-            .padding(4.dp),
-    ) {
+    val track = Modifier
+        .clip(outer)
+        .background(trackFill)
+        .border(1.dp, trackLine, outer)
+        .padding(if (slim) 2.dp else 4.dp)
+    val pills: @Composable () -> Unit = {
         options.forEachIndexed { i, o ->
             val sel = o.value == value
             val ok = enabled && o.disabledReason == null
-            val shape = RoundedCornerShape(11.dp)
+            val shape = RoundedCornerShape(if (slim) 9.dp else 11.dp)
             DeckInk { item, ink ->
                 Text(
                     text = o.label,
@@ -1306,7 +1526,8 @@ private fun SegmentedPills(options: List<Opt>, value: String, enabled: Boolean, 
                         else -> ink.onSurfaceVariant.copy(alpha = 0.4f)
                     },
                     fontWeight = FontWeight.Bold,
-                    fontSize = 14.5.sp,
+                    fontSize = if (slim) ss.up(12f).sp else 14.5.sp,
+                    lineHeight = if (slim) ss.up(16f).sp else TextUnit.Unspecified,
                     maxLines = 1,
                     modifier = Modifier
                         .deckFocusRingInk(shape, item, scaleTo = 1f)
@@ -1314,10 +1535,19 @@ private fun SegmentedPills(options: List<Opt>, value: String, enabled: Boolean, 
                         .clip(shape)
                         .background(if (sel) ink.primary.copy(alpha = if (enabled) 1f else 0.5f) else Color.Transparent)
                         .clickable(enabled = ok && (!sel || inRow)) { if (!sel) onPick(o.value) }
-                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                        .padding(horizontal = if (slim) 9.dp else 14.dp, vertical = if (slim) 6.dp else 8.dp),
                 )
             }
         }
+    }
+    if (slim) {
+        Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically, modifier = track) { pills() }
+    } else {
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(2.dp, if (alignEnd) Alignment.End else Alignment.Start),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+            modifier = track,
+        ) { pills() }
     }
 }
 
@@ -1355,8 +1585,8 @@ private fun Pill(label: String, selected: Boolean, enabled: Boolean, first: Bool
                 .deckFocusRingInk(shape, item, scaleTo = 1f)
                 .xmbInner(first = first)
                 .clip(shape)
-                .background(if (selected) cs.primary.copy(alpha = 0.14f) else cs.surfaceVariant.copy(alpha = 0.45f))
-                .border(1.5.dp, if (selected) cs.primary else deckLine().copy(alpha = 0.6f), shape)
+                .background(if (selected) cs.primary.copy(alpha = 0.14f) else deckInset(0.45f))
+                .border(1.5.dp, if (selected) cs.primary else deckLineAt(0.6f), shape)
                 .clickable(enabled = enabled, onClick = onClick)
                 .padding(horizontal = 16.dp, vertical = 9.dp),
         )
@@ -1387,7 +1617,7 @@ private fun SelectBox(
             modifier = Modifier
                 .controlRing(shape)
                 .clip(shape)
-                .background(cs.surfaceVariant.copy(alpha = 0.55f))
+                .background(deckInset())
                 .border(1.dp, deckLine(), shape)
                 .clickable(enabled = enabled) { open = true }
                 .padding(start = 16.dp, end = 10.dp, top = 11.dp, bottom = 11.dp),
@@ -1505,7 +1735,7 @@ private fun StepButton(icon: ImageVector, description: String, enabled: Boolean,
             .size(36.dp)
             .controlRing(CircleShape)
             .clip(CircleShape)
-            .background(cs.surfaceVariant.copy(alpha = 0.55f))
+            .background(deckInset())
             .clickable(enabled = enabled, onClick = onClick),
     ) {
         Icon(icon, contentDescription = description, tint = if (enabled) cs.onSurface else cs.onSurface.copy(alpha = 0.4f), modifier = Modifier.size(20.dp))
@@ -1533,6 +1763,7 @@ private fun TextControl(control: Control.TextField, value: String, enabled: Bool
             placeholder = { Text(control.placeholder) },
             supportingText = if (error != null) { { Text(error) } } else null,
             shape = RoundedCornerShape(14.dp),
+            colors = deckFieldColors(),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
             keyboardActions = if (edit != null) xmbDoneActions { edit.stop() } else KeyboardActions.Default,
             modifier = m,
@@ -1564,7 +1795,7 @@ private fun ChecklistControl(control: Control.Checklist, value: String, enabled:
         modifier = Modifier
             .controlRing(shape)
             .clip(shape)
-            .background(cs.surfaceVariant.copy(alpha = 0.55f))
+            .background(deckInset())
             .border(1.dp, deckLine(), shape)
             .clickable(enabled = usable) { open.value = true }
             .padding(start = 16.dp, end = 10.dp, top = 11.dp, bottom = 11.dp),
@@ -1738,6 +1969,7 @@ private fun SearchPane(
                 ) { Icon(Icons.Filled.Close, contentDescription = "Close search") }
             },
             shape = RoundedCornerShape(16.dp),
+            colors = deckFieldColors(),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             modifier = Modifier.fillMaxWidth().focusRequester(requester),
         )
