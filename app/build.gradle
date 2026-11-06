@@ -71,8 +71,8 @@ android {
         // the same number over-the-top works, so those sideload installs are unaffected).
         // NB: do NOT write the camel-case build-code token in these comments — release.yml greps
         //     for it and takes head -1; a comment match feeds jq an empty value and the job dies.
-        versionCode 104
-        versionName "3.1.8"
+        versionCode 105
+        versionName "3.1.9-pre1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
         externalNativeBuild {
@@ -235,7 +235,7 @@ dependencies {
     implementation 'androidx.preference:preference:1.2.1'
     implementation 'com.google.android.material:material:1.4.0'
     implementation 'com.github.luben:zstd-jni:1.5.2-3@aar'
-    implementation 'org.tukaani:xz:1.7'
+    implementation 'org.tukaani:xz:1.9'
     implementation 'org.apache.commons:commons-compress:1.20'
     implementation 'androidx.activity:activity-ktx:1.8.2'
     implementation 'androidx.fragment:fragment-ktx:1.6.2'
