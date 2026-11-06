@@ -58,6 +58,11 @@ internal class DeckActions {
     /** True while Home shows the full-screen XMB: the shell drops its rails, bars and legend (the XMB has its own). */
     val fullscreen: MutableState<Boolean> = mutableStateOf(false)
     /**
+     * XMB home: true while the All Games page is open over Home. The page draws its own header where the shell's floating tab
+     * bar sits, so the shell leaves that bar out. Set by the page's host while it is open and cleared when it closes or leaves.
+     */
+    val xmbAllGamesOpen: MutableState<Boolean> = mutableStateOf(false)
+    /**
      * XMB: uptime (ms) until which [DeckEntryFocus] leaves focus alone. A page rail that has just switched the page by D-pad
      * keeps the focus on its own tab, so the page it opened must not pull it into the content.
      */

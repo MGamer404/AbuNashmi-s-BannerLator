@@ -814,7 +814,8 @@ private fun DeckShellContent(
 
             // XMB home: the tabs and status float over the XMB's own space above its game row, clear of the camera hole.
             // No backgrounds, so the XMB's backdrop shows through.
-            if (homeBleed) {
+            // Not while the All Games page is open: it has its own header there (back arrow, title, View / Sort).
+            if (homeBleed && !deckActions.xmbAllGamesOpen.value) {
                 DeckFloatingBar(
                     current = tab,
                     tabs = tabs,

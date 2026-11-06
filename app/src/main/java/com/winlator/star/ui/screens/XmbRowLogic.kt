@@ -35,6 +35,15 @@ internal fun xmbSlotOf(paths: List<String>, path: String?, hasAll: Boolean): Int
 internal fun xmbGridColumns(avail: Float, gap: Float, minCell: Float, wanted: Int = XMB_GRID_COLS, minCols: Int = 3): Int =
     ((avail + gap) / (minCell + gap)).toInt().coerceIn(minCols, wanted)
 
+/**
+ * Where a Home row is drawn from: the card position its strip is anchored on (the card at the cross is the one at this
+ * position). [pos] is the row's remembered position (the card it is on), [active] how much the row is the one in use, 0..1
+ * (1 = in use, 0 = the other row is). An active row is anchored on [pos]; a row that is not in use rests at [rest] (the first
+ * card, so its small cards start at the left edge) whatever [pos] is, and the anchor glides between the two as [active] animates.
+ * [pos] itself is never changed, so the row finds its card again when it becomes the active one.
+ */
+internal fun xmbRowAnchor(pos: Float, active: Float, rest: Float = 0f): Float = rest + (pos - rest) * active.coerceIn(0f, 1f)
+
 internal enum class XmbMove { LEFT, RIGHT, UP, DOWN, PAGE_UP, PAGE_DOWN }
 
 /**
@@ -166,5 +175,48 @@ internal fun xmbCenterCrop(srcW: Int, srcH: Int, dstW: Int, dstH: Int): XmbRect 
         val h = (srcW.toLong() * dstH / dstW).toInt().coerceIn(1, srcH)
         val t = (srcH - h) / 2
         XmbRect(0, t, srcW, t + h)
+    }
+}
+
+// The All Games page's header band: the row of back arrow, title, View and Sort at the top, with the covers scrolling under it.
+
+/** The header row is never shorter than this (dp): the back arrow's tap area. */
+internal const val XMB_ALL_HEADER_MIN_HEIGHT = 48f
+
+/** The header row's height and its gap above it and below it, in dp as drawn on a 412 dp phone (they follow the screen scale). */
+internal const val XMB_ALL_HEADER_HEIGHT = 40f
+internal const val XMB_ALL_HEADER_TOP = 6f
+internal const val XMB_ALL_HEADER_GAP = 6f
+
+/**
+ * Where the header sits and how much of the top it takes, all in dp from the page's top edge. [top] is the header row's top, [height]
+ * its height and [band] the whole header zone: the first row of covers starts there, and what scrolls up into it fades out.
+ */
+internal data class XmbAllHeader(val top: Float, val height: Float, val band: Float) {
+    /** Below this y the covers start to show; above it they are fully faded out. */
+    val fadeStart: Float get() = top + height * 0.2f
+}
+
+/**
+ * The header for a screen of scale [scale] ([ScreenScale.factor]) whose top [inset] (dp) is taken by the camera cut-out or by a
+ * see-through top bar. The row is at least [XMB_ALL_HEADER_MIN_HEIGHT] tall.
+ */
+internal fun xmbAllHeader(inset: Float, scale: Float): XmbAllHeader {
+    val top = inset.coerceAtLeast(0f) + XMB_ALL_HEADER_TOP * scale
+    val height = maxOf(XMB_ALL_HEADER_MIN_HEIGHT, XMB_ALL_HEADER_HEIGHT * scale)
+    return XmbAllHeader(top, height, top + height + XMB_ALL_HEADER_GAP * scale)
+}
+
+/**
+ * The scroll [delta] (px, positive = scroll forward, so the content moves up) that brings a cell spanning [cellTop]..[cellBottom]
+ * fully into the visible part of its viewport, [topMargin] px clear at the top (the header) and [bottomMargin] px at the bottom
+ * (the floating hints), which is [viewportHeight] tall; 0 when it already is. A cell taller than the room shows its top.
+ */
+internal fun xmbRevealDelta(cellTop: Float, cellBottom: Float, viewportHeight: Float, topMargin: Float, bottomMargin: Float): Float {
+    val bottom = viewportHeight - bottomMargin
+    return when {
+        cellTop < topMargin -> cellTop - topMargin
+        cellBottom > bottom -> minOf(cellBottom - bottom, cellTop - topMargin)
+        else -> 0f
     }
 }

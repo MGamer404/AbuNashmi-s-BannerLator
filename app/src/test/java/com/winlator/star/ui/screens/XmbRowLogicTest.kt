@@ -29,6 +29,28 @@ class XmbRowLogicTest {
         assertEquals(0, xmbSlotOf(emptyList(), XMB_ALL_PATH, hasAll = true))
     }
 
+    @Test fun rowAnchor_activeRow_isOnItsChosenCard() {
+        assertEquals(8f, xmbRowAnchor(8f, 1f), 0.0001f)
+        assertEquals(2.4f, xmbRowAnchor(2.4f, 1f), 0.0001f)
+    }
+
+    @Test fun rowAnchor_inactiveRow_restsOnTheFirstCardWhereverItWasLeft() {
+        assertEquals(0f, xmbRowAnchor(8f, 0f), 0.0001f)
+        assertEquals(0f, xmbRowAnchor(0f, 0f), 0.0001f)
+        assertEquals(0f, xmbRowAnchor(-0.3f, 0f), 0.0001f)
+    }
+
+    @Test fun rowAnchor_glidesBetweenRestAndChosen() {
+        assertEquals(4f, xmbRowAnchor(8f, 0.5f), 0.0001f)
+        assertEquals(2f, xmbRowAnchor(8f, 0.25f), 0.0001f)
+        assertEquals(5f, xmbRowAnchor(8f, 0.5f, rest = 2f), 0.0001f)
+    }
+
+    @Test fun rowAnchor_activeAmountIsClamped() {
+        assertEquals(8f, xmbRowAnchor(8f, 1.4f), 0.0001f)
+        assertEquals(0f, xmbRowAnchor(8f, -0.2f), 0.0001f)
+    }
+
     @Test fun gridColumns_wideScreen_isSix() {
         assertEquals(6, xmbGridColumns(avail = 740f, gap = 12f, minCell = 80f))
         assertEquals(6, xmbGridColumns(avail = 1400f, gap = 12f, minCell = 80f))
@@ -247,5 +269,48 @@ class XmbRowLogicTest {
 
     @Test fun centerCrop_emptyBox_keepsEverything() {
         assertEquals(XmbRect(0, 0, 10, 20), xmbCenterCrop(10, 20, 0, 5))
+    }
+
+    @Test fun allHeader_isAtLeastAsTallAsTheBackArrowsTapArea() {
+        assertEquals(XMB_ALL_HEADER_MIN_HEIGHT, xmbAllHeader(0f, 0.85f).height, 0f)
+        assertEquals(48f, xmbAllHeader(0f, 1f).height, 0f)
+        // A big screen: the row grows with the scale.
+        assertEquals(64f, xmbAllHeader(0f, 1.6f).height, 0.001f)
+    }
+
+    @Test fun allHeader_startsUnderTheInsetAndTheBandCoversTheRowAndItsGap() {
+        val h = xmbAllHeader(30f, 1f)
+        assertEquals(30f + XMB_ALL_HEADER_TOP, h.top, 0f)
+        assertEquals(h.top + h.height + XMB_ALL_HEADER_GAP, h.band, 0f)
+    }
+
+    @Test fun allHeader_noInsetOrANegativeOne_startsAtTheRowsOwnGap() {
+        assertEquals(XMB_ALL_HEADER_TOP, xmbAllHeader(0f, 1f).top, 0f)
+        assertEquals(XMB_ALL_HEADER_TOP, xmbAllHeader(-5f, 1f).top, 0f)
+    }
+
+    @Test fun allHeader_fadeStartsInsideTheRowAndEndsAtTheBand() {
+        for (scale in listOf(0.85f, 1f, 1.6f)) {
+            val h = xmbAllHeader(24f, scale)
+            assertTrue(h.fadeStart > h.top)
+            assertTrue(h.fadeStart < h.band)
+        }
+    }
+
+    @Test fun revealDelta_cellBelowTheHeaderAndAboveTheHints_staysPut() {
+        assertEquals(0f, xmbRevealDelta(cellTop = 200f, cellBottom = 400f, viewportHeight = 600f, topMargin = 100f, bottomMargin = 50f), 0f)
+    }
+
+    @Test fun revealDelta_cellUnderTheHeader_scrollsBackUpToTheBandsEdge() {
+        assertEquals(-60f, xmbRevealDelta(cellTop = 40f, cellBottom = 240f, viewportHeight = 600f, topMargin = 100f, bottomMargin = 50f), 0f)
+    }
+
+    @Test fun revealDelta_cellPastTheBottom_scrollsForwardJustEnough() {
+        assertEquals(70f, xmbRevealDelta(cellTop = 400f, cellBottom = 620f, viewportHeight = 600f, topMargin = 100f, bottomMargin = 50f), 0f)
+    }
+
+    @Test fun revealDelta_cellTallerThanTheRoom_showsItsTopNotItsBottom() {
+        // 700 px tall in 450 px of room: scrolling its whole overhang would push its top under the header.
+        assertEquals(100f, xmbRevealDelta(cellTop = 200f, cellBottom = 900f, viewportHeight = 600f, topMargin = 100f, bottomMargin = 50f), 0f)
     }
 }
