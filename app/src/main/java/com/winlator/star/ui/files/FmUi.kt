@@ -71,7 +71,7 @@ import com.winlator.star.core.PeIconExtractor
 import com.winlator.star.core.StringUtils
 import com.winlator.star.ui.deck.xmbCardFill
 import com.winlator.star.ui.deck.xmbCardLine
-import com.winlator.star.ui.deck.xmbOnGlow
+import com.winlator.star.ui.deck.xmbOnGlass
 import com.winlator.star.ui.screens.outlinedMenuCard
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -85,7 +85,7 @@ import java.io.File
  */
 @Composable
 internal fun Modifier.fmBackdrop(): Modifier {
-    if (xmbOnGlow()) return this
+    if (xmbOnGlass()) return this
     val cs = MaterialTheme.colorScheme
     val bg = cs.background
     val a = cs.primary

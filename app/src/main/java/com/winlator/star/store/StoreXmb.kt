@@ -133,7 +133,7 @@ internal fun StoreXmbScreen(content: @Composable () -> Unit) {
     XmbScreenWindow(xmb)
     // XMB home: the XMB keyboard replaces Android's for every text field on the screen. The Back hint is inside it, so it can
     // step aside while the keyboard panel is up.
-    val hosted: @Composable () -> Unit = { XmbKeyboardHost(xmb) { XmbBackHintLayer(xmb, content) } }
+    val hosted: @Composable () -> Unit = { XmbKeyboardHost(xmb) { XmbBackHintLayer(xmb, content = content) } }
     // XMB home: the screen sits on the charcoal glass and the theme's own background is clear, so the glass shows through every
     // rail, tab row and page inside it, and their cards are glass over it. The highlight host wraps all of it: the one gliding
     // outline of the window draws over every page, rail and card (dialogs and sheets bring their own host).
@@ -209,7 +209,7 @@ internal fun StoreKeyboardTheme(content: @Composable () -> Unit) {
                 // These screens paint no backdrop of their own, and their `background` fills are clear on the glass.
                 XmbHighlightHost(enabled = true, modifier = Modifier.fillMaxSize()) {
                     XmbGlassBackdrop(Modifier.matchParentSize())
-                    XmbKeyboardHost { XmbBackHintLayer(true, content) }
+                    XmbKeyboardHost { XmbBackHintLayer(true, content = content) }
                 }
             }
         }
