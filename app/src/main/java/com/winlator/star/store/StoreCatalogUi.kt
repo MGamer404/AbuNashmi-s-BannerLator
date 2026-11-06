@@ -70,7 +70,7 @@ import com.winlator.star.ui.deck.rememberScreenScale
 import com.winlator.star.ui.deck.xmbCardFill
 import com.winlator.star.ui.deck.xmbCardLine
 import com.winlator.star.ui.deck.xmbChipOverArt
-import com.winlator.star.ui.deck.xmbSheen
+import com.winlator.star.ui.deck.xmbGlassCard
 import com.winlator.star.ui.theme.StoreDiscountBg
 import com.winlator.star.ui.theme.StoreDiscountInk
 import com.winlator.star.ui.theme.StoreFreeGreen
@@ -367,8 +367,7 @@ fun CatalogRailCard(
         modifier = modifier
             .width(StoreCardWidth)
             .steamFocusRing(shape)
-            .clip(shape)
-            .background(xmbCardFill(MaterialTheme.colorScheme.surfaceContainer)).xmbSheen()
+            .xmbGlassCard(shape, xmbCardFill(MaterialTheme.colorScheme.surfaceContainer))
             .border(1.dp, xmbCardLine(MaterialTheme.colorScheme.outline), shape)
             .clickable(onClick = onOpen),
     ) {
@@ -427,8 +426,7 @@ fun CatalogResultRow(
         modifier = modifier
             .fillMaxWidth()
             .steamFocusRing(shape)
-            .clip(shape)
-            .background(xmbCardFill(MaterialTheme.colorScheme.surfaceContainer)).xmbSheen()
+            .xmbGlassCard(shape, xmbCardFill(MaterialTheme.colorScheme.surfaceContainer))
             .border(1.dp, xmbCardLine(MaterialTheme.colorScheme.outline), shape)
             .clickable(onClick = onOpen)
             .padding(9.dp),
@@ -501,8 +499,7 @@ fun CatalogHeroCard(
         modifier = modifier
             .fillMaxWidth()
             .steamFocusRing(shape)
-            .clip(shape)
-            .background(xmbCardFill(MaterialTheme.colorScheme.surfaceContainer)).xmbSheen()
+            .xmbGlassCard(shape, xmbCardFill(MaterialTheme.colorScheme.surfaceContainer))
             .border(1.dp, xmbCardLine(MaterialTheme.colorScheme.outline), shape)
             .clickable(onClick = onOpen),
     ) {
@@ -620,8 +617,7 @@ fun CatalogLibraryTile(
         modifier = modifier
             .fillMaxWidth()
             .steamFocusRing(shape)
-            .clip(shape)
-            .background(xmbCardFill(MaterialTheme.colorScheme.surfaceContainer)).xmbSheen()
+            .xmbGlassCard(shape, xmbCardFill(MaterialTheme.colorScheme.surfaceContainer))
             .border(1.dp, xmbCardLine(MaterialTheme.colorScheme.outline), shape)
             .clickable(onClick = onOpen),
     ) {

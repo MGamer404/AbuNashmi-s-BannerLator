@@ -24,9 +24,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.winlator.star.ui.deck.XmbGroupItem
+import com.winlator.star.ui.deck.rememberXmbFocusGroup
 import com.winlator.star.ui.deck.xmbCardFill
 import com.winlator.star.ui.deck.xmbCardLine
-import com.winlator.star.ui.deck.xmbSheen
+import com.winlator.star.ui.deck.xmbGlassCard
+import com.winlator.star.ui.deck.xmbInner
+import com.winlator.star.ui.deck.xmbOnGlass
 import com.winlator.star.store.download.StoreSection
 import com.winlator.star.store.download.StoreStatusText
 
@@ -47,11 +51,13 @@ fun AmazonProfileTab(
 ) {
     val name = profile?.name?.ifBlank { null } ?: "Amazon Games account"
     val identity: @Composable () -> Unit = {
+        // XMB: the whole card is one stop of the D-pad; A enters its two buttons, B comes back to the card.
+        val group = rememberXmbFocusGroup()
+        XmbGroupItem(group, RoundedCornerShape(12.dp), Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .background(xmbCardFill(MaterialTheme.colorScheme.surfaceContainer)).xmbSheen()
+                .xmbGlassCard(RoundedCornerShape(12.dp), xmbCardFill(MaterialTheme.colorScheme.surfaceContainer))
                 .border(1.dp, xmbCardLine(MaterialTheme.colorScheme.outline), RoundedCornerShape(12.dp))
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -82,9 +88,12 @@ fun AmazonProfileTab(
             }
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                StoreFilterChip("Prime Gaming", false) { onOpenWeb("https://gaming.amazon.com/home", "Prime Gaming") }
-                StoreFilterChip(if (loading) "Refreshing…" else "Refresh", false, onRefresh)
+                StoreFilterChip("Prime Gaming", false, Modifier.xmbInner(group, first = true)) {
+                    onOpenWeb("https://gaming.amazon.com/home", "Prime Gaming")
+                }
+                StoreFilterChip(if (loading) "Refreshing…" else "Refresh", false, Modifier.xmbInner(group), onRefresh)
             }
+        }
         }
     }
     val stats: @Composable () -> Unit = {
@@ -94,9 +103,11 @@ fun AmazonProfileTab(
             if (updatableCount > 0) add("Updates" to updatableCount)
         }
         val cols = if (wide) 3 else 2
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // On the glass the tiles cast a shadow, so they sit further apart.
+        val gap = if (xmbOnGlass()) 14.dp else 8.dp
+        Column(verticalArrangement = Arrangement.spacedBy(gap)) {
             tiles.chunked(cols).forEach { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
                     row.forEach { (label, n) -> StatTile(label, n, Modifier.weight(1f)) }
                     repeat(cols - row.size) { Spacer(Modifier.weight(1f)) }
                 }

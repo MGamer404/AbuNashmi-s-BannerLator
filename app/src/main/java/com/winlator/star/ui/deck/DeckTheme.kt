@@ -123,6 +123,10 @@ internal fun deckLine(): Color = xmbPageFrost()?.line ?: MaterialTheme.colorSche
 /**
  * The Deck focus treatment: the focused element scales up and gets an accent outline with a soft
  * accent glow. Put it BEFORE the clickable/focusable modifier so it can observe that node's focus.
+ *
+ * In the XMB interface, under a highlight host (XmbHighlight.kt: the shell and every [DeckDialogScaled] window have one), this
+ * does none of that: [scaleTo], the shadow and the border are dropped and the element just registers as a stop of the one
+ * gliding outline. Without a host, and everywhere outside XMB, it is exactly the ring described above.
  */
 @Composable
 internal fun Modifier.deckFocusRing(
@@ -130,6 +134,7 @@ internal fun Modifier.deckFocusRing(
     scaleTo: Float = 1.05f,
     onFocused: (() -> Unit)? = null,
 ): Modifier {
+    if (xmbHighlightHostOrNull() != null) return this.xmbHighlight(shape, onFocused = onFocused)
     var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (focused) scaleTo else 1f, label = "deckFocusScale")
     val accent = MaterialTheme.colorScheme.primary

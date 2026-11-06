@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import com.winlator.star.ui.LocalXmbHintInset
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -1564,7 +1565,8 @@ fun SettingsScreen(onSaved: () -> Unit = {}) {
                 onSaved()
             },
             containerColor = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp)
+            // XMB mode: above the floating Back / Search hints (0 elsewhere).
+            modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp).padding(bottom = LocalXmbHintInset.current)
         ) {
             Icon(Icons.Default.Check, "Save", tint = MaterialTheme.colorScheme.onPrimary)
         }

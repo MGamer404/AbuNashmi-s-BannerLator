@@ -89,14 +89,27 @@ import com.winlator.star.store.download.formatDownloadSize
 import com.winlator.star.store.download.formatDownloadSpeed
 import com.winlator.star.store.download.formatEta
 import com.winlator.star.core.AppOrientation
+import com.winlator.star.ui.LocalXmbHintInset
+import com.winlator.star.ui.deck.LocalXmbGroup
 import com.winlator.star.ui.deck.ScreenScale
+import com.winlator.star.ui.deck.XmbGroupItem
+import com.winlator.star.ui.deck.XmbHighlightHost
 import com.winlator.star.ui.deck.XmbScreenWindow
 import com.winlator.star.ui.deck.deckFocusRing
 import com.winlator.star.ui.deck.isXmbHome
 import com.winlator.star.ui.deck.rememberScreenScale
+import com.winlator.star.ui.deck.rememberXmbFocusGroup
+import com.winlator.star.ui.deck.xmbCardFill
+import com.winlator.star.ui.deck.xmbCardLine
 import com.winlator.star.ui.deck.xmbFrame
 import com.winlator.star.ui.deck.XmbWashTheme
 import com.winlator.star.ui.deck.xmbGlassBackground
+import com.winlator.star.ui.deck.xmbGlassCard
+import com.winlator.star.ui.deck.xmbInner
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.res.stringResource
 import com.winlator.star.ui.theme.LocalAccentDim
 import com.winlator.star.ui.theme.WinlatorTheme
 import java.io.File
@@ -472,8 +485,9 @@ private fun xmbLook(s: ScreenScale): DmLook {
     return DmLook(
         coverW = coverH * 0.75f,
         coverH = coverH,
-        cardPadH = s.dp(8f),
-        cardPadV = s.dp(6f),
+        // At least 12 dp / 10 dp round a card: its glass shadow reaches that far and the grid would clip it.
+        cardPadH = maxOf(s.dp(8f), 12.dp),
+        cardPadV = maxOf(s.dp(6f), 10.dp),
         inner = s.dp(12f),
         gap = s.dp(12f),
         // Never under a comfortable touch target, however small the screen.
@@ -488,9 +502,49 @@ private fun xmbLook(s: ScreenScale): DmLook {
 private fun Modifier.dmFocus(look: DmLook, shape: Shape): Modifier =
     if (look.focus) deckFocusRing(shape, scaleTo = 1.03f) else this
 
-/** A card button's size (and, in the XMB-home look, its focus ring). */
+/**
+ * A card button's size (and, in the XMB-home look, its focus ring). In the XMB look a card is one D-pad stop and its buttons
+ * take focus only after A ([xmbInner]; [first] is the one A lands on); elsewhere [xmbInner] changes nothing.
+ */
 @Composable
-private fun Modifier.dmButton(look: DmLook): Modifier = dmFocus(look, RoundedCornerShape(8.dp)).height(look.buttonH)
+private fun Modifier.dmButton(look: DmLook, first: Boolean = false): Modifier =
+    dmFocus(look, RoundedCornerShape(8.dp)).xmbInner(first = first).height(look.buttonH)
+
+/** XMB cards only (inside a group item): the controller's way to open the game's page, as a tap on the card does. */
+@Composable
+private fun DetailsButton(entry: DownloadEntry, onOpen: (DownloadEntry) -> Unit, look: DmLook) {
+    if (LocalXmbGroup.current == null) return
+    OutlinedButton(
+        onClick = { onOpen(entry) },
+        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier.dmButton(look, first = true),
+        contentPadding = PaddingValues(horizontal = look.buttonPadH, vertical = 2.dp),
+    ) { Text(stringResource(R.string.xmb_store_details), style = MaterialTheme.typography.labelSmall) }
+}
+
+/**
+ * XMB home: a card of the Downloads page as a glass panel and ONE stop of the D-pad (the highlight glides card to card, also
+ * across the two columns); A enters its buttons, B comes back to the card. A tap on the card still opens it ([onOpen]).
+ */
+@Composable
+private fun XmbDmCard(look: DmLook, onOpen: () -> Unit, content: @Composable () -> Unit) {
+    val shape = RoundedCornerShape(12.dp)
+    val cs = MaterialTheme.colorScheme
+    val group = rememberXmbFocusGroup()
+    XmbGroupItem(
+        group, shape,
+        Modifier.fillMaxWidth().padding(horizontal = look.cardPadH, vertical = look.cardPadV),
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .xmbGlassCard(shape, xmbCardFill(cs.surfaceVariant))
+                .border(1.dp, xmbCardLine(cs.outline), shape)
+                .focusProperties { canFocus = false }
+                .clickable(onClick = onOpen),
+        ) { content() }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -517,6 +571,10 @@ private fun DownloadManagerScreen(
         val look = remember(scale) { xmbLook(scale) }
         val frame = xmbFrame()
         val density = LocalDensity.current
+        // The highlight host and the Back hint sit outside the density change below: the hint scales its own text, and the
+        // gliding outline is drawn over the whole page (dialogs bring their own host).
+        XmbHighlightHost(enabled = true, modifier = Modifier.fillMaxSize()) {
+        XmbBackHintLayer(true, endInset = frame) {
         CompositionLocalProvider(LocalDensity provides Density(density.density, density.fontScale * scale.factor)) {
             Column(
                 modifier = Modifier
@@ -538,7 +596,8 @@ private fun DownloadManagerScreen(
                         LazyVerticalGrid(
                             columns = GridCells.Fixed(if (scale.widthDp > scale.heightDp) 2 else 1),
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(bottom = look.cardPadV * 2),
+                            // The last card scrolls clear of the floating Back hint.
+                            contentPadding = PaddingValues(bottom = look.cardPadV * 2 + LocalXmbHintInset.current),
                         ) {
                             if (sections.downloading.isNotEmpty()) {
                                 item(key = "hdr_downloading", span = { GridItemSpan(maxLineSpan) }) { SectionHeader("Downloading", look) }
@@ -564,6 +623,8 @@ private fun DownloadManagerScreen(
                     }
                 }
             }
+        }
+        }
         }
         return
     }
@@ -692,6 +753,13 @@ private fun DownloadCard(
     onDismiss: (DownloadEntry) -> Unit,
     look: DmLook = CLASSIC_LOOK,
 ) {
+    // XMB home: a glass panel that is one stop of the D-pad, its buttons reached with A.
+    if (look.focus) {
+        XmbDmCard(look, onOpen = { onClick(entry) }) {
+            DownloadCardBody(entry, onClick, onLaunch, onUninstall, onCancel, onPauseResume, onDismiss, look)
+        }
+        return
+    }
     // Same floating card as SteamGamesActivity.GameListItem: rounded surfaceVariant panel,
     // outline border, side margins, tall poster + info column.
     Card(
@@ -706,6 +774,22 @@ private fun DownloadCard(
         ),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
     ) {
+        DownloadCardBody(entry, onClick, onLaunch, onUninstall, onCancel, onPauseResume, onDismiss, look)
+    }
+}
+
+/** The content of a [DownloadCard]: cover, name, and the state's text and buttons. */
+@Composable
+private fun DownloadCardBody(
+    entry: DownloadEntry,
+    onClick: (DownloadEntry) -> Unit,
+    onLaunch: (DownloadEntry) -> Unit,
+    onUninstall: (DownloadEntry) -> Unit,
+    onCancel: (DownloadEntry) -> Unit,
+    onPauseResume: (DownloadEntry) -> Unit,
+    onDismiss: (DownloadEntry) -> Unit,
+    look: DmLook,
+) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
@@ -734,7 +818,7 @@ private fun DownloadCard(
 
                 when (entry.state) {
                     DownloadState.DOWNLOADING, DownloadState.PAUSED, DownloadState.QUEUED ->
-                        ActiveContent(entry, onCancel, onPauseResume, look)
+                        ActiveContent(entry, onClick, onCancel, onPauseResume, look)
 
                     DownloadState.INSTALLED -> {
                         // Amber "Update available" mirrors the store list's own language
@@ -756,6 +840,7 @@ private fun DownloadCard(
                         }
                         Spacer(Modifier.height(6.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            DetailsButton(entry, onClick, look)
                             Button(
                                 onClick = { onLaunch(entry) },
                                 shape = RoundedCornerShape(8.dp),
@@ -783,12 +868,15 @@ private fun DownloadCard(
                             overflow = TextOverflow.Ellipsis,
                         )
                         Spacer(Modifier.height(6.dp))
-                        OutlinedButton(
-                            onClick = { onDismiss(entry) },
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.dmButton(look),
-                            contentPadding = PaddingValues(horizontal = look.buttonPadH, vertical = 2.dp),
-                        ) { Text("Dismiss", style = MaterialTheme.typography.labelSmall) }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            DetailsButton(entry, onClick, look)
+                            OutlinedButton(
+                                onClick = { onDismiss(entry) },
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.dmButton(look),
+                                contentPadding = PaddingValues(horizontal = look.buttonPadH, vertical = 2.dp),
+                            ) { Text("Dismiss", style = MaterialTheme.typography.labelSmall) }
+                        }
                     }
 
                     DownloadState.CANCELLED -> {
@@ -798,23 +886,26 @@ private fun DownloadCard(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Spacer(Modifier.height(6.dp))
-                        OutlinedButton(
-                            onClick = { onDismiss(entry) },
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.dmButton(look),
-                            contentPadding = PaddingValues(horizontal = look.buttonPadH, vertical = 2.dp),
-                        ) { Text("Dismiss", style = MaterialTheme.typography.labelSmall) }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            DetailsButton(entry, onClick, look)
+                            OutlinedButton(
+                                onClick = { onDismiss(entry) },
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.dmButton(look),
+                                contentPadding = PaddingValues(horizontal = look.buttonPadH, vertical = 2.dp),
+                            ) { Text("Dismiss", style = MaterialTheme.typography.labelSmall) }
+                        }
                     }
                 }
             }
         }
-    }
 }
 
 /** DOWNLOADING/PAUSED/QUEUED body: the two-bar byte model + status text + action buttons. */
 @Composable
 private fun ActiveContent(
     entry: DownloadEntry,
+    onOpen: (DownloadEntry) -> Unit,
     onCancel: (DownloadEntry) -> Unit,
     onPauseResume: (DownloadEntry) -> Unit,
     look: DmLook,
@@ -875,6 +966,7 @@ private fun ActiveContent(
     )
     Spacer(Modifier.height(6.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        DetailsButton(entry, onOpen, look)
         OutlinedButton(
             onClick = { onCancel(entry) },
             shape = RoundedCornerShape(8.dp),
@@ -925,6 +1017,13 @@ private fun QueuedCard(
     onMoveToTop: (DownloadEntry) -> Unit,
     look: DmLook = CLASSIC_LOOK,
 ) {
+    // XMB home: a glass panel that is one stop of the D-pad, its buttons reached with A.
+    if (look.focus) {
+        XmbDmCard(look, onOpen = { onClick(entry) }) {
+            QueuedCardBody(entry, position, canMoveUp, onClick, onCancel, onMoveUp, onMoveToTop, look)
+        }
+        return
+    }
     Card(
         onClick = { onClick(entry) },
         modifier = Modifier
@@ -937,6 +1036,22 @@ private fun QueuedCard(
         ),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
     ) {
+        QueuedCardBody(entry, position, canMoveUp, onClick, onCancel, onMoveUp, onMoveToTop, look)
+    }
+}
+
+/** The content of a [QueuedCard]: cover, name, queue position and the reorder / cancel buttons. */
+@Composable
+private fun QueuedCardBody(
+    entry: DownloadEntry,
+    position: Int,
+    canMoveUp: Boolean,
+    onOpen: (DownloadEntry) -> Unit,
+    onCancel: (DownloadEntry) -> Unit,
+    onMoveUp: (DownloadEntry) -> Unit,
+    onMoveToTop: (DownloadEntry) -> Unit,
+    look: DmLook,
+) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
@@ -969,6 +1084,7 @@ private fun QueuedCard(
                 )
                 Spacer(Modifier.height(6.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DetailsButton(entry, onOpen, look)
                     if (canMoveUp) {
                         OutlinedButton(
                             onClick = { onMoveToTop(entry) },
@@ -995,7 +1111,6 @@ private fun QueuedCard(
                 }
             }
         }
-    }
 }
 
 /**

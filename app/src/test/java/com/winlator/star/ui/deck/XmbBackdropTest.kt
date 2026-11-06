@@ -131,17 +131,51 @@ class XmbBackdropTest {
         assertTrue("base ${glass.base}", neutral(glass.base))
         assertTrue("sweep ${glass.sweep}", neutral(glass.sweep))
         assertTrue("panel ${glass.panel}", neutral(glass.panel))
-        // The base sits in #121212..#181818 and the panel in #1f1f1f..#262626, as in the reference.
+        // The base sits in #121212..#181818. The panel (a card over it) is lighter than the flat reference's #1f1f1f..#262626 now
+        // that the cards pop: 8.5% white over #161616 is #2a2a2a, so #1f1f1f..#2c2c2c.
         assertTrue("base ${channels(glass.base)}", channels(glass.base)[0] in 0x12..0x18)
-        assertTrue("panel ${channels(glass.panel)}", channels(glass.panel)[0] in 0x1F..0x26)
-        // The border is white at 10-14%, the sheen white at 4-6%, the card about 6-9% white (alphas are kept in 8 bits).
+        assertTrue("panel ${channels(glass.panel)}", channels(glass.panel)[0] in 0x1F..0x2C)
+        // The border is white at 10-14%, the sheen white at 4-6%, the card about 8.5% white (alphas are kept in 8 bits).
         assertTrue(glass.frost.line.alpha in 0.10f..0.14f)
         assertEquals(Color.White.copy(alpha = glass.frost.line.alpha), glass.frost.line)
         assertTrue(glass.frost.sheen.alpha in 0.04f..0.06f)
-        assertTrue(glass.frost.card.alpha in 0.055f..0.09f)
+        assertTrue(glass.frost.card.alpha in 0.075f..0.095f)
+        assertTrue(glass.frost.raised.alpha in 0.11f..0.13f)
         assertTrue(glass.frost.raised.alpha > glass.frost.card.alpha)
-        // Its theme text is already clear of the lightest glass, so it is left exactly as the preset has it.
-        assertEquals(p.onSurfaceVariant, glass.secondaryText)
+        // The lightest ground is a chip (12% white) on a lit card on the sweep, about #545454: #c0c0c0 on it is just under the
+        // 4.6 target (4.2), so the secondary text moves a step towards white (about #c9c9c9) and no further.
+        assertTrue("secondary ${glass.secondaryText}", glass.secondaryText.red > p.onSurfaceVariant.red)
+        assertTrue("secondary ${glass.secondaryText}", glass.secondaryText.red <= p.onSurfaceVariant.red + 0.08f)
+        assertTrue("secondary ${glass.secondaryText}", neutral(glass.secondaryText))
+    }
+
+    @Test
+    fun panelsPopOffThePage() {
+        // The cards are lighter than before (6% / 9%) so they stand off the page, without the sheen or the border growing.
+        for (p in themePresets) {
+            val frost = glassOf(p).frost
+            assertTrue("${p.name}: card ${frost.card.alpha}", frost.card.alpha in 0.08f..0.09f)
+            assertTrue("${p.name}: raised ${frost.raised.alpha}", frost.raised.alpha in 0.11f..0.13f)
+            assertTrue("${p.name}: sheen ${frost.sheen.alpha}", frost.sheen.alpha <= 0.06f)
+            assertTrue("${p.name}: line ${frost.line.alpha}", frost.line.alpha in 0.10f..0.14f)
+        }
+        // The drop shadow: stacked soft layers, widest first, none reaching further than the documented ~10 dp to the sides and
+        // 14 dp below, and together darker than a hint but never a black slab (the card's own area is cut out).
+        val layers = xmbShadowLayers()
+        assertEquals(5, layers.size)
+        for (i in 1 until layers.size) assertTrue(layers[i].spreadDp <= layers[i - 1].spreadDp)
+        for (l in layers) {
+            assertTrue("spread ${l.spreadDp}", l.spreadDp in 0f..10.5f)
+            assertTrue("reach below ${l.spreadDp + l.dyDp}", l.spreadDp + l.dyDp <= 14.5f)
+            assertTrue("alpha ${l.alpha}", l.alpha in 0.05f..0.4f)
+        }
+        var clear = 1f
+        for (l in layers) clear *= 1f - l.alpha
+        val edgeOpacity = 1f - clear
+        assertTrue("edge opacity $edgeOpacity", edgeOpacity in 0.3f..0.6f)
+        assertTrue(XMB_HAIRLINE_TOP_ALPHA > XMB_HAIRLINE_BOTTOM_ALPHA)
+        assertTrue(XMB_HAIRLINE_TOP_ALPHA in 0.2f..0.3f)
+        assertTrue(XMB_HAIRLINE_BOTTOM_ALPHA in 0.05f..0.12f)
     }
 
     @Test
@@ -195,10 +229,11 @@ class XmbBackdropTest {
     fun theSecondaryTextIsLiftedOnlyAsFarAsItNeeds() {
         val p = themePresets.first { it.name == "Classic Dark" }
         val glass = glassOf(p)
-        // #AAAAAA on the lightest glass is just short, so it moves a little towards white and no further.
+        // #AAAAAA on the lightest glass is just short, so it moves a little towards white (to about #cccccc, a step is 1/20 of the
+        // way to white) and no further.
         assertTrue(xmbLuminance(glass.secondaryText.red, glass.secondaryText.green, glass.secondaryText.blue) >
             xmbLuminance(p.onSurfaceVariant.red, p.onSurfaceVariant.green, p.onSurfaceVariant.blue))
-        assertTrue(glass.secondaryText.red < 0.80f)
+        assertTrue("secondary ${glass.secondaryText}", glass.secondaryText.red < 0.85f)
         val worst = xmbGlassWorstContrast(glass, listOf(glass.secondaryText))
         assertTrue("worst $worst", worst >= XMB_GLASS_TARGET_CONTRAST - 0.05)
     }

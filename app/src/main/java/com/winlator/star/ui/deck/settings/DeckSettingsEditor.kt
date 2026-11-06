@@ -97,12 +97,40 @@ import com.winlator.star.ui.deck.DeckGlyph
 import com.winlator.star.ui.deck.GlyphKind
 import com.winlator.star.ui.deck.LocalDeckActions
 import com.winlator.star.ui.deck.DeckEntryFocus
+import com.winlator.star.ui.deck.DeckInk
+import com.winlator.star.ui.deck.LocalXmbGroup
 import com.winlator.star.ui.deck.SoraFamily
+import com.winlator.star.ui.deck.XmbEditState
+import com.winlator.star.ui.deck.XmbEditTapCatcher
+import com.winlator.star.ui.deck.XmbGroupItem
 import com.winlator.star.ui.deck.deckCardFill
 import com.winlator.star.ui.deck.deckFocusRing
+import com.winlator.star.ui.deck.deckFocusRingInk
 import com.winlator.star.ui.deck.deckGlass
-import com.winlator.star.ui.deck.xmbSheen
 import com.winlator.star.ui.deck.deckLine
+import com.winlator.star.ui.deck.rememberXmbEdit
+import com.winlator.star.ui.deck.rememberXmbFocusGroup
+import com.winlator.star.ui.deck.rememberXmbHome
+import com.winlator.star.ui.deck.xmbDoneActions
+import com.winlator.star.ui.deck.xmbEditField
+import com.winlator.star.ui.deck.xmbGlassCard
+import com.winlator.star.ui.deck.xmbGlassSlice
+import com.winlator.star.ui.deck.xmbInner
+import com.winlator.star.ui.deck.xmbLandingIndex
+import com.winlator.star.ui.deck.xmbSliderNudge
+import androidx.compose.material3.ColorScheme
+import com.winlator.star.ui.deck.xmbSkipFocus
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import com.winlator.star.ui.LocalXmbHintInset
 import com.winlator.star.ui.screens.OutlinedAlertDialog
 import com.winlator.star.ui.screens.UnsavedChangesDialog
 import kotlin.math.roundToInt
@@ -546,19 +574,20 @@ private fun EditorTop(
 
 @Composable
 private fun SquareButton(icon: ImageVector, description: String, onClick: () -> Unit) {
-    val cs = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(14.dp)
-    Box(
-        contentAlignment = Alignment.Center,
-        modifier = Modifier
-            .size(46.dp)
-            .deckFocusRing(shape, scaleTo = 1f)
-            .clip(shape)
-            .background(deckCardFill())
-            .border(1.dp, deckLine(), shape)
-            .clickable(onClick = onClick),
-    ) {
-        Icon(icon, contentDescription = description, tint = cs.onSurface, modifier = Modifier.size(22.dp))
+    DeckInk { item, cs ->
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(46.dp)
+                .deckFocusRingInk(shape, item, scaleTo = 1f)
+                .clip(shape)
+                .background(deckCardFill())
+                .border(1.dp, deckLine(), shape)
+                .clickable(onClick = onClick),
+        ) {
+            Icon(icon, contentDescription = description, tint = cs.onSurface, modifier = Modifier.size(22.dp))
+        }
     }
 }
 
@@ -592,50 +621,52 @@ private fun LevelSwitch(level: SettingLevel, onLevel: (SettingLevel) -> Unit) {
 
 @Composable
 private fun SearchButton(onClick: () -> Unit) {
-    val cs = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(14.dp)
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        modifier = Modifier
-            .deckFocusRing(shape, scaleTo = 1f)
-            .clip(shape)
-            .border(1.dp, deckLine(), shape)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 9.dp),
-    ) {
-        Icon(Icons.Filled.Search, contentDescription = null, tint = cs.onSurface, modifier = Modifier.size(20.dp))
-        Text("Search", color = cs.onSurface, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-        DeckGlyph("Y", GlyphKind.Y)
+    DeckInk { item, cs ->
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier
+                .deckFocusRingInk(shape, item, scaleTo = 1f)
+                .clip(shape)
+                .border(1.dp, deckLine(), shape)
+                .clickable(onClick = onClick)
+                .padding(horizontal = 14.dp, vertical = 9.dp),
+        ) {
+            Icon(Icons.Filled.Search, contentDescription = null, tint = cs.onSurface, modifier = Modifier.size(20.dp))
+            Text("Search", color = cs.onSurface, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            DeckGlyph("Y", GlyphKind.Y)
+        }
     }
 }
 
 @Composable
 private fun ChainChip(link: ChainLink, onClick: () -> Unit) {
-    val cs = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(19.dp)
     val here = link.onClick == null
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier
-            .height(38.dp)
-            .then(if (here) Modifier else Modifier.deckFocusRing(shape, scaleTo = 1f))
-            .clip(shape)
-            .background(if (here) cs.primary.copy(alpha = 0.16f) else Color.Transparent)
-            .then(if (here) Modifier else Modifier.border(1.dp, deckLine(), shape).clickable(onClick = onClick))
-            .padding(horizontal = 14.dp),
-    ) {
-        if (!here) Icon(link.icon, contentDescription = null, tint = cs.onSurface, modifier = Modifier.size(18.dp))
-        Text(
-            text = link.label,
-            color = if (here) cs.primary else cs.onSurface,
-            fontWeight = FontWeight.Bold,
-            fontSize = 14.5.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.widthIn(max = 260.dp),
-        )
+    DeckInk { item, cs ->
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier
+                .height(38.dp)
+                .then(if (here) Modifier else Modifier.deckFocusRingInk(shape, item, scaleTo = 1f))
+                .clip(shape)
+                .background(if (here) cs.primary.copy(alpha = 0.16f) else Color.Transparent)
+                .then(if (here) Modifier else Modifier.border(1.dp, deckLine(), shape).clickable(onClick = onClick))
+                .padding(horizontal = 14.dp),
+        ) {
+            if (!here) Icon(link.icon, contentDescription = null, tint = cs.onSurface, modifier = Modifier.size(18.dp))
+            Text(
+                text = link.label,
+                color = if (here) cs.primary else cs.onSurface,
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.5.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = 260.dp),
+            )
+        }
     }
 }
 
@@ -684,52 +715,53 @@ private fun CategoryItem(
     onFocused: (() -> Unit)?,
     modifier: Modifier,
 ) {
-    val cs = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(14.dp)
-    val accent = cs.primary
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = modifier
-            .fillMaxWidth()
-            .deckFocusRing(shape, scaleTo = 1.02f, onFocused = onFocused)
-            .clip(shape)
-            .background(if (selected) accent.copy(alpha = 0.16f) else Color.Transparent)
-            .clickable(onClick = onClick)
-            .drawBehind {
-                if (selected && !compact) {
-                    val w = 4.dp.toPx()
-                    drawRoundRect(
-                        color = accent,
-                        topLeft = Offset(0f, size.height * 0.22f),
-                        size = Size(w, size.height * 0.56f),
-                        cornerRadius = CornerRadius(w / 2, w / 2),
-                    )
+    DeckInk { item, cs ->
+        val accent = cs.primary
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = modifier
+                .fillMaxWidth()
+                .deckFocusRingInk(shape, item, scaleTo = 1.02f, onFocused = onFocused)
+                .clip(shape)
+                .background(if (selected) accent.copy(alpha = 0.16f) else Color.Transparent)
+                .clickable(onClick = onClick)
+                .drawBehind {
+                    if (selected && !compact) {
+                        val w = 4.dp.toPx()
+                        drawRoundRect(
+                            color = accent,
+                            topLeft = Offset(0f, size.height * 0.22f),
+                            size = Size(w, size.height * 0.56f),
+                            cornerRadius = CornerRadius(w / 2, w / 2),
+                        )
+                    }
+                }
+                .padding(horizontal = 18.dp, vertical = 12.dp),
+        ) {
+            Icon(category.icon, contentDescription = null, tint = if (selected) accent else cs.onSurfaceVariant, modifier = Modifier.size(22.dp))
+            Spacer(Modifier.width(14.dp))
+            Text(
+                text = category.label,
+                color = if (selected) cs.onSurface else cs.onSurfaceVariant,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
+                fontSize = 16.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (badge > 0) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.size(22.dp).clip(CircleShape).background(accent),
+                ) {
+                    Text("$badge", color = cs.onPrimary, fontWeight = FontWeight.ExtraBold, fontSize = 11.5.sp)
                 }
             }
-            .padding(horizontal = 18.dp, vertical = 12.dp),
-    ) {
-        Icon(category.icon, contentDescription = null, tint = if (selected) accent else cs.onSurfaceVariant, modifier = Modifier.size(22.dp))
-        Spacer(Modifier.width(14.dp))
-        Text(
-            text = category.label,
-            color = if (selected) cs.onSurface else cs.onSurfaceVariant,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
-            fontSize = 16.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        if (badge > 0) {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier.size(22.dp).clip(CircleShape).background(accent),
-            ) {
-                Text("$badge", color = cs.onPrimary, fontWeight = FontWeight.ExtraBold, fontSize = 11.5.sp)
+            if (compact) {
+                Spacer(Modifier.width(6.dp))
+                Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = cs.onSurfaceVariant, modifier = Modifier.size(20.dp))
             }
-        }
-        if (compact) {
-            Spacer(Modifier.width(6.dp))
-            Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = cs.onSurfaceVariant, modifier = Modifier.size(20.dp))
         }
     }
 }
@@ -803,12 +835,14 @@ private fun CategoryPage(
         }
         onSearchDone()
     }
+    // XMB: the group cards cast a shadow ~10 dp to the sides, which the list clips at its edge, so it keeps 12 dp there.
+    val sideRoom = if (rememberXmbHome()) 12.dp else 8.dp
     BoxWithConstraints(modifier = modifier) {
         val wideRows = maxWidth >= 560.dp
         val controlMax = maxWidth * 0.52f
         LazyColumn(
             state = listState,
-            contentPadding = PaddingValues(start = if (compact) 16.dp else 8.dp, end = if (compact) 16.dp else 24.dp, top = 4.dp, bottom = 28.dp),
+            contentPadding = PaddingValues(start = if (compact) 16.dp else sideRoom, end = if (compact) 16.dp else 24.dp, top = 4.dp, bottom = 28.dp),
             modifier = Modifier.fillMaxSize(),
         ) {
             items(pageItems, key = { it.key }) { item ->
@@ -859,21 +893,22 @@ private fun PageHeader(category: SettingsCategory, onBack: (() -> Unit)?) {
 
 @Composable
 private fun ResetAllButton(count: Int, onClick: () -> Unit) {
-    val cs = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(14.dp)
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 6.dp)) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier
-                .deckFocusRing(shape, scaleTo = 1f)
-                .clip(shape)
-                .border(1.dp, deckLine(), shape)
-                .clickable(onClick = onClick)
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-        ) {
-            Icon(Icons.Filled.Restore, contentDescription = null, tint = cs.onSurface, modifier = Modifier.size(20.dp))
-            Text(if (count == 1) "Reset 1 override" else "Reset $count overrides", color = cs.onSurface, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+        DeckInk { item, cs ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier
+                    .deckFocusRingInk(shape, item, scaleTo = 1f)
+                    .clip(shape)
+                    .border(1.dp, deckLine(), shape)
+                    .clickable(onClick = onClick)
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+            ) {
+                Icon(Icons.Filled.Restore, contentDescription = null, tint = cs.onSurface, modifier = Modifier.size(20.dp))
+                Text(if (count == 1) "Reset 1 override" else "Reset $count overrides", color = cs.onSurface, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            }
         }
     }
 }
@@ -900,10 +935,9 @@ internal fun GroupCard(first: Boolean, last: Boolean, highlight: Boolean, conten
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(shape)
-            .background(deckCardFill())
-            // The sheen is the light on the top of the whole group card, so only its first slice carries it.
-            .then(if (first) Modifier.xmbSheen() else Modifier)
+            // The glass card, a slice at a time: its sheen and edge light are on the top of the whole group card, so only its
+            // first slice carries them; every slice paints its part of the shadow round the card.
+            .xmbGlassSlice(shape, first, last, 18f)
             .background(if (highlight) cs.primary.copy(alpha = 0.12f) else Color.Transparent),
     ) {
         if (!first) HorizontalDivider(thickness = 1.dp, color = deckLine().copy(alpha = 0.6f))
@@ -926,7 +960,6 @@ private fun SettingRow(
     onHelp: () -> Unit,
     onReset: () -> Unit,
 ) {
-    val cs = MaterialTheme.colorScheme
     val env = source.env
     val control = def.control(env, values)
     val value = source.value(def)
@@ -938,34 +971,126 @@ private fun SettingRow(
     // Toggles always sit on the right; wide rows put every compact control there too.
     val inline = control is Control.Toggle || (wide && control !is Control.Cores)
 
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp)) {
-        if (inline) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                RowInfo(def, level, origin, baseline, env.scope, onHelp, onReset, Modifier.weight(1f).padding(end = 16.dp))
-                Box(modifier = Modifier.widthIn(max = if (control is Control.Toggle) 90.dp else controlMax)) {
-                    ControlView(control, value, enabled, alignEnd = true, onPick = onPick, onCustom = onCustom)
+    // XMB interface: the whole row is ONE stop of the D-pad and the controls inside it are reached through it (see
+    // XmbFocusGroup.kt). A on the row: flips a toggle, opens a select's menu or a checklist's dialog, starts typing in a text
+    // field; with pills and sliders it enters the row (Left / Right move inside, A picks, B comes back out). Right on the row goes
+    // to its "?" and Reset buttons. Everywhere else the row is the plain column of controls it always was.
+    val xmb = rememberXmbHome()
+    val group = rememberXmbFocusGroup()
+    val selectOpen = remember { mutableStateOf(false) }
+    val checklistOpen = remember { mutableStateOf(false) }
+    val edit = if (xmb && control is Control.TextField) rememberXmbEdit() else null
+    val hasUtility = def.help != null || origin == Origin.SET_HERE
+    val utility = remember { FocusRequester() }
+    var utilityTick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(group, utilityTick) {
+        if (utilityTick > 0) {
+            // The same one-frame wait as the group's own entering: the buttons' canFocus has to be applied first.
+            withFrameNanos { }
+            if (runCatching { utility.requestFocus() }.isFailure) group.entered = false
+        }
+    }
+    val checklistItems = (control as? Control.Checklist)?.items
+    val onActivate: (() -> Unit)? = when {
+        !enabled -> ({})
+        control == Control.Toggle -> ({ onPick(if (value == "1") "0" else "1") })
+        control is Control.Select -> ({ selectOpen.value = true })
+        control is Control.Checklist -> ({ if (!checklistItems.isNullOrEmpty()) checklistOpen.value = true })
+        edit != null -> ({ edit.start() })
+        else -> null
+    }
+    // A reset takes its button with it: focus goes back to the row before the button leaves.
+    val resetNow: () -> Unit = {
+        onReset()
+        if (xmb && group.entered) group.exit()
+    }
+    // The scheme outside the row's accent ink, for what pops out of the row (the select's menu).
+    val plainScheme = MaterialTheme.colorScheme
+
+    val body: @Composable () -> Unit = {
+        val cs = MaterialTheme.colorScheme
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = if (xmb) 12.dp else 18.dp, vertical = if (xmb) 11.dp else 14.dp),
+        ) {
+            if (inline) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    RowInfo(def, level, origin, baseline, env.scope, onHelp, resetNow, utility, Modifier.weight(1f).padding(end = 16.dp))
+                    Box(modifier = Modifier.widthIn(max = if (control is Control.Toggle) 90.dp else controlMax)) {
+                        ControlView(control, value, enabled, alignEnd = true, onPick = onPick, onCustom = onCustom, selectOpen = selectOpen, checklistOpen = checklistOpen, edit = edit, menuScheme = plainScheme)
+                    }
+                }
+            } else {
+                RowInfo(def, level, origin, baseline, env.scope, onHelp, resetNow, utility, Modifier.fillMaxWidth())
+                Spacer(Modifier.height(12.dp))
+                ControlView(control, value, enabled, alignEnd = false, onPick = onPick, onCustom = onCustom, selectOpen = selectOpen, checklistOpen = checklistOpen, edit = edit, menuScheme = plainScheme)
+            }
+            // Why a choice or the whole control is greyed out, and anything worth saying about the value.
+            val reasons = buildList {
+                disabledReason?.let { add(it) }
+                def.note(env, values)?.let { add(it) }
+                if (enabled) optionsOf(control).filter { it.disabledReason != null }.forEach { add("${it.label}: ${it.disabledReason}") }
+            }
+            reasons.forEach {
+                Text(
+                    text = it,
+                    color = cs.onSurfaceVariant,
+                    fontSize = 12.5.sp,
+                    textAlign = if (inline) TextAlign.End else TextAlign.Start,
+                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                )
+            }
+        }
+    }
+
+    if (xmb) {
+        val rowKeys = Modifier
+            .then(if (edit != null) Modifier.focusRequester(edit.outer) else Modifier)
+            .onPreviewKeyEvent { k ->
+                when {
+                    // B while typing ends it and leaves the row highlighted (the XMB keyboard window ends typing itself).
+                    edit != null && edit.editing && (k.key == Key.ButtonB || k.key == Key.Back || k.key == Key.Escape) -> {
+                        if (k.type == KeyEventType.KeyUp) edit.stop()
+                        true
+                    }
+                    // Right on the row: its "?" and Reset buttons.
+                    hasUtility && group.onOuter && !group.entered && k.key == Key.DirectionRight -> {
+                        if (k.type == KeyEventType.KeyDown && k.nativeKeyEvent.repeatCount == 0) {
+                            group.entered = true
+                            utilityTick++
+                        }
+                        true
+                    }
+                    else -> false
                 }
             }
-        } else {
-            RowInfo(def, level, origin, baseline, env.scope, onHelp, onReset, Modifier.fillMaxWidth())
-            Spacer(Modifier.height(12.dp))
-            ControlView(control, value, enabled, alignEnd = false, onPick = onPick, onCustom = onCustom)
-        }
-        // Why a choice or the whole control is greyed out, and anything worth saying about the value.
-        val reasons = buildList {
-            disabledReason?.let { add(it) }
-            def.note(env, values)?.let { add(it) }
-            if (enabled) optionsOf(control).filter { it.disabledReason != null }.forEach { add("${it.label}: ${it.disabledReason}") }
-        }
-        reasons.forEach {
-            Text(
-                text = it,
-                color = cs.onSurfaceVariant,
-                fontSize = 12.5.sp,
-                textAlign = if (inline) TextAlign.End else TextAlign.Start,
-                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-            )
-        }
+        XmbGroupItem(
+            group,
+            RoundedCornerShape(14.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 3.dp).then(rowKeys),
+            onActivate,
+        ) { body() }
+    } else {
+        body()
+    }
+
+    // The checklist's dialog is a window of its own: composed here, outside the row, so it neither takes the row's accent ink
+    // nor finds the row's inner buttons around it.
+    val items = checklistItems
+    if (checklistOpen.value && control is Control.Checklist && items != null) {
+        ChecklistDialog(
+            title = control.title,
+            all = items,
+            off = value.split(',').filter { it.isNotEmpty() }.toSet(),
+            onDismiss = { checklistOpen.value = false },
+            // Only the listed items are kept, as the classic picker does: one no longer offered is dropped.
+            onDone = { picked ->
+                checklistOpen.value = false
+                val next = items.filter { it in picked }.joinToString(",")
+                if (next != value) onPick(next)
+            },
+        )
     }
 }
 
@@ -978,6 +1103,7 @@ private fun RowInfo(
     scope: EditorScope,
     onHelp: () -> Unit,
     onReset: () -> Unit,
+    utility: FocusRequester,
     modifier: Modifier,
 ) {
     val cs = MaterialTheme.colorScheme
@@ -991,6 +1117,9 @@ private fun RowInfo(
                         .padding(start = 6.dp)
                         .size(30.dp)
                         .deckFocusRing(CircleShape, scaleTo = 1f)
+                        // XMB: reached with Right from the row (an inner button of its group); the "?" is the first of them.
+                        .xmbInner()
+                        .focusRequester(utility)
                         .clip(CircleShape)
                         .clickable(onClick = onHelp),
                 ) {
@@ -1010,12 +1139,13 @@ private fun RowInfo(
                 modifier = Modifier.padding(top = 4.dp),
             )
         }
-        SourceLine(origin, baselineLabel, scope, onReset)
+        // The requester lands Right-from-the-row on the "?" when there is one, else on Reset (never both: one request, one target).
+        SourceLine(origin, baselineLabel, scope, onReset, if (def.help == null) utility else null)
     }
 }
 
 @Composable
-private fun SourceLine(origin: Origin, baselineLabel: String?, scope: EditorScope, onReset: () -> Unit) {
+private fun SourceLine(origin: Origin, baselineLabel: String?, scope: EditorScope, onReset: () -> Unit, utility: FocusRequester?) {
     val cs = MaterialTheme.colorScheme
     when (origin) {
         Origin.NONE -> Unit
@@ -1045,6 +1175,8 @@ private fun SourceLine(origin: Origin, baselineLabel: String?, scope: EditorScop
                 fontSize = 14.sp,
                 modifier = Modifier
                     .deckFocusRing(shape, scaleTo = 1f)
+                    .xmbInner()
+                    .then(if (utility != null) Modifier.focusRequester(utility) else Modifier)
                     .clip(shape)
                     .border(1.5.dp, cs.primary, shape)
                     .clickable(onClick = onReset)
@@ -1091,22 +1223,41 @@ private fun labelFor(control: Control, v: String): String = when (control) {
 
 // ── Controls ────────────────────────────────────────────────────────────────────────────────────
 
+/**
+ * The focus ring of a control inside a setting row. In the XMB interface the row is the stop (see SettingRow), so a control that
+ * needs no D-pad focus of its own is skipped by it (taps still work); everywhere else it carries the usual ring.
+ */
 @Composable
-private fun ControlView(control: Control, value: String, enabled: Boolean, alignEnd: Boolean, onPick: (String) -> Unit, onCustom: () -> Unit) {
+private fun Modifier.controlRing(shape: Shape): Modifier =
+    if (LocalXmbGroup.current != null) this.xmbSkipFocus() else this.deckFocusRing(shape, scaleTo = 1f)
+
+@Composable
+private fun ControlView(
+    control: Control,
+    value: String,
+    enabled: Boolean,
+    alignEnd: Boolean,
+    onPick: (String) -> Unit,
+    onCustom: () -> Unit,
+    selectOpen: MutableState<Boolean>,
+    checklistOpen: MutableState<Boolean>,
+    edit: XmbEditState?,
+    menuScheme: ColorScheme,
+) {
     when (control) {
         Control.Toggle -> Switch(
             checked = value == "1",
             onCheckedChange = { onPick(if (it) "1" else "0") },
             enabled = enabled,
-            modifier = Modifier.deckFocusRing(RoundedCornerShape(20.dp), scaleTo = 1f),
+            modifier = Modifier.controlRing(RoundedCornerShape(20.dp)),
         )
         is Control.Segmented -> SegmentedPills(control.options, value, enabled, alignEnd, onPick)
         is Control.Chips -> ChipPills(control.options, value, enabled, alignEnd, onPick)
-        is Control.Select -> SelectBox(control, value, enabled, onPick, onCustom)
+        is Control.Select -> SelectBox(control, value, enabled, selectOpen, onPick, onCustom, menuScheme)
         is Control.Slider -> SliderControl(control, value, enabled, onPick)
-        is Control.TextField -> TextControl(control, value, enabled, onPick)
+        is Control.TextField -> TextControl(control, value, enabled, onPick, edit)
         Control.Cores -> CoresControl(value, enabled, onPick)
-        is Control.Checklist -> ChecklistControl(control, value, enabled, onPick)
+        is Control.Checklist -> ChecklistControl(control, value, enabled, checklistOpen)
     }
 }
 
@@ -1115,6 +1266,10 @@ private fun ControlView(control: Control, value: String, enabled: Boolean, align
 private fun SegmentedPills(options: List<Opt>, value: String, enabled: Boolean, alignEnd: Boolean, onPick: (String) -> Unit) {
     val cs = MaterialTheme.colorScheme
     val outer = RoundedCornerShape(14.dp)
+    // Inside an XMB row the pills are its inner buttons: A on the row lands on `landing`, and the selected pill is a stop too
+    // (so the pad can rest on the current value and walk away from it).
+    val inRow = LocalXmbGroup.current != null
+    val landing = xmbLandingIndex(options.map { it.value == value }, options.map { enabled && it.disabledReason == null })
     FlowRow(
         horizontalArrangement = Arrangement.spacedBy(2.dp, if (alignEnd) Alignment.End else Alignment.Start),
         verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -1124,27 +1279,30 @@ private fun SegmentedPills(options: List<Opt>, value: String, enabled: Boolean, 
             .border(1.dp, deckLine().copy(alpha = 0.5f), outer)
             .padding(4.dp),
     ) {
-        options.forEach { o ->
+        options.forEachIndexed { i, o ->
             val sel = o.value == value
             val ok = enabled && o.disabledReason == null
             val shape = RoundedCornerShape(11.dp)
-            Text(
-                text = o.label,
-                color = when {
-                    sel -> cs.onPrimary
-                    ok -> cs.onSurfaceVariant
-                    else -> cs.onSurfaceVariant.copy(alpha = 0.4f)
-                },
-                fontWeight = FontWeight.Bold,
-                fontSize = 14.5.sp,
-                maxLines = 1,
-                modifier = Modifier
-                    .deckFocusRing(shape, scaleTo = 1f)
-                    .clip(shape)
-                    .background(if (sel) cs.primary.copy(alpha = if (enabled) 1f else 0.5f) else Color.Transparent)
-                    .clickable(enabled = ok && !sel) { onPick(o.value) }
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
-            )
+            DeckInk { item, ink ->
+                Text(
+                    text = o.label,
+                    color = when {
+                        sel -> ink.onPrimary
+                        ok -> ink.onSurfaceVariant
+                        else -> ink.onSurfaceVariant.copy(alpha = 0.4f)
+                    },
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.5.sp,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .deckFocusRingInk(shape, item, scaleTo = 1f)
+                        .xmbInner(first = i == landing)
+                        .clip(shape)
+                        .background(if (sel) ink.primary.copy(alpha = if (enabled) 1f else 0.5f) else Color.Transparent)
+                        .clickable(enabled = ok && (!sel || inRow)) { if (!sel) onPick(o.value) }
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                )
+            }
         }
     }
 }
@@ -1152,53 +1310,68 @@ private fun SegmentedPills(options: List<Opt>, value: String, enabled: Boolean, 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ChipPills(options: List<Opt>, value: String, enabled: Boolean, alignEnd: Boolean, onPick: (String) -> Unit) {
+    val landing = xmbLandingIndex(options.map { it.value == value }, options.map { enabled && it.disabledReason == null })
     FlowRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp, if (alignEnd) Alignment.End else Alignment.Start),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        options.forEach { o ->
+        options.forEachIndexed { i, o ->
             val sel = o.value == value
-            Pill(o.label, selected = sel, enabled = enabled && o.disabledReason == null) { if (!sel) onPick(o.value) }
+            Pill(o.label, selected = sel, enabled = enabled && o.disabledReason == null, first = i == landing) { if (!sel) onPick(o.value) }
         }
     }
 }
 
+/** A rounded choice. [first]: in an XMB row, the one A on the row lands on (see [xmbLandingIndex]). */
 @Composable
-private fun Pill(label: String, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
-    val cs = MaterialTheme.colorScheme
+private fun Pill(label: String, selected: Boolean, enabled: Boolean, first: Boolean = false, onClick: () -> Unit) {
     val shape = RoundedCornerShape(22.dp)
-    Text(
-        text = label,
-        color = when {
-            selected -> cs.primary
-            enabled -> cs.onSurface
-            else -> cs.onSurface.copy(alpha = 0.4f)
-        },
-        fontWeight = FontWeight.Bold,
-        fontSize = 14.5.sp,
-        maxLines = 1,
-        modifier = Modifier
-            .deckFocusRing(shape, scaleTo = 1f)
-            .clip(shape)
-            .background(if (selected) cs.primary.copy(alpha = 0.14f) else cs.surfaceVariant.copy(alpha = 0.45f))
-            .border(1.5.dp, if (selected) cs.primary else deckLine().copy(alpha = 0.6f), shape)
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 9.dp),
-    )
+    DeckInk { item, cs ->
+        Text(
+            text = label,
+            color = when {
+                selected -> cs.primary
+                enabled -> cs.onSurface
+                else -> cs.onSurface.copy(alpha = 0.4f)
+            },
+            fontWeight = FontWeight.Bold,
+            fontSize = 14.5.sp,
+            maxLines = 1,
+            modifier = Modifier
+                .deckFocusRingInk(shape, item, scaleTo = 1f)
+                .xmbInner(first = first)
+                .clip(shape)
+                .background(if (selected) cs.primary.copy(alpha = 0.14f) else cs.surfaceVariant.copy(alpha = 0.45f))
+                .border(1.5.dp, if (selected) cs.primary else deckLine().copy(alpha = 0.6f), shape)
+                .clickable(enabled = enabled, onClick = onClick)
+                .padding(horizontal = 16.dp, vertical = 9.dp),
+        )
+    }
 }
 
 @Composable
-private fun SelectBox(control: Control.Select, value: String, enabled: Boolean, onPick: (String) -> Unit, onCustom: () -> Unit) {
+private fun SelectBox(
+    control: Control.Select,
+    value: String,
+    enabled: Boolean,
+    openState: MutableState<Boolean>,
+    onPick: (String) -> Unit,
+    onCustom: () -> Unit,
+    menuScheme: ColorScheme,
+) {
     val cs = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(14.dp)
-    var open by remember { mutableStateOf(false) }
+    // Lifted to the row: A on an XMB row opens the menu.
+    var open by openState
+    // The menu is a popup of its own; inside an XMB row it would otherwise carry the row's accent ink.
+    val inRow = LocalXmbGroup.current != null
     val label = control.options.firstOrNull { it.value == value }?.label
         ?: value.ifEmpty { "—" }.let(SettingsRegistry::prettyResolution)
     Box {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
-                .deckFocusRing(shape, scaleTo = 1f)
+                .controlRing(shape)
                 .clip(shape)
                 .background(cs.surfaceVariant.copy(alpha = 0.55f))
                 .border(1.dp, deckLine(), shape)
@@ -1217,7 +1390,7 @@ private fun SelectBox(control: Control.Select, value: String, enabled: Boolean, 
             Spacer(Modifier.width(10.dp))
             Icon(Icons.Filled.UnfoldMore, contentDescription = null, tint = cs.onSurfaceVariant, modifier = Modifier.size(20.dp))
         }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }, modifier = Modifier.heightIn(max = 420.dp)) {
+        val items: @Composable () -> Unit = {
             control.options.forEach { o ->
                 DropdownMenuItem(
                     text = { Text(o.label) },
@@ -1243,6 +1416,13 @@ private fun SelectBox(control: Control.Select, value: String, enabled: Boolean, 
                 )
             }
         }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }, modifier = Modifier.heightIn(max = 420.dp)) {
+            if (inRow) {
+                MaterialTheme(colorScheme = menuScheme, typography = MaterialTheme.typography, shapes = MaterialTheme.shapes) { items() }
+            } else {
+                items()
+            }
+        }
     }
 }
 
@@ -1260,7 +1440,11 @@ private fun SliderControl(control: Control.Slider, value: String, enabled: Boole
         val encoded = control.encode(s)
         if (encoded != value) onPick(encoded)
     }
+    // Inside an XMB row the slider is its one inner stop: A on the row enters it, Left / Right nudge it by a step, B leaves; the
+    // step buttons are tap-only there.
+    val inRow = LocalXmbGroup.current != null
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.widthIn(min = 260.dp)) {
+        val sliderPad = Modifier.weight(1f).padding(horizontal = 4.dp)
         StepButton(Icons.Filled.Remove, "Less", enabled) { commit(local - control.step) }
         Slider(
             value = local,
@@ -1268,7 +1452,23 @@ private fun SliderControl(control: Control.Slider, value: String, enabled: Boole
             onValueChangeFinished = { commit(local) },
             valueRange = control.min..control.max,
             enabled = enabled,
-            modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
+            modifier = if (!inRow) sliderPad else sliderPad
+                .deckFocusRing(RoundedCornerShape(12.dp), scaleTo = 1f)
+                .xmbInner(first = true)
+                .onPreviewKeyEvent { k ->
+                    val dir = when (k.key) {
+                        Key.DirectionLeft -> -1
+                        Key.DirectionRight -> 1
+                        else -> 0
+                    }
+                    if (dir == 0 || !enabled) {
+                        false
+                    } else {
+                        // Every press and repeat moves it a step; the key-up is eaten too.
+                        if (k.type == KeyEventType.KeyDown) commit(xmbSliderNudge(local, dir, control.step, control.min, control.max))
+                        true
+                    }
+                },
         )
         StepButton(Icons.Filled.Add, "More", enabled) { commit(local + control.step) }
         Text(
@@ -1289,7 +1489,7 @@ private fun StepButton(icon: ImageVector, description: String, enabled: Boolean,
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .size(36.dp)
-            .deckFocusRing(CircleShape, scaleTo = 1f)
+            .controlRing(CircleShape)
             .clip(CircleShape)
             .background(cs.surfaceVariant.copy(alpha = 0.55f))
             .clickable(enabled = enabled, onClick = onClick),
@@ -1299,45 +1499,60 @@ private fun StepButton(icon: ImageVector, description: String, enabled: Boolean,
 }
 
 @Composable
-private fun TextControl(control: Control.TextField, value: String, enabled: Boolean, onPick: (String) -> Unit) {
+private fun TextControl(control: Control.TextField, value: String, enabled: Boolean, onPick: (String) -> Unit, edit: XmbEditState?) {
     var text by remember { mutableStateOf(value) }
     // Follow outside changes (Reset, Discard), but never overwrite what is being typed.
     LaunchedEffect(value) { if (value != text) text = value }
     val error = control.validate(text)
-    OutlinedTextField(
-        value = text,
-        onValueChange = { t ->
-            text = t
-            if (control.validate(t) == null) onPick(t)
-        },
-        enabled = enabled,
-        singleLine = true,
-        isError = error != null,
-        placeholder = { Text(control.placeholder) },
-        supportingText = if (error != null) { { Text(error) } } else null,
-        shape = RoundedCornerShape(14.dp),
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-        modifier = Modifier.fillMaxWidth(),
-    )
+    // XMB: the row is the stop and A on it starts typing (the row's `edit`); the field takes focus only while typing and a
+    // tap on it starts typing too. Elsewhere it is the plain field.
+    val field: @Composable (Modifier) -> Unit = { m ->
+        OutlinedTextField(
+            value = text,
+            onValueChange = { t ->
+                text = t
+                if (control.validate(t) == null) onPick(t)
+            },
+            enabled = enabled,
+            singleLine = true,
+            isError = error != null,
+            placeholder = { Text(control.placeholder) },
+            supportingText = if (error != null) { { Text(error) } } else null,
+            shape = RoundedCornerShape(14.dp),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = if (edit != null) xmbDoneActions { edit.stop() } else KeyboardActions.Default,
+            modifier = m,
+        )
+    }
+    if (edit == null) {
+        field(Modifier.fillMaxWidth())
+    } else {
+        Box(Modifier.fillMaxWidth()) {
+            field(Modifier.fillMaxWidth().xmbEditField(edit))
+            XmbEditTapCatcher(edit)
+        }
+    }
 }
 
-/** A Checklist row: how many items are on, and A opens the list to switch them. */
+/**
+ * A Checklist row: how many items are on, and A opens the list to switch them. The dialog itself is composed by the row
+ * ([SettingRow]), outside its accent ink and its group; [open] is the row's.
+ */
 @Composable
-private fun ChecklistControl(control: Control.Checklist, value: String, enabled: Boolean, onPick: (String) -> Unit) {
+private fun ChecklistControl(control: Control.Checklist, value: String, enabled: Boolean, open: MutableState<Boolean>) {
     val cs = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(14.dp)
     val items = control.items
     val off = value.split(',').filter { it.isNotEmpty() }.toSet()
-    var open by remember { mutableStateOf(false) }
     val usable = enabled && !items.isNullOrEmpty()
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
-            .deckFocusRing(shape, scaleTo = 1f)
+            .controlRing(shape)
             .clip(shape)
             .background(cs.surfaceVariant.copy(alpha = 0.55f))
             .border(1.dp, deckLine(), shape)
-            .clickable(enabled = usable) { open = true }
+            .clickable(enabled = usable) { open.value = true }
             .padding(start = 16.dp, end = 10.dp, top = 11.dp, bottom = 11.dp),
     ) {
         Text(
@@ -1355,20 +1570,6 @@ private fun ChecklistControl(control: Control.Checklist, value: String, enabled:
         )
         Spacer(Modifier.width(10.dp))
         Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = cs.onSurfaceVariant, modifier = Modifier.size(20.dp))
-    }
-    if (open && items != null) {
-        ChecklistDialog(
-            title = control.title,
-            all = items,
-            off = off,
-            onDismiss = { open = false },
-            // Only the listed items are kept, as the classic picker does: one no longer offered is dropped.
-            onDone = { picked ->
-                open = false
-                val next = items.filter { it in picked }.joinToString(",")
-                if (next != value) onPick(next)
-            },
-        )
     }
 }
 
@@ -1430,11 +1631,12 @@ private fun ChecklistLine(label: String, checked: Boolean, modifier: Modifier = 
 private fun CoresControl(value: String, enabled: Boolean, onPick: (String) -> Unit) {
     val cores = remember { Runtime.getRuntime().availableProcessors() }
     val on = value.split(',').mapNotNull { it.trim().toIntOrNull() }.toSet()
+    // The last core left can't be turned off: a game needs at least one.
+    val landing = xmbLandingIndex((0 until cores).map { it in on }, (0 until cores).map { enabled && !(it in on && on.size == 1) })
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         for (i in 0 until cores) {
             val sel = i in on
-            // The last core left can't be turned off: a game needs at least one.
-            Pill("Core $i", selected = sel, enabled = enabled && !(sel && on.size == 1)) {
+            Pill("Core $i", selected = sel, enabled = enabled && !(sel && on.size == 1), first = i == landing) {
                 val next = if (sel) on - i else on + i
                 onPick(next.sorted().joinToString(","))
             }
@@ -1446,32 +1648,33 @@ private fun CoresControl(value: String, enabled: Boolean, onPick: (String) -> Un
 
 @Composable
 private fun HandoffRow(handoff: Handoff, onHandoff: (Handoff) -> Unit) {
-    val cs = MaterialTheme.colorScheme
     val opens = handoff.target != "none"
     val here = handoff.target.startsWith(SettingsRegistry.TARGET_CATEGORY)
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(if (opens) Modifier.deckFocusRing(RoundedCornerShape(12.dp), scaleTo = 1f).clickable { onHandoff(handoff) } else Modifier)
-            .padding(horizontal = 18.dp, vertical = 14.dp),
-    ) {
-        Icon(
-            imageVector = when {
-                here -> Icons.AutoMirrored.Filled.ArrowForward
-                opens -> Icons.AutoMirrored.Filled.OpenInNew
-                else -> Icons.Filled.Info
-            },
-            contentDescription = null,
-            tint = cs.primary,
-            modifier = Modifier.size(22.dp),
-        )
-        Spacer(Modifier.width(14.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(handoff.label, color = cs.onSurface, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            Text(handoff.hint, color = cs.onSurfaceVariant, fontSize = 13.5.sp, modifier = Modifier.padding(top = 2.dp))
+    DeckInk { item, cs ->
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(if (opens) Modifier.deckFocusRingInk(RoundedCornerShape(12.dp), item, scaleTo = 1f).clickable { onHandoff(handoff) } else Modifier)
+                .padding(horizontal = 18.dp, vertical = 14.dp),
+        ) {
+            Icon(
+                imageVector = when {
+                    here -> Icons.AutoMirrored.Filled.ArrowForward
+                    opens -> Icons.AutoMirrored.Filled.OpenInNew
+                    else -> Icons.Filled.Info
+                },
+                contentDescription = null,
+                tint = cs.primary,
+                modifier = Modifier.size(22.dp),
+            )
+            Spacer(Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(handoff.label, color = cs.onSurface, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Text(handoff.hint, color = cs.onSurfaceVariant, fontSize = 13.5.sp, modifier = Modifier.padding(top = 2.dp))
+            }
+            if (opens) Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = cs.onSurfaceVariant, modifier = Modifier.size(22.dp))
         }
-        if (opens) Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = cs.onSurfaceVariant, modifier = Modifier.size(22.dp))
     }
 }
 
@@ -1529,7 +1732,13 @@ private fun SearchPane(
             words.isEmpty() -> Text("Type to search every setting, at every level.", color = cs.onSurfaceVariant, fontSize = 14.sp)
             results.isEmpty() && handoffResults.isEmpty() -> Text("Nothing matches \"$query\".", color = cs.onSurfaceVariant, fontSize = 14.sp)
         }
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 24.dp), modifier = Modifier.fillMaxSize()) {
+        // XMB: the result cards cast a shadow ~10 dp round them, so they sit 12 dp apart and inside the list's edges.
+        val xmbList = rememberXmbHome()
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(if (xmbList) 12.dp else 8.dp),
+            contentPadding = PaddingValues(start = if (xmbList) 12.dp else 0.dp, end = if (xmbList) 12.dp else 0.dp, top = if (xmbList) 8.dp else 0.dp, bottom = 24.dp),
+            modifier = Modifier.fillMaxSize(),
+        ) {
             items(results, key = { it.id }) { def ->
                 SearchResult(
                     title = def.label,
@@ -1549,38 +1758,37 @@ private fun SearchPane(
 
 @Composable
 private fun SearchResult(title: String, path: String, value: String?, badge: String?, onClick: () -> Unit) {
-    val cs = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(16.dp)
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .deckFocusRing(shape, scaleTo = 1.01f)
-            .clip(shape)
-            .background(deckCardFill())
-            .xmbSheen()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 18.dp, vertical = 12.dp),
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(title, color = cs.onSurface, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f, fill = false))
-                badge?.let {
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = it,
-                        color = cs.primary,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 11.5.sp,
-                        modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(cs.primary.copy(alpha = 0.14f)).padding(horizontal = 8.dp, vertical = 2.dp),
-                    )
+    DeckInk { item, cs ->
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .deckFocusRingInk(shape, item, scaleTo = 1.01f)
+                .xmbGlassCard(shape)
+                .clickable(onClick = onClick)
+                .padding(horizontal = 18.dp, vertical = 12.dp),
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(title, color = cs.onSurface, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f, fill = false))
+                    badge?.let {
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = it,
+                            color = cs.primary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.5.sp,
+                            modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(cs.primary.copy(alpha = 0.14f)).padding(horizontal = 8.dp, vertical = 2.dp),
+                        )
+                    }
                 }
+                Text(path, color = cs.onSurfaceVariant, fontSize = 13.sp)
             }
-            Text(path, color = cs.onSurfaceVariant, fontSize = 13.sp)
-        }
-        value?.let {
-            Spacer(Modifier.width(12.dp))
-            Text(it, color = cs.onSurfaceVariant, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 220.dp))
+            value?.let {
+                Spacer(Modifier.width(12.dp))
+                Text(it, color = cs.onSurfaceVariant, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 220.dp))
+            }
         }
     }
 }
@@ -1593,6 +1801,8 @@ private fun UnsavedBar(saving: Boolean, compact: Boolean, onDiscard: () -> Unit,
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
+            // XMB mode: the bar sits above the floating Back / Search hints that take the screen's bottom edge (0 elsewhere).
+            .padding(bottom = LocalXmbHintInset.current)
             .background(deckGlass())
             .drawBehind { drawRect(line, topLeft = Offset.Zero, size = Size(size.width, 1f)) }
             .padding(horizontal = if (compact) 16.dp else 24.dp, vertical = 10.dp),

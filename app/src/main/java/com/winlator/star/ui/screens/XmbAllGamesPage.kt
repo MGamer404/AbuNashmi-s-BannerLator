@@ -30,7 +30,6 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.SwapVert
@@ -256,20 +255,16 @@ internal fun XmbAllGamesPage(
                 .pointerInput(Unit) { detectTapGestures { } },
         ) {
             Column(Modifier.fillMaxSize()) {
-                // One slim row: the title and count on the left, then Back / View / Sort as the shell's floating hints (a
-                // button badge only with a pad attached, the icon always, the current view / sort name where there is room).
-                // The hints pad themselves by 8 dp, so the row starts that much earlier to line up with the grid.
+                // One slim row: the title and count on the left, then View / Sort as the shell's floating hints (a button badge
+                // only with a pad attached, the icon always, the current view / sort name where there is room). Back has no hint
+                // here: the shell shows its own B Back hint. The hints pad themselves by 8 dp, so the row starts that much earlier
+                // to line up with the grid (the title adds the 8 dp back).
                 val hintTap = Modifier.heightIn(min = 40.dp).widthIn(min = 40.dp)
                 Row(
                     Modifier.fillMaxWidth().padding(start = (padH - ss.dp(8f)).coerceAtLeast(0.dp), end = (padH - ss.dp(8f)).coerceAtLeast(0.dp), top = topPad, bottom = 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    val back = stringResource(R.string.xmb_all_back)
-                    DeckFloatingHint(
-                        "B".takeIf { hasPad }, GlyphKind.B, back.takeIf { wide }, { onClose() }, hintTap,
-                        icon = Icons.AutoMirrored.Filled.ArrowBack, description = back,
-                    )
-                    Row(Modifier.weight(1f).padding(start = ss.dp(6f)), verticalAlignment = Alignment.Bottom) {
+                    Row(Modifier.weight(1f).padding(start = ss.dp(8f)), verticalAlignment = Alignment.Bottom) {
                         Text(
                             stringResource(R.string.xmb_all_games), color = Color.White, fontSize = ss.sp(16f),
                             fontWeight = FontWeight.Light, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),

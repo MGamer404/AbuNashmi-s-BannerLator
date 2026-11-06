@@ -13,12 +13,20 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.CacheDrawScope
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
@@ -162,9 +170,13 @@ private const val GLASS_SWEEP_LIFT = 0.035f
 /** Where the sweep has faded back to the base, as a fraction of the diagonal from the top-left to the bottom-right corner. */
 private const val GLASS_SWEEP_END = 0.55f
 
-/** Opacity of white over the base for a card / for something on a card, on a dark theme (a light one needs more white to read as glass). */
-private const val FROST_CARD_ALPHA = 0.06f
-private const val FROST_RAISED_ALPHA = 0.09f
+/**
+ * Opacity of white over the base for a card / for something on a card, on a dark theme (a light one needs more white to read as
+ * glass). A little stronger than a flat frost so the panels pop off the page (together with their shadow, see [xmbGlassCard]);
+ * the secondary text is lifted by [xmbGlassSecondaryText] where the lighter chips need it.
+ */
+private const val FROST_CARD_ALPHA = 0.085f
+private const val FROST_RAISED_ALPHA = 0.12f
 private const val FROST_CARD_ALPHA_LIGHT = 0.45f
 private const val FROST_RAISED_ALPHA_LIGHT = 0.60f
 
@@ -403,6 +415,129 @@ internal fun Modifier.xmbSheen(): Modifier {
     return this.then(remember(frost) { xmbSheenDraw(frost.sheen) })
 }
 
+// ---------------------------------------------------------------------------------------------------------------------
+// Panels that pop: a soft drop shadow round a card and a light hairline along its top edge.
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** The card's ambient shadow: black at this opacity, blurred over [XMB_CARD_SHADOW_BLUR_DP], dropped [XMB_CARD_SHADOW_DY_DP]. */
+internal const val XMB_CARD_SHADOW_ALPHA = 0.45f
+internal const val XMB_CARD_SHADOW_BLUR_DP = 16f
+internal const val XMB_CARD_SHADOW_DY_DP = 4f
+
+/** The tight contact shadow right under the card edge. */
+internal const val XMB_CARD_CONTACT_ALPHA = 0.35f
+internal const val XMB_CARD_CONTACT_BLUR_DP = 3f
+internal const val XMB_CARD_CONTACT_DY_DP = 1f
+
+/** The 1 dp edge light: white at the top of the card, fading to the bottom value along its height. */
+internal const val XMB_HAIRLINE_TOP_ALPHA = 0.26f
+internal const val XMB_HAIRLINE_BOTTOM_ALPHA = 0.08f
+
+/** One soft rounded rect of the stacked shadow: [spreadDp] bigger than the card on every side, [dyDp] lower, black at [alpha]. */
+internal class XmbShadowLayer(val spreadDp: Float, val dyDp: Float, val alpha: Float)
+
+/**
+ * The shadow as stacked rounded rects, widest first (stacked translucent layers stand in for a blur; no blur layer is needed,
+ * so it is cheap and works on every API level). A card's shadow reaches [XMB_CARD_SHADOW_BLUR_DP] x 5/8 = 10 dp to the sides,
+ * 6 dp above and 14 dp below it: a lazy list that holds cards needs at least that much spacing / edge padding (12 dp, 16 dp at the
+ * bottom edge) or its viewport clips the shadow.
+ */
+internal fun xmbShadowLayers(): List<XmbShadowLayer> {
+    val reach = XMB_CARD_SHADOW_BLUR_DP * 0.625f
+    val ambient = XMB_CARD_SHADOW_ALPHA * 0.2f
+    val contact = XMB_CARD_CONTACT_ALPHA * 0.5f
+    return listOf(
+        XmbShadowLayer(reach, XMB_CARD_SHADOW_DY_DP, ambient),
+        XmbShadowLayer(reach * 0.6f, XMB_CARD_SHADOW_DY_DP, ambient),
+        XmbShadowLayer(reach * 0.2f, XMB_CARD_SHADOW_DY_DP, ambient),
+        XmbShadowLayer(XMB_CARD_CONTACT_BLUR_DP * 0.6f, XMB_CARD_CONTACT_DY_DP, contact),
+        XmbShadowLayer(XMB_CARD_CONTACT_BLUR_DP * 0.2f, XMB_CARD_CONTACT_DY_DP, contact),
+    )
+}
+
+private val XMB_SHADOW_LAYERS = xmbShadowLayers()
+
+private fun CacheDrawScope.shapePath(shape: Shape): Path {
+    val path = Path()
+    when (val outline = shape.createOutline(size, layoutDirection, this)) {
+        is Outline.Rectangle -> path.addRect(outline.rect)
+        is Outline.Rounded -> path.addRoundRect(outline.roundRect)
+        is Outline.Generic -> path.addPath(outline.path)
+    }
+    return path
+}
+
+/**
+ * The shadow behind a card of [shape], drawn in the box of the element it is on (put it BEFORE the clip: the shadow reaches
+ * outside). The card's own outline is cut out of every layer, so a see-through card is never darkened by the shadow behind it.
+ * Cached per size: nothing is built while drawing.
+ */
+private fun xmbShadowDraw(shape: Shape): Modifier = Modifier.drawWithCache {
+    val cutOut = shapePath(shape)
+    val corner = xmbShapeCornerPx(shape, size.width, size.height, this)
+    onDrawBehind {
+        clipPath(cutOut, ClipOp.Difference) {
+            for (layer in XMB_SHADOW_LAYERS) {
+                val spread = layer.spreadDp.dp.toPx()
+                drawRoundRect(
+                    color = Color.Black.copy(alpha = layer.alpha),
+                    topLeft = Offset(-spread, layer.dyDp.dp.toPx() - spread),
+                    size = Size(size.width + spread * 2f, size.height + spread * 2f),
+                    cornerRadius = CornerRadius(corner + spread),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Over a card's fill: the [sheen] fading out down the card (null: none) and the hairline, a 1 dp line along the card's edge
+ * that is brightest at the top. Drawn behind the card's content, inside its clip.
+ */
+private fun xmbGlassTopDraw(shape: Shape, sheen: Color?): Modifier = Modifier.drawWithCache {
+    val edge = shapePath(shape)
+    val sheenBrush = if (sheen == null) null else
+        Brush.verticalGradient(listOf(sheen, sheen.copy(alpha = 0f)), startY = 0f, endY = max(1f, size.height * SHEEN_REACH))
+    val hairBrush = Brush.verticalGradient(
+        listOf(Color.White.copy(alpha = XMB_HAIRLINE_TOP_ALPHA), Color.White.copy(alpha = XMB_HAIRLINE_BOTTOM_ALPHA)),
+        startY = 0f,
+        endY = max(1f, size.height),
+    )
+    // Stroked 2 dp on the edge; the clip keeps the inner 1 dp.
+    val stroke = Stroke(width = 2.dp.toPx())
+    onDrawBehind {
+        if (sheenBrush != null) drawRect(sheenBrush)
+        drawPath(edge, hairBrush, style = stroke)
+    }
+}
+
+/**
+ * A card on the glass: `clip(shape)`, the [fill], the sheen, and what makes it pop: a soft shadow round it and a hairline of
+ * light along its top edge. A drop-in for the `.clip(shape).background(fill).xmbSheen()` the cards had (the border, if any,
+ * still goes after it). Shapes without corners work too (the shadow just has square corners).
+ *
+ * On a glass page the shadow is cut out of the card's own outline, so a translucent card shows the page, not a darkened
+ * patch. In a dialog, menu or sheet (see [xmbPageFrost]) the panel stays opaque, with only the hairline and no shadow; off the
+ * glass pages (Home, Classic, plain Deck) it is exactly `clip(shape).background(fill)`.
+ *
+ * The shadow is drawn outside the card: a scrolling list clips it at its viewport, so lists need 12 dp or more of spacing and
+ * edge padding round their cards (see [xmbShadowLayers] for how far it reaches).
+ */
+@Composable
+internal fun Modifier.xmbGlassCard(shape: Shape, fill: Color = deckCardFill()): Modifier {
+    val frost = xmbPageFrost()
+    if (frost != null) {
+        val shadow = remember(shape) { xmbShadowDraw(shape) }
+        val top = remember(shape, frost) { xmbGlassTopDraw(shape, frost.sheen) }
+        return this.then(shadow).clip(shape).background(fill).then(top)
+    }
+    if (xmbOnGlass()) {
+        val top = remember(shape) { xmbGlassTopDraw(shape, null) }
+        return this.clip(shape).background(fill).then(top)
+    }
+    return this.clip(shape).background(fill)
+}
+
 /** The scheme colours that carry the glass look: the page background goes clear, and the two "raised" surfaces turn to frost. */
 private fun ColorScheme.onGlass(glass: XmbGlass): ColorScheme =
     copy(
@@ -549,8 +684,9 @@ private fun inFloatingWindow(): Boolean {
 internal fun Modifier.xmbPanel(shape: Shape, fill: Color): Modifier {
     val glass = if (LocalXmbOnGlass.current) LocalXmbGlass.current else null
     if (glass == null) return this.clip(shape).background(fill).border(1.dp, deckLine(), shape)
-    val sheen = remember(glass) { xmbSheenDraw(glass.frost.sheen) }
-    return this.clip(shape).background(glass.panel).then(sheen).border(1.dp, glass.frost.line, shape)
+    // The sheen plus the hairline of light along the top edge (no outer shadow: the window has no page of its own to cast on).
+    val top = remember(glass, shape) { xmbGlassTopDraw(shape, glass.frost.sheen) }
+    return this.clip(shape).background(glass.panel).then(top).border(1.dp, glass.frost.line, shape)
 }
 
 /**

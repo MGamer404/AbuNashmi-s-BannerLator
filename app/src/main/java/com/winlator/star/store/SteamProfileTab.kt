@@ -71,9 +71,15 @@ import coil.compose.AsyncImage
 import com.winlator.star.R
 import com.winlator.star.store.blsteam.BlPlayerProfile
 import com.winlator.star.store.blsteam.BlSteamEngine
+import com.winlator.star.ui.deck.XmbGroupItem
+import com.winlator.star.ui.deck.XmbInk
+import com.winlator.star.ui.deck.rememberXmbFocusGroup
+import com.winlator.star.ui.deck.rememberXmbHighlightItem
 import com.winlator.star.ui.deck.xmbCardFill
 import com.winlator.star.ui.deck.xmbCardLine
-import com.winlator.star.ui.deck.xmbSheen
+import com.winlator.star.ui.deck.xmbGlassCard
+import com.winlator.star.ui.deck.xmbInner
+import com.winlator.star.ui.deck.xmbOnGlass
 import com.winlator.star.ui.theme.LocalAccentDim
 import `in`.dragonbra.javasteam.enums.EPersonaState
 import java.util.Locale
@@ -318,13 +324,14 @@ private fun IdentityCard(c: ProfileTabContent) {
     val accent = MaterialTheme.colorScheme.primary
     val shape = RoundedCornerShape(12.dp)
     var editing by remember { mutableStateOf(false) }
+    // XMB: the whole card is one stop of the D-pad; A enters its buttons (Edit, the SteamID, Change account), B comes back.
+    val group = rememberXmbFocusGroup()
 
+    XmbGroupItem(group, shape, Modifier.padding(horizontal = 14.dp, vertical = 12.dp).fillMaxWidth()) {
     Column(
         modifier = Modifier
-            .padding(horizontal = 14.dp, vertical = 12.dp)
             .fillMaxWidth()
-            .clip(shape)
-            .background(xmbCardFill(MaterialTheme.colorScheme.surfaceContainer)).xmbSheen()
+            .xmbGlassCard(shape, xmbCardFill(MaterialTheme.colorScheme.surfaceContainer))
             .border(1.dp, xmbCardLine(MaterialTheme.colorScheme.outline), shape),
     ) {
         // Banner: an accent wash, the same gradient treatment ProfileHero uses. When the account has
@@ -423,7 +430,7 @@ private fun IdentityCard(c: ProfileTabContent) {
                             LevelChip(lvl)
                         }
                         Spacer(Modifier.width(8.dp))
-                        MiniButton("Edit") { editing = true }
+                        MiniButton("Edit", first = true) { editing = true }
                     }
                 }
                 Text(
@@ -451,6 +458,7 @@ private fun IdentityCard(c: ProfileTabContent) {
         }
         ChangeAccountButton(c.onChangeAccount)
     }
+    }
 }
 
 /** The identity card's "Change account" entry — a full-width 48dp target that opens the account chooser. */
@@ -463,6 +471,7 @@ private fun ChangeAccountButton(onClick: () -> Unit) {
             .fillMaxWidth()
             .heightIn(min = 48.dp)
             .steamFocusRing(shape)
+            .xmbInner()
             .clip(shape)
             .border(1.dp, xmbCardLine(MaterialTheme.colorScheme.outline), shape)
             .clickable(onClick = onClick)
@@ -552,7 +561,7 @@ private fun LevelChip(level: Int) {
 
 /** Small outlined text button (the prototype's `.mini`) — used for Edit. */
 @Composable
-private fun MiniButton(label: String, onClick: () -> Unit) {
+private fun MiniButton(label: String, first: Boolean = false, onClick: () -> Unit) {
     val shape = RoundedCornerShape(5.dp)
     Text(
         text = label,
@@ -561,6 +570,7 @@ private fun MiniButton(label: String, onClick: () -> Unit) {
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier
             .steamFocusRing(shape)
+            .xmbInner(first = first)
             .clip(shape)
             .border(1.dp, xmbCardLine(MaterialTheme.colorScheme.outline), shape)
             .clickable(onClick = onClick)
@@ -575,6 +585,7 @@ private fun SteamIdRow(steamId: Long, onCopy: () -> Unit) {
     Row(
         modifier = Modifier
             .steamFocusRing(shape)
+            .xmbInner()
             .clip(shape)
             .background(MaterialTheme.colorScheme.background)
             .border(1.dp, xmbCardLine(MaterialTheme.colorScheme.outline), shape)
@@ -698,10 +709,11 @@ private fun StatTiles(c: ProfileTabContent, columns: Int = 4) {
             .fillMaxWidth()
             .padding(horizontal = 14.dp, vertical = 12.dp)
             .focusGroup(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        // On the glass the tiles cast a shadow, so they sit further apart.
+        verticalArrangement = Arrangement.spacedBy(if (xmbOnGlass()) 14.dp else 8.dp),
     ) {
         stats.chunked(columns).forEach { rowStats ->
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(if (xmbOnGlass()) 14.dp else 8.dp)) {
                 rowStats.forEach { stat ->
                     StatTile(
                         value = stat.value,
@@ -732,31 +744,34 @@ private fun StatTile(
     onClick: (() -> Unit)? = null,
 ) {
     val shape = RoundedCornerShape(9.dp)
+    val hl = rememberXmbHighlightItem()
     Column(
         modifier = modifier
-            .then(if (onClick != null) Modifier.steamFocusRing(shape) else Modifier)
-            .clip(shape)
-            .background(xmbCardFill(MaterialTheme.colorScheme.surfaceContainer)).xmbSheen()
+            .then(if (onClick != null) Modifier.xmbRing(shape, hl) else Modifier)
+            .xmbGlassCard(shape, xmbCardFill(MaterialTheme.colorScheme.surfaceContainer))
             .border(1.dp, xmbCardLine(MaterialTheme.colorScheme.outline), shape)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(vertical = 10.dp, horizontal = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(
-            text = value,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.ExtraBold,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-        )
-        Text(
-            text = label.uppercase(Locale.getDefault()),
-            fontSize = 9.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            maxLines = 1,
-            modifier = Modifier.padding(top = 3.dp),
-        )
+        // The tappable tile turns accent while it holds the highlight (the colours are read inside XmbInk).
+        XmbInk(hl) {
+            Text(
+                text = value,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+            )
+            Text(
+                text = label.uppercase(Locale.getDefault()),
+                fontSize = 9.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                modifier = Modifier.padding(top = 3.dp),
+            )
+        }
     }
 }
 
@@ -932,7 +947,7 @@ private fun RecentlyPlayedList(c: ProfileTabContent, fillsPane: Boolean = false)
             .fillMaxWidth()
             .padding(horizontal = 14.dp)
             .focusGroup(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(if (xmbOnGlass()) 14.dp else 8.dp),
     ) {
         games.forEach { g -> RecentRow(g) { c.onOpenApp(g.appId) } }
     }
@@ -941,12 +956,12 @@ private fun RecentlyPlayedList(c: ProfileTabContent, fillsPane: Boolean = false)
 @Composable
 private fun RecentRow(game: SteamFriendsStore.RecentGame, onClick: () -> Unit) {
     val shape = RoundedCornerShape(10.dp)
+    val hl = rememberXmbHighlightItem()
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .steamFocusRing(shape)
-            .clip(shape)
-            .background(xmbCardFill(MaterialTheme.colorScheme.surfaceContainer)).xmbSheen()
+            .xmbRing(shape, hl)
+            .xmbGlassCard(shape, xmbCardFill(MaterialTheme.colorScheme.surfaceContainer))
             .border(1.dp, xmbCardLine(MaterialTheme.colorScheme.outline), shape)
             .clickable(onClick = onClick)
             .padding(8.dp),
@@ -959,6 +974,7 @@ private fun RecentRow(game: SteamFriendsStore.RecentGame, onClick: () -> Unit) {
             modifier = Modifier.width(88.dp),
             shape = RoundedCornerShape(5.dp),
         )
+        XmbInk(hl) {
         Text(
             text = game.name,
             style = MaterialTheme.typography.bodySmall,
@@ -975,6 +991,7 @@ private fun RecentRow(game: SteamFriendsStore.RecentGame, onClick: () -> Unit) {
             color = MaterialTheme.colorScheme.primary,
             maxLines = 1,
         )
+        }
     }
 }
 

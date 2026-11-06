@@ -3,14 +3,17 @@ package com.winlator.star.ui.deck
 import android.content.Context
 import android.os.BatteryManager
 import android.os.Build
+import android.os.SystemClock
 import android.view.KeyEvent
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -80,6 +83,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.focus.FocusDirection
@@ -95,6 +99,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -154,6 +159,7 @@ import com.winlator.star.ui.DeckSideLists
 import com.winlator.star.ui.DeckWindow
 import com.winlator.star.ui.LocalDeckSideLists
 import com.winlator.star.ui.LocalHostedInDeck
+import com.winlator.star.ui.LocalXmbHintInset
 
 /** Below this width (dp) a portrait Deck shell uses the phone layout: bottom bar, no legend. */
 internal const val DECK_COMPACT_WIDTH_DP = 720
@@ -347,9 +353,44 @@ private fun DeckShellContent(
         }
     }
 
+    // XMB home: Back at Home (B on the pad, the system gesture, the Back hint) closes the app on the second press within
+    // XMB_EXIT_WINDOW_MS; the first shows a themed pill instead of the system Toast (a black box on some ROMs). The pure rules
+    // are in XmbHomeExit.kt. [exitPillTick] > 0 shows the pill and restarts its timer; leaving Home forgets a waiting first press.
+    val homeExit = remember { XmbHomeExit() }
+    val homeBArm = remember { XmbBackKeyArm() }
+    var exitPillTick by remember { mutableStateOf(0) }
+    var exitPillShown by remember { mutableStateOf(false) }
+    val exitActivity = context.findActivity()
+    val homeBack: () -> Unit = {
+        if (homeExit.press(SystemClock.elapsedRealtime())) {
+            exitPillTick = 0
+            exitPillShown = false
+            exitActivity?.finish()
+        } else {
+            exitPillTick += 1
+        }
+    }
+    val homeBackNow by rememberUpdatedState(homeBack)
+    LaunchedEffect(exitPillTick) {
+        if (exitPillTick > 0) {
+            exitPillShown = true
+            delay(XMB_EXIT_WINDOW_MS)
+            exitPillShown = false
+        }
+    }
+    LaunchedEffect(currentRoute) {
+        homeExit.reset()
+        homeBArm.reset()
+        exitPillTick = 0
+        exitPillShown = false
+    }
+
     // Registered before the NavHost, so a screen's own BackHandler (unsaved changes, nested menus) still wins.
-    // At a sub-page pop it; at a tab root go Home; at Home this is off (system default).
-    BackHandler(enabled = currentRoute != DeckRoutes.HOME) { nav.back() }
+    // At a sub-page pop it; at a tab root go Home; at Home this is off (system default), except in the XMB mode, where Back at
+    // Home asks for a second press before the app closes (homeBack).
+    BackHandler(enabled = currentRoute != DeckRoutes.HOME || xmbHome) {
+        if (currentRoute != DeckRoutes.HOME) nav.back() else homeBack()
+    }
 
     // Landscape hides Android's navigation bar; a swipe in from the edge shows it for a moment, as in a game.
     // It comes back on leaving the Deck style or turning to portrait. Games and stores are other activities with their own windows,
@@ -436,7 +477,19 @@ private fun DeckShellContent(
                 KeyEvent.KEYCODE_BUTTON_L2 -> { if (first) deckActions.subTab.value?.invoke(-1) ?: switchMenu(-1); true }
                 KeyEvent.KEYCODE_BUTTON_R2 -> { if (first) deckActions.subTab.value?.invoke(1) ?: switchMenu(1); true }
                 KeyEvent.KEYCODE_BUTTON_B -> {
-                    if (nav.currentRoute() == DeckRoutes.HOME) return@handler false
+                    if (nav.currentRoute() == DeckRoutes.HOME) {
+                        if (!xmbHomeNow) return@handler false
+                        // XMB home: this is only reached for a B the Home view did not consume. Its key-down is consumed when
+                        // something is open (menu, upper row, option column, All Games...) but its key-up never is, so the key-up of an
+                        // already-handled B arrives here too. Only a key-up whose key-down came through here counts (XmbBackKeyArm).
+                        if (ev.action != KeyEvent.ACTION_DOWN && ev.action != KeyEvent.ACTION_UP) return@handler false
+                        val press = homeBArm.onKey(ev.action == KeyEvent.ACTION_DOWN, ev.repeatCount, ev.isCanceled)
+                        // Through the dispatcher so a back callback that is enabled anyway still goes first; the shell's own
+                        // BackHandler ends up in homeBack().
+                        if (press) { if (backDispatcher != null) backDispatcher.onBackPressed() else homeBackNow() }
+                        return@handler press || ev.action == KeyEvent.ACTION_DOWN
+                    }
+                    homeBArm.reset()
                     if (ev.action == KeyEvent.ACTION_UP && !ev.isCanceled) {
                         if (backDispatcher != null) backDispatcher.onBackPressed() else nav.back()
                     }
@@ -466,9 +519,21 @@ private fun DeckShellContent(
     val glow1 by animateColorAsState(tints?.first ?: cs.primary, tween(900), label = "deckGlow1")
     val glow2 by animateColorAsState(tints?.second ?: lerp(cs.primary, cs.background, 0.35f), tween(900), label = "deckGlow2")
 
+    // XMB mode, every tab but the phone layout: the floating "B Back" / "Y Search" hints bottom right. LocalXmbHintInset tells
+    // the pages how far up they must lift a floating button to sit above them: the row (a glyph or one line of text, plus its
+    // padding) and its gap to the edge; on Home, which reaches under the camera hole, the hole's bottom edge too.
+    val hintsShown = xmbHome && !compact
+    val hintSs = rememberScreenScale()
+    val xmbKeyboard = LocalXmbKeyboard.current
+    val hintInset = if (hintsShown) {
+        hintSs.dp(12f) + maxOf(22.dp, hintSs.dp(14f) * 1.4f) + hintSs.dp(8f) +
+            (if (homeBleed) WindowInsets.displayCutout.asPaddingValues().calculateBottomPadding() else 0.dp)
+    } else 0.dp
+
     CompositionLocalProvider(
         LocalTopBarActions provides topBarActionsState,
         LocalTopBarTransparent provides topBarTransparentState,
+        LocalXmbHintInset provides hintInset,
         LocalDeckActions provides deckActions,
         LocalDeckAmbient provides ambient,
         LocalContentColor provides cs.onBackground,
@@ -543,7 +608,10 @@ private fun DeckShellContent(
                 // Landscape is rails | content (in the XMB mode: the page's own tab rail | content, under the floating tab bar);
                 // portrait keeps the top bar over the content. The NavHost stays in one slot either way.
                 // Framed (XMB mode, tabs other than Home), only this middle part sits inside the even camera frame.
-                Row(modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = frame)) {
+                // XMB mode: the one gliding highlight outline of the window (XmbHighlight.kt) is hosted here, over the rails and the
+                // page, so every hosted page (Deck-native and classic) registers with it through deckFocusRing. Off: a plain Box.
+                XmbHighlightHost(enabled = xmbHome, modifier = Modifier.weight(1f).fillMaxWidth()) {
+                Row(modifier = Modifier.fillMaxSize().padding(horizontal = frame)) {
                     if (rails && !full) {
                         if (!topTabs) {
                             DeckSideRail(
@@ -738,6 +806,7 @@ private fun DeckShellContent(
                         }
                     }
                 }
+                }
                 if (compact && !full) {
                     DeckBottomBar(current = tab, tabs = tabs, onTab = { nav.goTab(it) }, dpad = !xmbHome)
                 }
@@ -759,19 +828,49 @@ private fun DeckShellContent(
                     modifier = Modifier.align(Alignment.TopStart).padding(top = cutout.calculateTopPadding()),
                 )
             }
-            // XMB home, every tab but the phone layout (which has its bars): the only hint is a muted Search bottom right,
-            // clear of the camera frame. It may sit over a page's corner.
-            if (xmbHome && !compact) {
-                val ss = rememberScreenScale()
-                DeckFloatingSearch(
-                    onSearch = { (deckActions.search.value ?: openSearch)() },
+            // XMB home, every tab but the phone layout (which has its bars): the only hints are a muted "B Back" and "Y Search"
+            // bottom right, clear of the camera frame. They may sit over a page's corner (LocalXmbHintInset lifts the floating
+            // buttons above them). Hidden while the XMB keyboard panel is up, which has its own hints.
+            if (hintsShown && xmbKeyboard?.panelOpen != true) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(hintSs.dp(6f)),
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(
-                            end = ss.dp(16f) + maxOf(frame, cutout.calculateEndPadding(dir)),
-                            bottom = ss.dp(12f) + cutout.calculateBottomPadding(),
+                            end = hintSs.dp(16f) + maxOf(frame, cutout.calculateEndPadding(dir)),
+                            bottom = hintSs.dp(12f) + cutout.calculateBottomPadding(),
                         ),
-                )
+                ) {
+                    // The same back action as B: a sub-page pops, Home asks for the second press (homeBack).
+                    DeckFloatingHint("B", GlyphKind.B, "Back", { if (backDispatcher != null) backDispatcher.onBackPressed() else nav.back() })
+                    DeckFloatingSearch(onSearch = { (deckActions.search.value ?: openSearch)() })
+                }
+            }
+
+            // "Press B again to exit": a themed pill (not the system Toast) just above the hints, for the first B at Home.
+            val pillAlpha by animateFloatAsState(if (exitPillShown) 1f else 0f, tween(180), label = "deckExitPill")
+            if (pillAlpha > 0f) {
+                val pillShape = RoundedCornerShape(50)
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = (if (compact) 76.dp else hintSs.dp(28f)) + cutout.calculateBottomPadding())
+                        .alpha(pillAlpha)
+                        .clip(pillShape)
+                        .background(cs.surfaceContainerHigh.copy(alpha = 0.96f))
+                        .border(1.dp, deckLine(), pillShape)
+                        .padding(horizontal = hintSs.dp(18f), vertical = hintSs.dp(9f)),
+                ) {
+                    Text(
+                        text = stringResource(R.string.xmb_shell_exit_prompt),
+                        color = cs.onSurface,
+                        fontFamily = SoraFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = hintSs.sp(14f),
+                        maxLines = 1,
+                    )
+                }
             }
 
             if (searchOpen) {
@@ -1534,44 +1633,55 @@ private fun DeckPageTabRail(
         tabs.forEachIndexed { i, t ->
             val sel = i == selected
             val shape = RoundedCornerShape(if (compact) 12.dp else 10.dp)
+            // XMB mode (a highlight host above): the outline marks the focused tab, so the selected one is a faint accent fill with
+            // accent icon, not the solid accent (an outline on it would vanish); the focused tab's icon and text turn accent (XmbInk).
+            val item = rememberXmbHighlightItem()
+            val xmb = xmbHighlightHostOrNull() != null
             val itemModifier = Modifier
-                .deckFocusRing(shape, scaleTo = 1f)
+                .railFocus(shape, item)
                 .clip(shape)
-                .background(if (sel) cs.primary else Color.Transparent)
+                .background(if (!sel) Color.Transparent else if (xmb) cs.primary.copy(alpha = 0.16f) else cs.primary)
                 .clickable { if (!sel) onSelect(i) }
-            val tint = if (sel) cs.onPrimary else cs.onSurfaceVariant
-            if (compact) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically),
-                    modifier = itemModifier.fillMaxWidth().heightIn(min = 50.dp).padding(horizontal = 2.dp, vertical = 5.dp),
-                ) {
-                    if (t.icon != null) Icon(t.icon, contentDescription = t.label, tint = tint, modifier = Modifier.size(20.dp))
-                    Text(t.label, color = tint, fontFamily = NunitoSansFamily, fontWeight = FontWeight.ExtraBold, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-            } else {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = itemModifier.fillMaxWidth().heightIn(min = 42.dp).padding(horizontal = 12.dp),
-                ) {
-                    if (t.icon != null) Icon(t.icon, contentDescription = null, tint = tint, modifier = Modifier.size(18.dp))
-                    Text(
-                        text = t.label,
-                        color = tint,
-                        fontFamily = SoraFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                    if (t.badge != null && t.badge > 0) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier.size(20.dp).background(if (sel) cs.onPrimary else cs.primary, CircleShape),
-                        ) {
-                            Text("${t.badge}", color = if (sel) cs.primary else cs.onPrimary, fontWeight = FontWeight.ExtraBold, fontSize = 10.5.sp)
+            XmbInk(item) {
+                // Read inside XmbInk: while the tab is focused this scheme is the one moved towards the accent.
+                val ink = MaterialTheme.colorScheme
+                val iconTint = if (!sel) ink.onSurfaceVariant else if (xmb) ink.primary else ink.onPrimary
+                val tint = if (!sel) ink.onSurfaceVariant else if (xmb) ink.onSurface else ink.onPrimary
+                if (compact) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically),
+                        modifier = itemModifier.fillMaxWidth().heightIn(min = 50.dp).padding(horizontal = 2.dp, vertical = 5.dp),
+                    ) {
+                        if (t.icon != null) Icon(t.icon, contentDescription = t.label, tint = iconTint, modifier = Modifier.size(20.dp))
+                        Text(t.label, color = tint, fontFamily = NunitoSansFamily, fontWeight = FontWeight.ExtraBold, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                } else {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = itemModifier.fillMaxWidth().heightIn(min = 42.dp).padding(horizontal = 12.dp),
+                    ) {
+                        if (t.icon != null) Icon(t.icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(18.dp))
+                        Text(
+                            text = t.label,
+                            color = tint,
+                            fontFamily = SoraFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (t.badge != null && t.badge > 0) {
+                            // The badge flips against the solid accent of the selected tab; on the faint fill it stays an accent chip.
+                            val flip = sel && !xmb
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier.size(20.dp).background(if (flip) cs.onPrimary else cs.primary, CircleShape),
+                            ) {
+                                Text("${t.badge}", color = if (flip) cs.primary else cs.onPrimary, fontWeight = FontWeight.ExtraBold, fontSize = 10.5.sp)
+                            }
                         }
                     }
                 }
@@ -1579,6 +1689,14 @@ private fun DeckPageTabRail(
         }
     }
 }
+
+/**
+ * The focus mark of a rail / header control: in the XMB mode (a highlight host above) it registers [item] with the window's
+ * gliding outline, which the control hands to [XmbInk] too; everywhere else it is the usual [deckFocusRing], unchanged.
+ */
+@Composable
+private fun Modifier.railFocus(shape: Shape, item: XmbHighlightItem): Modifier =
+    if (xmbHighlightHostOrNull() != null) xmbHighlight(shape, item) else deckFocusRing(shape, scaleTo = 1f)
 
 /**
  * Landscape page header: one slim line with the title, an info button that shows the page's description
@@ -1605,15 +1723,18 @@ private fun DeckTitleLine(
             .padding(start = if (showBack) 4.dp else 18.dp, end = 8.dp + endInset),
     ) {
         if (showBack) {
+            val backItem = rememberXmbHighlightItem()
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .deckFocusRing(CircleShape, scaleTo = 1f)
+                    .railFocus(CircleShape, backItem)
                     .clip(CircleShape)
                     .clickable(onClick = onBack)
                     .size(36.dp),
             ) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = cs.onSurface, modifier = Modifier.size(20.dp))
+                XmbInk(backItem) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(20.dp))
+                }
             }
             Spacer(Modifier.width(6.dp))
         }
@@ -1628,21 +1749,24 @@ private fun DeckTitleLine(
         )
         if (description != null) {
             Spacer(Modifier.width(8.dp))
+            val infoItem = rememberXmbHighlightItem()
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .deckFocusRing(CircleShape, scaleTo = 1f)
+                    .railFocus(CircleShape, infoItem)
                     .clip(CircleShape)
                     .background(if (infoOpen) cs.primary.copy(alpha = 0.16f) else Color.Transparent)
                     .clickable { infoOpen = !infoOpen }
                     .size(32.dp),
             ) {
-                Icon(
-                    Icons.Outlined.Info,
-                    contentDescription = if (infoOpen) "Hide description" else "About this page",
-                    tint = if (infoOpen) cs.primary else cs.onSurfaceVariant,
-                    modifier = Modifier.size(19.dp),
-                )
+                XmbInk(infoItem) {
+                    Icon(
+                        Icons.Outlined.Info,
+                        contentDescription = if (infoOpen) "Hide description" else "About this page",
+                        tint = if (infoOpen) cs.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(19.dp),
+                    )
+                }
             }
             if (infoOpen) {
                 Spacer(Modifier.width(8.dp))
@@ -1696,19 +1820,26 @@ private fun DeckPageBar(
                 listOf(DeckSettingsRoutes.APP to "Settings", Screen.Appearance.route to "Appearance").forEach { (route, label) ->
                     val selected = currentRoute == route || (route == DeckSettingsRoutes.APP && currentRoute == Screen.Settings.route)
                     val shape = RoundedCornerShape(12.dp)
-                    Text(
-                        text = label,
-                        color = if (selected) cs.onSurface else cs.onSurfaceVariant,
-                        fontFamily = SoraFamily,
-                        fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
-                        fontSize = if (selected) 20.sp else 16.sp,
+                    val tabItem = rememberXmbHighlightItem()
+                    Box(
                         modifier = Modifier
-                            .deckFocusRing(shape, scaleTo = 1f)
+                            .railFocus(shape, tabItem)
                             .clip(shape)
                             .background(if (selected) cs.primary.copy(alpha = 0.16f) else Color.Transparent)
                             .clickable { if (!selected) onSettingsSubTab(route) }
                             .padding(horizontal = 12.dp, vertical = 6.dp),
-                    )
+                    ) {
+                        XmbInk(tabItem) {
+                            val ink = MaterialTheme.colorScheme
+                            Text(
+                                text = label,
+                                color = if (selected) ink.onSurface else ink.onSurfaceVariant,
+                                fontFamily = SoraFamily,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
+                                fontSize = if (selected) 20.sp else 16.sp,
+                            )
+                        }
+                    }
                 }
             }
         } else {

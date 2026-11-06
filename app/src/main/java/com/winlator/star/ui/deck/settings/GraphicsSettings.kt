@@ -45,7 +45,8 @@ import com.winlator.star.core.MaliPanvk
 import com.winlator.star.core.WaylandAdapter
 import com.winlator.star.core.WaylandGameDriver
 import com.winlator.star.core.StringUtils
-import com.winlator.star.ui.deck.deckFocusRing
+import com.winlator.star.ui.deck.DeckInk
+import com.winlator.star.ui.deck.deckFocusRingInk
 import com.winlator.star.ui.deck.settings.SettingLevel.ADVANCED
 import com.winlator.star.ui.deck.settings.SettingLevel.EXPERT
 import com.winlator.star.ui.screens.ContainerDetailViewModel
@@ -1206,22 +1207,24 @@ private fun GraphicsProbes(state: DeckGraphicsState) {
 /** One action: the whole line is the focus target and A runs it. */
 @Composable
 private fun ActionRow(action: DeckGraphicsState.Action) {
-    val cs = MaterialTheme.colorScheme
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .deckFocusRing(RoundedCornerShape(12.dp), scaleTo = 1f)
-            .clickable(onClick = action.onClick)
-            .padding(horizontal = 18.dp, vertical = 14.dp),
-    ) {
-        Icon(action.icon, contentDescription = null, tint = cs.primary, modifier = Modifier.size(22.dp))
-        Spacer(Modifier.width(14.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(action.label, color = cs.onSurface, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            Text(action.hint, color = cs.onSurfaceVariant, fontSize = 13.5.sp, modifier = Modifier.padding(top = 2.dp))
+    DeckInk { item, cs ->
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .xmbRowInset()
+                .deckFocusRingInk(RoundedCornerShape(12.dp), item, scaleTo = 1f)
+                .clickable(onClick = action.onClick)
+                .padding(horizontal = xmbRowPad(18.dp), vertical = 14.dp),
+        ) {
+            Icon(action.icon, contentDescription = null, tint = cs.primary, modifier = Modifier.size(22.dp))
+            Spacer(Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(action.label, color = cs.onSurface, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Text(action.hint, color = cs.onSurfaceVariant, fontSize = 13.5.sp, modifier = Modifier.padding(top = 2.dp))
+            }
+            Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = cs.onSurfaceVariant, modifier = Modifier.size(22.dp))
         }
-        Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = cs.onSurfaceVariant, modifier = Modifier.size(22.dp))
     }
 }
 

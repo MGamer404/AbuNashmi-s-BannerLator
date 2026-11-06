@@ -100,7 +100,9 @@ import com.winlator.star.store.SteamPrefs
 import com.winlator.star.store.SteamRepository
 import com.winlator.star.ui.DeckDialogBars
 import com.winlator.star.ui.DeckDialogScaled
+import com.winlator.star.ui.deck.DeckInk
 import com.winlator.star.ui.deck.deckFocusRing
+import com.winlator.star.ui.deck.deckFocusRingInk
 import com.winlator.star.ui.theme.AppThemeState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -991,44 +993,46 @@ private fun DeckOptionRow(
     onClick: () -> Unit,
     trailing: @Composable () -> Unit,
 ) {
-    val cs = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(10.dp)
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .deckFocusRing(shape, scaleTo = 1f)
-            .clip(shape)
-            .clickable(onClick = onClick)
-            .padding(vertical = 7.dp, horizontal = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(title, style = MaterialTheme.typography.bodyMedium, color = cs.onSurface, fontWeight = FontWeight.SemiBold,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                if (badge != null) {
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        badge,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = accent,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                            .border(1.dp, accent, RoundedCornerShape(4.dp))
-                            .padding(horizontal = 4.dp, vertical = 1.dp),
-                    )
+    // XMB: the gliding outline marks the row and its text turns accent through the ink (a toggle row stays ONE stop: A flips it).
+    DeckInk { item, cs ->
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .deckFocusRingInk(shape, item, scaleTo = 1f)
+                .clip(shape)
+                .clickable(onClick = onClick)
+                .padding(vertical = 7.dp, horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(title, style = MaterialTheme.typography.bodyMedium, color = cs.onSurface, fontWeight = FontWeight.SemiBold,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                    if (badge != null) {
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            badge,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = accent,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .border(1.dp, accent, RoundedCornerShape(4.dp))
+                                .padding(horizontal = 4.dp, vertical = 1.dp),
+                        )
+                    }
+                }
+                if (subtitle != null) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(subtitle, style = MaterialTheme.typography.labelSmall, color = cs.onSurfaceVariant, lineHeight = 14.sp)
                 }
             }
-            if (subtitle != null) {
-                Spacer(Modifier.height(2.dp))
-                Text(subtitle, style = MaterialTheme.typography.labelSmall, color = cs.onSurfaceVariant, lineHeight = 14.sp)
-            }
+            Spacer(Modifier.width(8.dp))
+            HelpDot(accent, highlighted = false, onClick = onHelp)
+            Spacer(Modifier.width(10.dp))
+            trailing()
         }
-        Spacer(Modifier.width(8.dp))
-        HelpDot(accent, highlighted = false, onClick = onHelp)
-        Spacer(Modifier.width(10.dp))
-        trailing()
     }
 }
 
@@ -1055,22 +1059,24 @@ private fun DeckGoldbergList(mode: GoldbergMode, accent: Color, onSelected: (Gol
         GOLDBERG_OPTIONS.forEach { opt ->
             val sel = opt.mode == mode
             val shape = RoundedCornerShape(10.dp)
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .deckFocusRing(shape, scaleTo = 1f)
-                    .clip(shape)
-                    .background(if (sel) accent.copy(alpha = 0.14f) else cs.surfaceContainerHigh)
-                    .border(1.dp, if (sel) accent else cs.outline, shape)
-                    .clickable { onSelected(opt.mode) }
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(opt.name, style = MaterialTheme.typography.bodyMedium, color = if (sel) accent else cs.onSurface, fontWeight = FontWeight.SemiBold)
-                    Text(opt.sub, style = MaterialTheme.typography.labelSmall, color = cs.onSurfaceVariant)
+            DeckInk { item, ink ->
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .deckFocusRingInk(shape, item, scaleTo = 1f)
+                        .clip(shape)
+                        .background(if (sel) accent.copy(alpha = 0.14f) else cs.surfaceContainerHigh)
+                        .border(1.dp, if (sel) accent else cs.outline, shape)
+                        .clickable { onSelected(opt.mode) }
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(opt.name, style = MaterialTheme.typography.bodyMedium, color = if (sel) accent else ink.onSurface, fontWeight = FontWeight.SemiBold)
+                        Text(opt.sub, style = MaterialTheme.typography.labelSmall, color = ink.onSurfaceVariant)
+                    }
+                    if (sel) Icon(Icons.Filled.Check, contentDescription = null, tint = accent, modifier = Modifier.size(18.dp))
                 }
-                if (sel) Icon(Icons.Filled.Check, contentDescription = null, tint = accent, modifier = Modifier.size(18.dp))
             }
         }
     }
@@ -1082,17 +1088,19 @@ private fun DeckFooter(accent: Color, onDismiss: () -> Unit, launch: (() -> Unit
     val cs = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(12.dp)
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Box(
-            Modifier
-                .weight(1f)
-                .height(46.dp)
-                .deckFocusRing(shape, scaleTo = 1f)
-                .clip(shape)
-                .border(1.dp, cs.outline, shape)
-                .clickable(onClick = onDismiss),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("Cancel", style = MaterialTheme.typography.labelLarge, color = cs.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
+        DeckInk { item, ink ->
+            Box(
+                Modifier
+                    .weight(1f)
+                    .height(46.dp)
+                    .deckFocusRingInk(shape, item, scaleTo = 1f)
+                    .clip(shape)
+                    .border(1.dp, cs.outline, shape)
+                    .clickable(onClick = onDismiss),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("Cancel", style = MaterialTheme.typography.labelLarge, color = ink.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
+            }
         }
         Row(
             Modifier

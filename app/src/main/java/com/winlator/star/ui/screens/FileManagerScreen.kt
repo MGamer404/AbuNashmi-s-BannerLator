@@ -68,6 +68,9 @@ import androidx.compose.material.icons.filled.SportsEsports
 import com.winlator.star.ui.deck.XmbTapToEdit
 import com.winlator.star.ui.deck.xmbDoneActions
 import com.winlator.star.ui.deck.rememberScreenScale
+import com.winlator.star.ui.deck.XmbInk
+import com.winlator.star.ui.deck.rememberXmbFocusGroup
+import com.winlator.star.ui.deck.rememberXmbHighlightItem
 import com.winlator.star.ui.deck.rememberXmbHome
 import com.winlator.star.ui.components.CollapsibleRail
 import com.winlator.star.ui.components.RailItem
@@ -105,6 +108,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -949,6 +953,7 @@ fun FileManagerScreen(
                             androidx.compose.material3.Checkbox(
                                 checked = conflictApplyToAll,
                                 onCheckedChange = { conflictApplyToAll = it },
+                                modifier = Modifier.xmbStop(CircleShape),
                             )
                             Text("Apply to all conflicts", fontSize = 12.sp)
                         }
@@ -961,7 +966,7 @@ fun FileManagerScreen(
                         ConflictChoice.SKIP to "Skip",
                     ).forEach { (choice, label) ->
                         TextButton(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().xmbStop(CircleShape),
                             onClick = { conflictChoice = choice; pendingConflict = null },
                         ) { Text(label, modifier = Modifier.fillMaxWidth()) }
                     }
@@ -993,6 +998,7 @@ fun FileManagerScreen(
                             fontSize = 14.sp,
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .xmbStop(RoundedCornerShape(8.dp))
                                 .clickable {
                                     showContainerPicker = false
                                     openDrive(File(container.rootDir, ".wine/drive_c"))
@@ -1024,6 +1030,7 @@ fun FileManagerScreen(
                             fontSize = 14.sp,
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .xmbStop(RoundedCornerShape(8.dp))
                                 .clickable {
                                     pendingRun = null
                                     if (file != null) runFileInContainer(file, container)
@@ -1056,6 +1063,7 @@ fun FileManagerScreen(
                             fontSize = 14.sp,
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .xmbStop(RoundedCornerShape(8.dp))
                                 .clickable {
                                     pendingAddShortcut = null
                                     if (file != null) addShortcutInContainer(file, container)
@@ -1090,6 +1098,7 @@ fun FileManagerScreen(
                 onClick = { onPick?.invoke(currentDir) },
                 modifier = Modifier
                     .fillMaxWidth()
+                    .xmbBtn(CircleShape, tint = Color.White)
                     .padding(horizontal = 16.dp, vertical = 8.dp),
             ) {
                 Icon(Icons.Filled.Folder, null, modifier = Modifier.size(18.dp))
@@ -1105,7 +1114,7 @@ fun FileManagerScreen(
                 .background(MaterialTheme.colorScheme.surfaceContainer)
                 .padding(horizontal = 8.dp, vertical = 6.dp),
         ) {
-            IconButton(onClick = { goUp() }, enabled = currentDir != currentRoot) {
+            IconButton(onClick = { goUp() }, enabled = currentDir != currentRoot, modifier = Modifier.xmbBtn(CircleShape)) {
                 Icon(Icons.Filled.ArrowBack, "Parent folder", tint = MaterialTheme.colorScheme.primary)
             }
 
@@ -1127,6 +1136,7 @@ fun FileManagerScreen(
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier
+                        .xmbStop(driveChipShape)
                         .clip(driveChipShape)
                         .background(MaterialTheme.colorScheme.surfaceContainer)
                         .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f), driveChipShape)
@@ -1136,7 +1146,7 @@ fun FileManagerScreen(
                 DropdownMenu(
                     expanded = showDriveMenu,
                     onDismissRequest = { showDriveMenu = false },
-                    modifier = Modifier.outlinedMenuCard(),
+                    modifier = Modifier.outlinedMenuCard().xmbMenuBack { showDriveMenu = false },
                 ) {
                     DropdownMenuItem(
                         text = { Text("Drive C:") },
@@ -1237,7 +1247,7 @@ fun FileManagerScreen(
                         onClick = { showNewFolderDialog = true },
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                        modifier = Modifier.height(32.dp),
+                        modifier = Modifier.height(32.dp).xmbBtn(CircleShape),
                     ) {
                         Icon(Icons.Filled.CreateNewFolder, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(5.dp))
@@ -1247,21 +1257,25 @@ fun FileManagerScreen(
                 IconButton(onClick = {
                     gridView = !gridView
                     browsePrefs.edit().putBoolean("fmGridView", gridView).apply()
-                }) {
+                }, modifier = Modifier.xmbBtn(CircleShape)) {
                     Icon(
                         if (gridView) Icons.Filled.ViewList else Icons.Filled.GridView,
                         if (gridView) "List view" else "Grid view",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                IconButton(onClick = { showSearch = !showSearch; if (!showSearch) searchQuery = "" }) {
+                IconButton(onClick = { showSearch = !showSearch; if (!showSearch) searchQuery = "" }, modifier = Modifier.xmbBtn(CircleShape)) {
                     Icon(Icons.Filled.Search, "Search", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Box {
-                    IconButton(onClick = { showSortMenu = true }) {
+                    IconButton(onClick = { showSortMenu = true }, modifier = Modifier.xmbBtn(CircleShape)) {
                         Icon(Icons.Filled.Sort, "Sort", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
+                    DropdownMenu(
+                        expanded = showSortMenu,
+                        onDismissRequest = { showSortMenu = false },
+                        modifier = Modifier.xmbMenuBack { showSortMenu = false },
+                    ) {
                         listOf("name" to "Name", "date" to "Date modified", "size" to "Size")
                             .forEach { (key, label) ->
                                 DropdownMenuItem(
@@ -1302,7 +1316,7 @@ fun FileManagerScreen(
             }
 
             // Star toggle: open/close the dedicated Favorites list.
-            IconButton(onClick = { showFavorites = !showFavorites }) {
+            IconButton(onClick = { showFavorites = !showFavorites }, modifier = Modifier.xmbBtn(CircleShape)) {
                 if (showFavorites) {
                     Icon(Icons.Filled.Star, "Hide favorites", tint = MaterialTheme.colorScheme.primary)
                 } else {
@@ -1381,6 +1395,7 @@ fun FileManagerScreen(
                         else entries.map { it.absolutePath }.toSet()
                     },
                     contentPadding = selBarPadding,
+                    modifier = Modifier.xmbBtn(CircleShape),
                 ) { Text(if (selectedPaths.size == entries.size) "None" else "All", fontSize = 12.sp) }
                 Spacer(Modifier.width(4.dp))
                 OutlinedButton(
@@ -1392,6 +1407,7 @@ fun FileManagerScreen(
                         selectedPaths = emptySet()
                     },
                     contentPadding = selBarPadding,
+                    modifier = Modifier.xmbBtn(CircleShape),
                 ) { Text("Copy", fontSize = 12.sp) }
                 Spacer(Modifier.width(4.dp))
                 OutlinedButton(
@@ -1403,18 +1419,21 @@ fun FileManagerScreen(
                         selectedPaths = emptySet()
                     },
                     contentPadding = selBarPadding,
+                    modifier = Modifier.xmbBtn(CircleShape),
                 ) { Text("Cut", fontSize = 12.sp) }
                 Spacer(Modifier.width(4.dp))
                 OutlinedButton(
                     enabled = selectedPaths.isNotEmpty(),
                     onClick = { pendingBulkDelete = entries.filter { it.absolutePath in selectedPaths } },
                     contentPadding = selBarPadding,
+                    modifier = Modifier.xmbBtn(CircleShape),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
                 ) { Text("Delete", color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
                 Spacer(Modifier.width(4.dp))
                 OutlinedButton(
                     onClick = { selectionMode = false; selectedPaths = emptySet() },
                     contentPadding = selBarPadding,
+                    modifier = Modifier.xmbBtn(CircleShape),
                 ) { Text("Done", fontSize = 12.sp) }
             }
         }
@@ -1426,6 +1445,7 @@ fun FileManagerScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+                    .xmbStop(RoundedCornerShape(8.dp))
                     .clickable { performPaste() }
                     .padding(horizontal = 16.dp, vertical = 8.dp),
             ) {
@@ -1437,7 +1457,7 @@ fun FileManagerScreen(
                     "Paste $what${if (isCutOperation) " (move)" else ""} here",
                     color = MaterialTheme.colorScheme.onBackground, fontSize = 13.sp, modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = { clipboardFiles = emptyList(); isCutOperation = false }) {
+                TextButton(onClick = { clipboardFiles = emptyList(); isCutOperation = false }, modifier = Modifier.xmbBtn(CircleShape)) {
                     Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
                 }
             }
@@ -1657,7 +1677,7 @@ fun FileManagerScreen(
                     }
                 }
             } else
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = xmbListPadding()) {
                 // ".." as the first row of every listing below the floor — the Android file-manager
                 // convention (issue #476); hidden at the root and while a search filter is active.
                 if (searchQuery.isBlank() && currentDir != currentRoot) {
@@ -1928,98 +1948,114 @@ private fun FileItemRow(
         }
     }
 
-    Card(
+    // XMB interface: the row is a glass card and one D-pad stop; A enters it (open the item first, then its actions menu).
+    // The tap / long-press moves from the card to that first stop. Elsewhere it is the clickable Card it was.
+    val xmb = rememberXmbHome()
+    val group = rememberXmbFocusGroup()
+    XmbGroupCard(
+        group = group,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 3.dp)
-            .combinedClickable(
-                // In selection mode a tap toggles instead of opening, so you can rattle through a
-                // folder without long-pressing every single row.
-                onClick = { if (selectionMode) onToggleSelect() else onTap() },
-                onLongClick = onLongPress,
+            .padding(horizontal = 12.dp, vertical = if (xmb) 6.dp else 3.dp)
+            .then(
+                if (xmb) Modifier else Modifier.combinedClickable(
+                    // In selection mode a tap toggles instead of opening, so you can rattle through a
+                    // folder without long-pressing every single row.
+                    onClick = { if (selectionMode) onToggleSelect() else onTap() },
+                    onLongClick = onLongPress,
+                )
             ),
         shape = RoundedCornerShape(10.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
-            else MaterialTheme.colorScheme.surfaceContainer,
-        ),
-        border = BorderStroke(
+        classicColor = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+        else MaterialTheme.colorScheme.surfaceContainer,
+        classicBorder = BorderStroke(
             1.dp,
             if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
         ),
+        accent = selected,
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = if (compact) 3.dp else 8.dp),
         ) {
-            if (selectionMode) {
-                androidx.compose.material3.Checkbox(checked = selected, onCheckedChange = { onToggleSelect() })
-                Spacer(Modifier.width(4.dp))
-            }
-            when {
-                // Show the executable's own embedded icon when we managed to extract one.
-                exeIcon != null -> Image(
-                    bitmap = exeIcon!!,
-                    contentDescription = null,
-                    modifier = Modifier.size(if (compact) 24.dp else 36.dp),
-                )
-                isExe -> Icon(
-                    painter = painterResource(R.drawable.icon_menu_container),
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(if (compact) 24.dp else 36.dp),
-                )
-                isDir -> Icon(
-                    imageVector = Icons.Filled.Folder,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(if (compact) 24.dp else 36.dp),
-                )
-                // Real image preview. Falls back to the generic file icon while loading or on decode failure.
-                isImage -> AsyncImage(
-                    model = file,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    placeholder = rememberVectorPainter(Icons.Filled.InsertDriveFile),
-                    error = rememberVectorPainter(Icons.Filled.InsertDriveFile),
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(6.dp)),
-                )
-                else -> Icon(
-                    imageVector = Icons.Filled.InsertDriveFile,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(if (compact) 24.dp else 36.dp),
-                )
-            }
-            Spacer(Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = file.name,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = buildString {
-                        if (!isDir) append(StringUtils.formatBytes(file.length())).append("  \u2022  ")
-                        append(dateFormat.format(Date(file.lastModified())))
-                    },
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.sp,
-                )
+            Row(
+                modifier = Modifier.weight(1f).then(
+                    if (xmb) Modifier.xmbBtn(RoundedCornerShape(8.dp), first = true).combinedClickable(
+                        onClick = { if (selectionMode) onToggleSelect() else onTap() },
+                        onLongClick = onLongPress,
+                    ) else Modifier
+                ),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (selectionMode) {
+                    androidx.compose.material3.Checkbox(checked = selected, onCheckedChange = { onToggleSelect() }, modifier = Modifier.xmbNoFocus())
+                    Spacer(Modifier.width(4.dp))
+                }
+                when {
+                    // Show the executable's own embedded icon when we managed to extract one.
+                    exeIcon != null -> Image(
+                        bitmap = exeIcon!!,
+                        contentDescription = null,
+                        modifier = Modifier.size(if (compact) 24.dp else 36.dp),
+                    )
+                    isExe -> Icon(
+                        painter = painterResource(R.drawable.icon_menu_container),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.size(if (compact) 24.dp else 36.dp),
+                    )
+                    isDir -> Icon(
+                        imageVector = Icons.Filled.Folder,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(if (compact) 24.dp else 36.dp),
+                    )
+                    // Real image preview. Falls back to the generic file icon while loading or on decode failure.
+                    isImage -> AsyncImage(
+                        model = file,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        placeholder = rememberVectorPainter(Icons.Filled.InsertDriveFile),
+                        error = rememberVectorPainter(Icons.Filled.InsertDriveFile),
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(6.dp)),
+                    )
+                    else -> Icon(
+                        imageVector = Icons.Filled.InsertDriveFile,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.size(if (compact) 24.dp else 36.dp),
+                    )
+                }
+                Spacer(Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = file.name,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = buildString {
+                            if (!isDir) append(StringUtils.formatBytes(file.length())).append("  \u2022  ")
+                            append(dateFormat.format(Date(file.lastModified())))
+                        },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp,
+                    )
+                }
             }
             if (showActions) Box {
-                IconButton(onClick = onMenu) {
+                IconButton(onClick = onMenu, modifier = Modifier.xmbBtn(CircleShape)) {
                     Icon(Icons.Filled.MoreVert, "Actions", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                 }
                 DropdownMenu(
                     expanded = menuExpanded,
                     onDismissRequest = onDismissMenu,
-                    modifier = Modifier.outlinedMenuCard(),
+                    modifier = Modifier.outlinedMenuCard().xmbMenuBack(onDismissMenu),
                 ) {
                     FileContextMenuItems(
                         file = file,
@@ -2064,7 +2100,7 @@ private fun FavoritesList(
         FavoritesStore.isFavorite(context, currentDir.absolutePath)
     }
 
-    LazyColumn(modifier = modifier) {
+    LazyColumn(modifier = modifier, contentPadding = xmbListPadding()) {
         item {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -2082,6 +2118,7 @@ private fun FavoritesList(
                 TextButton(
                     onClick = onPinCurrent,
                     enabled = !currentAlreadyPinned,
+                    modifier = Modifier.xmbBtn(CircleShape),
                 ) {
                     Icon(Icons.Filled.PushPin, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
@@ -2135,88 +2172,98 @@ private fun FavoriteCard(
     onUnpin: () -> Unit,
 ) {
     val (badgeBg, badgeFg) = badgeColors(loc)
-    Card(
+    // XMB interface: a glass card and one D-pad stop; A enters it (jump to the folder first, then unpin). Elsewhere the
+    // clickable Card it was.
+    val xmb = rememberXmbHome()
+    val group = rememberXmbFocusGroup()
+    XmbGroupCard(
+        group = group,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 3.dp)
-            .clickable(onClick = onJump),
+            .padding(horizontal = 12.dp, vertical = if (xmb) 6.dp else 3.dp)
+            .then(if (xmb) Modifier else Modifier.clickable(onClick = onJump)),
         shape = RoundedCornerShape(10.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        classicColor = MaterialTheme.colorScheme.surfaceContainer,
+        classicBorder = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
-            Icon(
-                imageVector = Icons.Filled.Folder,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(36.dp),
-            )
-            Spacer(Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = file.name,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+            Row(
+                modifier = Modifier.weight(1f).xmbMainAction(RoundedCornerShape(8.dp), onJump),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Folder,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(36.dp),
                 )
-                Spacer(Modifier.height(2.dp))
-                // Origin line: coloured drive badge + source description.
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Spacer(Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = loc.driveLabel,
-                        color = badgeFg,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(badgeBg)
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                        text = file.name,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
-                    Spacer(Modifier.width(6.dp))
-                    when {
-                        loc.containerName != null -> Row {
-                            Text(
-                                text = "Container: ",
+                    Spacer(Modifier.height(2.dp))
+                    // Origin line: coloured drive badge + source description.
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = loc.driveLabel,
+                            color = badgeFg,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(badgeBg)
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        when {
+                            loc.containerName != null -> Row {
+                                Text(
+                                    text = "Container: ",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 11.sp,
+                                )
+                                Text(
+                                    text = "\"${loc.containerName}\"",
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            else -> Text(
+                                text = when (loc.storage) {
+                                    FavStorage.INTERNAL -> "Internal storage"
+                                    FavStorage.SD -> "SD card"
+                                    FavStorage.CONTAINER -> "System files (shared)"  // Drive Z:
+                                    FavStorage.OTHER -> "Storage"
+                                },
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 11.sp,
                             )
-                            Text(
-                                text = "\"${loc.containerName}\"",
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
                         }
-                        else -> Text(
-                            text = when (loc.storage) {
-                                FavStorage.INTERNAL -> "Internal storage"
-                                FavStorage.SD -> "SD card"
-                                FavStorage.CONTAINER -> "System files (shared)"  // Drive Z:
-                                FavStorage.OTHER -> "Storage"
-                            },
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 11.sp,
-                        )
                     }
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = loc.displayPath,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    text = loc.displayPath,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
             }
-            IconButton(onClick = onUnpin) {
+            IconButton(onClick = onUnpin, modifier = Modifier.xmbBtn(CircleShape)) {
                 Icon(
                     Icons.Filled.Star,
                     contentDescription = "Remove from favorites",
@@ -2270,23 +2317,26 @@ private fun FileGridTile(
         }
     }
     // The tile has no ⋮ button — long-press opens this menu, anchored to the Box around the Card.
+    // XMB interface: a glass tile and a flat D-pad stop (A opens it); 6 dp round it leaves the shadow room in the grid.
+    val tileStop = rememberXmbHighlightItem()
     Box {
-        Card(
+        XmbInk(tileStop) {
+        XmbListCard(
             modifier = Modifier
-                .padding(4.dp)
+                .padding(if (rememberXmbHome()) 6.dp else 4.dp)
+                .xmbStop(RoundedCornerShape(10.dp), tileStop)
                 .combinedClickable(
                     onClick = { if (selectionMode) onToggleSelect() else onTap() },
                     onLongClick = onLongPress,
                 ),
             shape = RoundedCornerShape(10.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
-                else MaterialTheme.colorScheme.surfaceContainer,
-            ),
-            border = BorderStroke(
+            classicColor = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+            else MaterialTheme.colorScheme.surfaceContainer,
+            classicBorder = BorderStroke(
                 1.dp,
                 if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
             ),
+            accent = selected,
         ) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -2318,7 +2368,7 @@ private fun FileGridTile(
                         androidx.compose.material3.Checkbox(
                             checked = selected,
                             onCheckedChange = { onToggleSelect() },
-                            modifier = Modifier.align(Alignment.TopStart),
+                            modifier = Modifier.align(Alignment.TopStart).xmbNoFocus(),
                         )
                     }
                 }
@@ -2336,10 +2386,11 @@ private fun FileGridTile(
                 )
             }
         }
+        }
         DropdownMenu(
             expanded = menuExpanded,
             onDismissRequest = onDismissMenu,
-            modifier = Modifier.outlinedMenuCard(),
+            modifier = Modifier.outlinedMenuCard().xmbMenuBack(onDismissMenu),
         ) {
             FileContextMenuItems(
                 file = file,
@@ -2526,23 +2577,27 @@ private fun AttributeToggleRow(
 /** The ".." row: first entry of a listing, one folder up. Mirrors the list rows' height. */
 @Composable
 private fun ParentFolderRow(compact: Boolean, onTap: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onTap)
-            .padding(horizontal = 16.dp, vertical = if (compact) 6.dp else 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            Icons.Filled.ArrowUpward,
-            contentDescription = "Parent folder",
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(if (compact) 20.dp else 24.dp),
-        )
-        Spacer(Modifier.width(16.dp))
-        Column {
-            Text("..", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
-            if (!compact) Text("Parent folder", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    val stop = rememberXmbHighlightItem()
+    XmbInk(stop) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .xmbStop(RoundedCornerShape(10.dp), stop)
+                .clickable(onClick = onTap)
+                .padding(horizontal = 16.dp, vertical = if (compact) 6.dp else 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Filled.ArrowUpward,
+                contentDescription = "Parent folder",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(if (compact) 20.dp else 24.dp),
+            )
+            Spacer(Modifier.width(16.dp))
+            Column {
+                Text("..", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+                if (!compact) Text("Parent folder", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     }
 }
@@ -2550,20 +2605,24 @@ private fun ParentFolderRow(compact: Boolean, onTap: () -> Unit) {
 /** Grid-mode counterpart of [ParentFolderRow]. */
 @Composable
 private fun ParentFolderTile(onTap: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .padding(4.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .clickable(onClick = onTap)
-            .padding(8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Icon(
-            Icons.Filled.ArrowUpward,
-            contentDescription = "Parent folder",
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(48.dp),
-        )
-        Text("..", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
+    val stop = rememberXmbHighlightItem()
+    XmbInk(stop) {
+        Column(
+            modifier = Modifier
+                .padding(4.dp)
+                .xmbStop(RoundedCornerShape(12.dp), stop)
+                .clip(RoundedCornerShape(12.dp))
+                .clickable(onClick = onTap)
+                .padding(8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(
+                Icons.Filled.ArrowUpward,
+                contentDescription = "Parent folder",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(48.dp),
+            )
+            Text("..", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
+        }
     }
 }

@@ -109,8 +109,9 @@ data class ThemePreset(
 
 val themePresets: List<ThemePreset> = listOf(
     // Neutral near-black grays with a soft blue accent: the default preset, and the look the XMB glass is modelled on (its
-    // surfaces carry no colour, so the glass derived from them is plain charcoal). onSurfaceVariant is already clear of the
-    // lightest glass, so the XMB pages don't have to lift it.
+    // surfaces carry no colour, so the glass derived from them is plain charcoal). The XMB panels' fills are fairly light
+    // (alpha 0.085 / 0.12, see XmbBackdrop's FROST_*_ALPHA), so onSurfaceVariant is lifted a little by the XMB contrast helper
+    // (XmbGlass.secondaryText) to stay readable on the lightest glass.
     ThemePreset(
         name          = "Charcoal",
         background    = Color(0xFF151515),

@@ -4,6 +4,7 @@ import android.os.SystemClock
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -71,9 +72,11 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -83,9 +86,17 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import kotlinx.coroutines.launch
+import com.winlator.star.R
+import com.winlator.star.ui.LocalXmbHintInset
+import com.winlator.star.ui.deck.DeckFloatingHint
+import com.winlator.star.ui.deck.GlyphKind
+import com.winlator.star.ui.deck.LocalXmbKeyboard
 import com.winlator.star.ui.deck.ScreenScale
 import com.winlator.star.ui.deck.XmbEditTapCatcher
 import com.winlator.star.ui.deck.XmbGlassBackdrop
+import com.winlator.star.ui.deck.XmbHighlightHost
+import com.winlator.star.ui.deck.XmbHighlightItem
+import com.winlator.star.ui.deck.XmbInk
 import com.winlator.star.ui.deck.XmbKeyboardHost
 import com.winlator.star.ui.deck.XmbTriggerGuard
 import com.winlator.star.ui.deck.XmbWashTheme
@@ -96,10 +107,13 @@ import com.winlator.star.ui.deck.xmbEditStop
 import com.winlator.star.ui.deck.deckFocusRing
 import com.winlator.star.ui.deck.rememberScreenScale
 import com.winlator.star.ui.deck.rememberXmbHome
+import com.winlator.star.ui.deck.rememberXmbHighlightItem
 import com.winlator.star.ui.deck.xmbChipOverArt
 import com.winlator.star.ui.deck.xmbFrame
+import com.winlator.star.ui.deck.xmbGlassCard
+import com.winlator.star.ui.deck.xmbHighlight
+import com.winlator.star.ui.deck.xmbHighlightHostOrNull
 import com.winlator.star.ui.deck.xmbPageFrost
-import com.winlator.star.ui.deck.xmbSheen
 import com.winlator.star.ui.theme.LocalAccentDim
 
 // The store screens in the Deck interface's XMB-home mode: edge to edge in an even frame, a slim rail, a compact search
@@ -117,16 +131,18 @@ internal val LocalStoreXmb = staticCompositionLocalOf { false }
 internal fun StoreXmbScreen(content: @Composable () -> Unit) {
     val xmb = rememberXmbHome()
     XmbScreenWindow(xmb)
-    // XMB home: the XMB keyboard replaces Android's for every text field on the screen.
-    val hosted: @Composable () -> Unit = { XmbKeyboardHost(xmb, content) }
+    // XMB home: the XMB keyboard replaces Android's for every text field on the screen. The Back hint is inside it, so it can
+    // step aside while the keyboard panel is up.
+    val hosted: @Composable () -> Unit = { XmbKeyboardHost(xmb) { XmbBackHintLayer(xmb, content) } }
     // XMB home: the screen sits on the charcoal glass and the theme's own background is clear, so the glass shows through every
-    // rail, tab row and page inside it, and their cards are glass over it.
+    // rail, tab row and page inside it, and their cards are glass over it. The highlight host wraps all of it: the one gliding
+    // outline of the window draws over every page, rail and card (dialogs and sheets bring their own host).
     XmbWashTheme(xmb) {
         CompositionLocalProvider(LocalStoreXmb provides xmb) {
             if (!xmb) {
                 hosted()
             } else {
-                Box(Modifier.fillMaxSize()) {
+                XmbHighlightHost(enabled = true, modifier = Modifier.fillMaxSize()) {
                     XmbGlassBackdrop(Modifier.matchParentSize())
                     Box(
                         Modifier
@@ -141,6 +157,44 @@ internal fun StoreXmbScreen(content: @Composable () -> Unit) {
 }
 
 /**
+ * XMB home: the content of a store screen with a muted "B Back" hint floating at the bottom right, the look of the shell's
+ * Search hint. A tap runs the same back action as the B button (the activity's back dispatcher: a section's own back handler
+ * first, then the screen closes). It steps aside while the XMB keyboard panel is up, and it provides [LocalXmbHintInset] so
+ * anything floating at the bottom can lift clear of it. [endInset] pushes it in from the right edge when the layer is outside
+ * the screen's camera frame. Not [enabled]: [content] unchanged.
+ */
+@Composable
+internal fun XmbBackHintLayer(enabled: Boolean, endInset: Dp = 0.dp, content: @Composable () -> Unit) {
+    if (!enabled) {
+        content()
+        return
+    }
+    val ss = rememberScreenScale()
+    val keyboard = LocalXmbKeyboard.current
+    val dispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
+    val edge = ss.dp(12f)
+    CompositionLocalProvider(LocalXmbHintInset provides edge + XMB_BACK_HINT_HEIGHT) {
+        Box(Modifier.fillMaxSize()) {
+            content()
+            if (keyboard?.panelOpen != true) {
+                DeckFloatingHint(
+                    glyph = "B",
+                    kind = GlyphKind.B,
+                    label = stringResource(R.string.xmb_store_back),
+                    onClick = { dispatcher?.onBackPressed() },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = ss.dp(16f) + endInset, bottom = edge),
+                )
+            }
+        }
+    }
+}
+
+/** The room the Back hint takes above its bottom margin (its glyph row plus the padding round it). */
+private val XMB_BACK_HINT_HEIGHT = 34.dp
+
+/**
  * The app theme around a store screen that keeps its own layout in every interface (the full library lists, the Steam
  * sign-in): [WinlatorTheme] plus the XMB keyboard, which is only in effect in XMB-home mode.
  */
@@ -153,9 +207,9 @@ internal fun StoreKeyboardTheme(content: @Composable () -> Unit) {
                 XmbKeyboardHost(content = content)
             } else {
                 // These screens paint no backdrop of their own, and their `background` fills are clear on the glass.
-                Box(Modifier.fillMaxSize()) {
+                XmbHighlightHost(enabled = true, modifier = Modifier.fillMaxSize()) {
                     XmbGlassBackdrop(Modifier.matchParentSize())
-                    XmbKeyboardHost(content = content)
+                    XmbKeyboardHost { XmbBackHintLayer(true, content) }
                 }
             }
         }
@@ -384,14 +438,13 @@ internal fun steamTallArt(appId: Int): String =
 @Composable
 internal fun XmbRailItem(label: String, icon: ImageVector, selected: Boolean, count: Int?, onClick: () -> Unit) {
     val s = rememberScreenScale()
-    val cs = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(s.dp(10f))
-    val ink = if (selected) cs.primary else cs.onSurfaceVariant
+    val hl = rememberXmbHighlightItem()
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 4.dp)
-            .steamFocusRing(shape)
+            .xmbRing(shape, hl)
             .clip(shape)
             .background(if (selected) LocalAccentDim.current else Color.Transparent)
             .clickable(onClick = onClick)
@@ -400,24 +453,43 @@ internal fun XmbRailItem(label: String, icon: ImageVector, selected: Boolean, co
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(icon, contentDescription = label, tint = ink, modifier = Modifier.size(s.dp(18f)))
-        if (selected) {
-            Spacer(Modifier.height(s.dp(1f)))
-            // Each line gets a line box no taller than its text, and the count is pulled up a touch, so it sits right
-            // under the label instead of a line of empty space below it.
-            Text(
-                label, color = ink, fontSize = s.sp(10f), lineHeight = s.sp(10f), fontWeight = FontWeight.Bold,
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
-            if (count != null) {
+        // The colours are read inside XmbInk: while the tab holds the highlight its muted text and icon turn accent.
+        XmbInk(hl) {
+            val cs = MaterialTheme.colorScheme
+            val ink = if (selected) cs.primary else cs.onSurfaceVariant
+            Icon(icon, contentDescription = label, tint = ink, modifier = Modifier.size(s.dp(18f)))
+            if (selected) {
+                Spacer(Modifier.height(s.dp(1f)))
+                // Each line gets a line box no taller than its text, and the count is pulled up a touch, so it sits right
+                // under the label instead of a line of empty space below it.
                 Text(
-                    "$count", color = cs.onSurfaceVariant, fontSize = s.sp(9f), lineHeight = s.sp(9f), maxLines = 1,
-                    modifier = Modifier.offset(y = -s.dp(2f)),
+                    label, color = ink, fontSize = s.sp(10f), lineHeight = s.sp(10f), fontWeight = FontWeight.Bold,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
+                if (count != null) {
+                    Text(
+                        "$count", color = cs.onSurfaceVariant, fontSize = s.sp(9f), lineHeight = s.sp(9f), maxLines = 1,
+                        modifier = Modifier.offset(y = -s.dp(2f)),
+                    )
+                }
             }
         }
     }
 }
+
+/**
+ * [steamFocusRing] that also hands the highlight [item] to the caller, so its text and icons can turn accent while it is hot
+ * (wrap them in [XmbInk] with the same item). Under a highlight host (the XMB interface) it registers [item] as a stop of the
+ * one gliding outline; everywhere else it is exactly [steamFocusRing].
+ */
+@Composable
+internal fun Modifier.xmbRing(shape: Shape, item: XmbHighlightItem): Modifier =
+    if (xmbHighlightHostOrNull() != null) this.xmbHighlight(shape, item, wholeSubtree = true) else this.steamFocusRing(shape)
+
+/** [xmbRing] for the covers: outside a highlight host it is the Deck ring with its pop ([scaleTo]), as before. */
+@Composable
+internal fun Modifier.xmbDeckRing(shape: Shape, scaleTo: Float, item: XmbHighlightItem): Modifier =
+    if (xmbHighlightHostOrNull() != null) this.xmbHighlight(shape, item) else this.deckFocusRing(shape, scaleTo = scaleTo)
 
 /** How long (ms) the header ignores scrolling after it hides or shows. */
 private const val HEADER_SETTLE_MS = 450L
@@ -531,10 +603,12 @@ internal fun XmbStoreCover(
     val shape = RoundedCornerShape(s.dp(10f))
     var focused by remember { mutableStateOf(false) }
     val frostLine = xmbPageFrost()?.line
+    // The name sits in white on the art, so there is no ink to turn: the cover only registers with the gliding outline.
+    val hl = rememberXmbHighlightItem()
     Box(
         modifier = modifier
             .onFocusChanged { focused = it.isFocused }
-            .deckFocusRing(shape, scaleTo = 1.06f)
+            .xmbDeckRing(shape, 1.06f, hl)
             .clip(shape)
             .border(1.dp, frostLine ?: cs.outline, shape)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
@@ -600,15 +674,17 @@ internal fun XmbFeatureCard(
     val s = rememberScreenScale()
     val cs = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(s.dp(12f))
-    // On the glass pages the card is frosted glass (a light fill, a thin border and the sheen); elsewhere the opaque card, as before.
+    // On the glass pages the card is a panel that pops (frosted glass, sheen, hairline, soft shadow) with a thin border;
+    // elsewhere the opaque card, as before.
     val frost = xmbPageFrost()
+    val hl = rememberXmbHighlightItem()
     Row(
         modifier = modifier
+            // Room for the shadow: neighbouring cards in a list are only a few dp apart.
+            .then(if (frost != null) Modifier.padding(vertical = 5.dp) else Modifier)
             .fillMaxWidth()
-            .deckFocusRing(shape, scaleTo = 1.03f)
-            .clip(shape)
-            .background(frost?.card ?: cs.surfaceContainer)
-            .xmbSheen()
+            .xmbDeckRing(shape, 1.03f, hl)
+            .xmbGlassCard(shape, frost?.card ?: cs.surfaceContainer)
             .border(1.dp, frost?.line ?: cs.outline, shape)
             .clickable(onClick = onClick)
             .padding(s.dp(8f)),
@@ -620,16 +696,20 @@ internal fun XmbFeatureCard(
             modifier = Modifier.width(if (compact) s.w(0.05f, min = 44.dp, max = 80.dp) else s.w(0.09f, min = 76.dp, max = 140.dp)),
             shape = RoundedCornerShape(s.dp(8f)),
         )
+        // The text is read inside XmbInk: while the card holds the highlight it turns accent.
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(s.dp(if (compact) 3f else 5f))) {
-            if (eyebrow.isNotBlank()) {
-                Text(eyebrow, fontSize = s.sp(10f), fontWeight = FontWeight.Bold, color = cs.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            XmbInk(hl) {
+                val ink = MaterialTheme.colorScheme
+                if (eyebrow.isNotBlank()) {
+                    Text(eyebrow, fontSize = s.sp(10f), fontWeight = FontWeight.Bold, color = ink.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Text(
+                    title, fontSize = s.sp(if (compact) 12.5f else 16f), lineHeight = s.sp(if (compact) 14f else 18f),
+                    fontWeight = if (compact) FontWeight.Bold else FontWeight.ExtraBold,
+                    color = ink.onSurface, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                )
+                footer()
             }
-            Text(
-                title, fontSize = s.sp(if (compact) 12.5f else 16f), lineHeight = s.sp(if (compact) 14f else 18f),
-                fontWeight = if (compact) FontWeight.Bold else FontWeight.ExtraBold,
-                color = cs.onSurface, maxLines = 2, overflow = TextOverflow.Ellipsis,
-            )
-            footer()
         }
     }
 }
@@ -653,14 +733,21 @@ internal fun XmbSearchField(
     // Tap-to-edit behaviour is shared with every other search bar (ui/deck/DeckXmbKit.kt).
     val edit = rememberXmbEdit()
     val frost = xmbPageFrost()
+    // Under a highlight host the gliding outline marks the bar (and stays on it while typing), so its own accent border is dropped.
+    val glides = xmbHighlightHostOrNull() != null
     Row(
         modifier = modifier
             .widthIn(max = s.w(0.45f, min = 240.dp, max = 520.dp))
             .height(s.h(0.09f, min = 40.dp, max = 52.dp))
+            .then(if (glides) Modifier.xmbHighlight(shape, wholeSubtree = true) else Modifier)
             .xmbEditStop(edit)
             .clip(shape)
             .background(frost?.raised ?: cs.surfaceContainer)
-            .border(if (edit.active) 2.dp else 1.dp, if (edit.active) cs.primary else (frost?.line ?: cs.outline), shape)
+            .border(
+                if (edit.active && !glides) 2.dp else 1.dp,
+                if (edit.active && !glides) cs.primary else (frost?.line ?: cs.outline),
+                shape,
+            )
             .clickable { edit.start() }
             .padding(horizontal = s.dp(10f)),
         verticalAlignment = Alignment.CenterVertically,

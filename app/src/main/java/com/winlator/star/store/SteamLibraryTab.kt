@@ -57,6 +57,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
@@ -72,10 +73,16 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.winlator.star.R
+import com.winlator.star.ui.deck.LocalXmbGroup
+import com.winlator.star.ui.deck.XmbGroupItem
+import com.winlator.star.ui.deck.XmbInk
 import com.winlator.star.ui.deck.rememberScreenScale
+import com.winlator.star.ui.deck.rememberXmbFocusGroup
+import com.winlator.star.ui.deck.rememberXmbHighlightItem
 import com.winlator.star.ui.deck.xmbCardFill
 import com.winlator.star.ui.deck.xmbCardLine
-import com.winlator.star.ui.deck.xmbSheen
+import com.winlator.star.ui.deck.xmbGlassCard
+import com.winlator.star.ui.deck.xmbInner
 import com.winlator.star.store.compose.AddResultDialog
 import com.winlator.star.store.compose.AddShortcutResult
 import com.winlator.star.store.compose.AddToShortcutsRequest
@@ -1014,8 +1021,7 @@ private fun LibraryCapsuleCard(
         modifier = Modifier
             .fillMaxWidth()
             .steamFocusRing(shape)
-            .clip(shape)
-            .background(xmbCardFill(MaterialTheme.colorScheme.surfaceContainer)).xmbSheen()
+            .xmbGlassCard(shape, xmbCardFill(MaterialTheme.colorScheme.surfaceContainer))
             .border(1.dp, xmbCardLine(MaterialTheme.colorScheme.outline), shape)
             .clickable(onClick = onOpen),
     ) {
@@ -1068,6 +1074,10 @@ private fun LibraryDetailRow(
     onLaunch: () -> Unit,
     onUninstall: () -> Unit,
 ) {
+    if (LocalStoreXmb.current) {
+        LibraryDetailRowXmb(game, onClick, onLaunch, onUninstall)
+        return
+    }
     Card(
         onClick = onClick,
         modifier = Modifier
@@ -1078,6 +1088,59 @@ private fun LibraryDetailRow(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
     ) {
+        LibraryDetailBody(game, onClick, onLaunch, onUninstall)
+    }
+}
+
+/**
+ * XMB home: the detailed row as a glass panel. An installed game has buttons, so the whole row is ONE stop of the D-pad
+ * (the highlight glides row to row); A enters its Details / Launch / Uninstall buttons and B comes back to the row. A game
+ * without buttons is a plain row: highlighted whole, A opens it. Taps open it either way.
+ */
+@Composable
+private fun LibraryDetailRowXmb(
+    game: SteamGame,
+    onClick: () -> Unit,
+    onLaunch: () -> Unit,
+    onUninstall: () -> Unit,
+) {
+    val shape = RoundedCornerShape(12.dp)
+    val cs = MaterialTheme.colorScheme
+    // Room for the panel's shadow between the rows.
+    val outer = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)
+    if (game.isInstalled) {
+        val group = rememberXmbFocusGroup()
+        XmbGroupItem(group, shape, outer) {
+            // The row itself is not a focus target (the group item is); a tap on it still opens the game.
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .xmbGlassCard(shape, xmbCardFill(cs.surfaceVariant))
+                    .border(1.dp, xmbCardLine(cs.outline), shape)
+                    .focusProperties { canFocus = false }
+                    .clickable(onClick = onClick),
+            ) { LibraryDetailBody(game, onClick, onLaunch, onUninstall) }
+        }
+    } else {
+        val hl = rememberXmbHighlightItem()
+        Box(
+            outer
+                .xmbRing(shape, hl)
+                .xmbGlassCard(shape, xmbCardFill(cs.surfaceVariant))
+                .border(1.dp, xmbCardLine(cs.outline), shape)
+                .clickable(onClick = onClick),
+        ) { XmbInk(hl) { LibraryDetailBody(game, onClick, onLaunch, onUninstall) } }
+    }
+}
+
+/** The detailed row's content: cover, text lines and, for an installed game, its buttons ([LibraryDetailRow], [LibraryDetailRowXmb]). */
+@Composable
+private fun LibraryDetailBody(
+    game: SteamGame,
+    onOpen: () -> Unit,
+    onLaunch: () -> Unit,
+    onUninstall: () -> Unit,
+) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth().padding(12.dp),
@@ -1120,10 +1183,19 @@ private fun LibraryDetailRow(
                     )
                     Spacer(Modifier.height(6.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        // Only in the XMB row (a group item): the way to open the game with a controller, as a tap does.
+                        if (LocalXmbGroup.current != null) {
+                            OutlinedButton(
+                                onClick = onOpen,
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.height(32.dp).steamFocusRing(RoundedCornerShape(8.dp)).xmbInner(first = true),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
+                            ) { Text(stringResource(R.string.xmb_store_details), style = MaterialTheme.typography.labelSmall) }
+                        }
                         Button(
                             onClick = onLaunch,
                             shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.height(32.dp).steamFocusRing(RoundedCornerShape(8.dp)),
+                            modifier = Modifier.height(32.dp).steamFocusRing(RoundedCornerShape(8.dp)).xmbInner(),
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
                         ) { Text("Launch / Add", style = MaterialTheme.typography.labelSmall) }
                         OutlinedButton(
@@ -1132,14 +1204,13 @@ private fun LibraryDetailRow(
                             colors = ButtonDefaults.outlinedButtonColors(
                                 contentColor = MaterialTheme.colorScheme.error,
                             ),
-                            modifier = Modifier.height(32.dp).steamFocusRing(RoundedCornerShape(8.dp)),
+                            modifier = Modifier.height(32.dp).steamFocusRing(RoundedCornerShape(8.dp)).xmbInner(),
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
                         ) { Text("Uninstall", style = MaterialTheme.typography.labelSmall) }
                     }
                 }
             }
         }
-    }
 }
 
 @Composable

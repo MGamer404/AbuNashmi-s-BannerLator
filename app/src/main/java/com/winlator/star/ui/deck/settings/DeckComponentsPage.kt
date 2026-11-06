@@ -66,7 +66,10 @@ import com.winlator.star.container.Container
 import com.winlator.star.ui.deck.DeckGlyph
 import com.winlator.star.ui.deck.GlyphKind
 import com.winlator.star.ui.deck.XmbTapToEdit
-import com.winlator.star.ui.deck.deckFocusRing
+import com.winlator.star.ui.deck.DeckInk
+import com.winlator.star.ui.deck.XmbHighlightItem
+import com.winlator.star.ui.deck.deckFocusRingInk
+import androidx.compose.material3.ColorScheme
 import com.winlator.star.ui.deck.deckLine
 import com.winlator.star.ui.deck.rememberXmbEdit
 import com.winlator.star.ui.deck.rememberXmbHome
@@ -437,7 +440,11 @@ internal fun DeckComponentsDialogs(state: DeckComponentsState) {
 /** One component: name, why or what it is, and its state. The whole row is the focus target; A installs, or on an installed one asks to remove it. */
 @Composable
 private fun ComponentRow(state: DeckComponentsState, c: Component, note: String?) {
-    val cs = MaterialTheme.colorScheme
+    DeckInk { item, cs -> ComponentRowContent(state, c, note, item, cs) }
+}
+
+@Composable
+private fun ComponentRowContent(state: DeckComponentsState, c: Component, note: String?, item: XmbHighlightItem, cs: ColorScheme) {
     val reason = state.blockedReason(state.targetOf(c))
     val isInstalled = c.name in state.installed
     val isRemoving = state.removing == c.name
@@ -447,10 +454,11 @@ private fun ComponentRow(state: DeckComponentsState, c: Component, note: String?
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .deckFocusRing(RoundedCornerShape(12.dp), scaleTo = 1f)
+            .xmbRowInset()
+            .deckFocusRingInk(RoundedCornerShape(12.dp), item, scaleTo = 1f)
             // Stays focusable when there is nothing to do, so the pad can still walk the list; press() ignores it then.
             .clickable { state.press(c) }
-            .padding(horizontal = 18.dp, vertical = 12.dp),
+            .padding(horizontal = xmbRowPad(18.dp), vertical = 12.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
@@ -522,20 +530,22 @@ private fun SessionToggle(count: Int, open: Boolean, onClick: () -> Unit) =
 /** A folded group's header row: [title], [subtitle], and whether it is [open]. The whole row is the focus target; A opens or closes it. */
 @Composable
 private fun FoldToggle(title: String, subtitle: String, open: Boolean, onClick: () -> Unit) {
-    val cs = MaterialTheme.colorScheme
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .deckFocusRing(RoundedCornerShape(12.dp), scaleTo = 1f)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 18.dp, vertical = 14.dp),
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(title, color = cs.onSurface, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            Text(subtitle, color = cs.onSurfaceVariant, fontSize = 13.5.sp, modifier = Modifier.padding(top = 2.dp))
+    DeckInk { item, cs ->
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .xmbRowInset()
+                .deckFocusRingInk(RoundedCornerShape(12.dp), item, scaleTo = 1f)
+                .clickable(onClick = onClick)
+                .padding(horizontal = xmbRowPad(18.dp), vertical = 14.dp),
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, color = cs.onSurface, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Text(subtitle, color = cs.onSurfaceVariant, fontSize = 13.5.sp, modifier = Modifier.padding(top = 2.dp))
+            }
+            Icon(if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = null, tint = cs.onSurfaceVariant, modifier = Modifier.size(24.dp))
         }
-        Icon(if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = null, tint = cs.onSurfaceVariant, modifier = Modifier.size(24.dp))
     }
 }
 

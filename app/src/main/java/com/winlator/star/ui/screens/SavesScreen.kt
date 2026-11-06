@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import com.winlator.star.ui.LocalXmbHintInset
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -136,7 +137,9 @@ fun SavesScreen(vm: SavesViewModel = viewModel()) {
         Row(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(20.dp),
+                .padding(20.dp)
+                // XMB mode: above the floating Back / Search hints (0 elsewhere).
+                .padding(bottom = LocalXmbHintInset.current),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
