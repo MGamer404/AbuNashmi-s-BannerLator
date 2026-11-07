@@ -22,6 +22,7 @@ import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import com.winlator.star.ForceLtr
 import com.winlator.star.ui.deck.XmbHighlightHost
 import com.winlator.star.ui.deck.XmbKeyboardWindow
 import com.winlator.star.ui.deck.rememberXmbHome
@@ -141,7 +142,8 @@ fun DeckDialogScaled(host: Boolean = true, content: @Composable () -> Unit) {
     XmbKeyboardWindow {
         // Inside the density, so the outline's 2 dp is drawn at the Deck scale like everything else in the window.
         val body: @Composable () -> Unit = {
-            if (xmbHost) XmbHighlightHost(enabled = true) { content() } else content()
+            // A dialog is its own window: left-to-right there too, whatever the phone's language (see AppLocale).
+            ForceLtr { if (xmbHost) XmbHighlightHost(enabled = true) { content() } else content() }
         }
         if (deck == null) body() else CompositionLocalProvider(LocalDensity provides deck, content = body)
     }

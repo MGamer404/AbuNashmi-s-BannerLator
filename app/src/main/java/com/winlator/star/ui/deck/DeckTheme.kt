@@ -26,11 +26,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.winlator.star.R
@@ -91,7 +93,12 @@ internal fun DeckTheme(content: @Composable () -> Unit) {
     // DeckTheme in a dialog of a Deck screen takes the screen's density, not the dialog window's raw one.
     val outer = LocalDensity.current
     val density = LocalDeckDensity.current ?: Density(outer.density * DECK_UI_SCALE, outer.fontScale)
-    CompositionLocalProvider(LocalDensity provides density, LocalDeckDensity provides density) {
+    // Left-to-right always, whatever the phone's language (see AppLocale): the XMB rows place with Modifier.offset, which mirrors.
+    CompositionLocalProvider(
+        LocalDensity provides density,
+        LocalDeckDensity provides density,
+        LocalLayoutDirection provides LayoutDirection.Ltr,
+    ) {
         MaterialTheme(
             colorScheme = MaterialTheme.colorScheme,
             typography = typography,

@@ -7,6 +7,7 @@ import android.view.MotionEvent
 import android.view.ViewGroup
 import android.view.Window
 import android.view.WindowManager
+import com.winlator.star.ForceLtr
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -301,7 +302,8 @@ internal fun XmbKeyboardPanel(
             w.callback = wrapper
             onDispose { w.callback = original }
         }
-        XmbKeyboardPanelBody(session, onClose, onSystemKeyboard, triggers, inOwnWindow = true)
+        // Its own window: left-to-right there too, whatever the phone's language (see AppLocale).
+        ForceLtr { XmbKeyboardPanelBody(session, onClose, onSystemKeyboard, triggers, inOwnWindow = true) }
     }
 }
 
