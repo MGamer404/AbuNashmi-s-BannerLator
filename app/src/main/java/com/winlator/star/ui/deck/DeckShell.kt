@@ -146,7 +146,6 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -188,10 +187,12 @@ internal fun deckTabOf(route: String?): DeckTab = when {
     route == null -> DeckTab.HOME
     route == DeckRoutes.STORES -> DeckTab.STORES
     route == Screen.Containers.route || route.startsWith("container_detail") || DeckSettingsRoutes.isContainerEditor(route) -> DeckTab.CONTAINERS
-    route == DeckRoutes.COMPONENTS || route == Screen.Contents.route -> DeckTab.COMPONENTS
+    // Wrappers and Adrenotools are Components tabs now; their classic routes (Big Picture, the games wall) sit under it.
+    route == DeckRoutes.COMPONENTS || route == Screen.Contents.route ||
+        route == Screen.Wrappers.route || route == Screen.AdrenoTools.route -> DeckTab.COMPONENTS
     route == DeckRoutes.CONTROLS || route == Screen.InputControls.route -> DeckTab.CONTROLS
     route == DeckRoutes.TOOLS || route == Screen.FileManager.route || route == Screen.SaveManager.route ||
-        route == Screen.Saves.route || route == Screen.Wrappers.route || route == Screen.AdrenoTools.route -> DeckTab.TOOLS
+        route == Screen.Saves.route -> DeckTab.TOOLS
     route == DeckSettingsRoutes.APP || route == Screen.Settings.route || route == Screen.Appearance.route -> DeckTab.SETTINGS
     else -> DeckTab.HOME
 }
@@ -200,6 +201,8 @@ internal fun deckTabOf(route: String?): DeckTab = when {
 private val DECK_ALIASES = mapOf(
     Screen.Contents.route to DeckRoutes.COMPONENTS,
     Screen.InputControls.route to DeckRoutes.CONTROLS,
+    // Appearance lives in Settings > Appearance only (the Classic route stays for the Classic shell).
+    Screen.Appearance.route to DeckSettingsRoutes.APP,
 )
 
 /** With the Simple style on, these routes open its own pages instead. */
@@ -477,18 +480,6 @@ private fun DeckShellContent(
     // XMB mode: Home's floating tab bar on every tab, except the phone layout, too narrow for it (it keeps its bars).
     val floatTabs = xmbHome && !compact
 
-    // Settings and Appearance are the Settings tab's two pages: in landscape they sit on the page-tab rail, and L2/R2 swap them.
-    val settingsPages = rails && (currentRoute == Screen.Settings.route || currentRoute == Screen.Appearance.route)
-    DisposableEffect(settingsPages, deckActions, nav) {
-        if (!settingsPages) return@DisposableEffect onDispose {}
-        val swap: (Int) -> Unit = {
-            nav.open(if (nav.currentRoute() == Screen.Settings.route) Screen.Appearance.route else Screen.Settings.route)
-        }
-        deckActions.subTab.value = swap
-        deckActions.subTabLabel.value = "Page"
-        onDispose { if (deckActions.subTab.value === swap) deckActions.subTab.value = null }
-    }
-
     // Lab: a section (rail, drawer, L1/R1) opens over Home, so B from any section comes back to Home.
     val labGo: (Int) -> Unit = { i ->
         val all = com.winlator.star.ui.simple.LAB_SECTIONS
@@ -700,17 +691,7 @@ private fun DeckShellContent(
                                 )
                             }
                             val pageTabs = deckActions.pageTabs.value
-                            if (settingsPages) {
-                                val pages = listOf(Screen.Settings.route to DeckTabItem("Settings", Icons.Filled.Settings), Screen.Appearance.route to DeckTabItem("Appearance", Icons.Filled.Palette))
-                                DeckPageTabRail(
-                                    tabs = pages.map { it.second },
-                                    selected = pages.indexOfFirst { it.first == currentRoute }.coerceAtLeast(0),
-                                    compact = false,
-                                    onSelect = { i -> if (pages[i].first != currentRoute) nav.open(pages[i].first) },
-                                    onFocus = { deckActions.stripFocused.value = it },
-                                    glass = !framed,
-                                )
-                            } else if (pageTabs != null && isDeckPage(currentRoute) && pageTabs.tabs.isNotEmpty()) {
+                            if (pageTabs != null && isDeckPage(currentRoute) && pageTabs.tabs.isNotEmpty()) {
                                 DeckPageTabRail(
                                     tabs = pageTabs.tabs,
                                     selected = pageTabs.selected,
@@ -753,7 +734,7 @@ private fun DeckShellContent(
                                         endInset = cutoutEnd,
                                         title = deckPageTitle(context, currentRoute, backstackEntry?.arguments?.getInt("id") ?: -1),
                                         description = null,
-                                        showBack = currentRoute != tab.root && !settingsPages,
+                                        showBack = currentRoute != tab.root,
                                         onBack = goBack,
                                         actions = topBarActionsState.value,
                                     )
@@ -773,9 +754,6 @@ private fun DeckShellContent(
                                     title = deckPageTitle(context, currentRoute, backstackEntry?.arguments?.getInt("id") ?: -1),
                                     showBack = currentRoute != tab.root,
                                     onBack = goBack,
-                                    settingsSubTabs = tab == DeckTab.SETTINGS,
-                                    onSettingsSubTab = { route -> nav.open(route) },
-                                    currentRoute = currentRoute,
                                     actions = topBarActionsState.value,
                                 )
                             }
@@ -824,13 +802,12 @@ private fun DeckShellContent(
                                             composable(DeckRoutes.STORES) {
                                                 DeckStoresPage(
                                                     onLaunchStore = onLaunchStore,
-                                                    onOpenAppearance = { nav.open(Screen.Appearance.route) },
                                                     onOpenGame = { path -> nav.open(DeckRoutes.game(path)) },
                                                 )
                                             }
                                             composable(DeckRoutes.COMPONENTS) { DeckComponentsPage() }
                                             composable(DeckRoutes.CONTROLS) { DeckControlsPage() }
-                                            deckSettingsRoutes(navController, onAbout)
+                                            deckSettingsRoutes(navController, onAbout, onMyAccount = onAccount)
                                             simpleRoutes(
                                                 open = { route -> nav.open(route) },
                                                 back = { nav.back() },
@@ -838,13 +815,7 @@ private fun DeckShellContent(
                                                 onAbout = onAbout,
                                                 onLaunchStore = onLaunchStore,
                                             )
-                                            composable(DeckRoutes.TOOLS) {
-                                                DeckToolsPage(
-                                                    onNavigate = { route -> nav.open(route) },
-                                                    onMyAccount = onAccount,
-                                                    onAbout = onAbout,
-                                                )
-                                            }
+                                            composable(DeckRoutes.TOOLS) { DeckToolsPage() }
                                         },
                                     )
                                 }
@@ -1051,7 +1022,10 @@ private class DeckNav(private val navController: NavHostController) {
             else if (currentRoute() != r) navController.navigate(r) { launchSingleTop = true }
             return
         }
-        val route = DECK_ALIASES[requested] ?: requested
+        // Wrappers and Adrenotools are tabs of the Components page: land there and ask it for the tab.
+        val componentsTab = DeckComponentsTabs.tabFor(requested)
+        if (componentsTab != null) DeckComponentsTabs.requested = componentsTab
+        val route = if (componentsTab != null) DeckRoutes.COMPONENTS else (DECK_ALIASES[requested] ?: requested)
         val t = deckTabOf(route)
         goTab(t)
         if (route != t.root && currentRoute() != route) {
@@ -1915,17 +1889,14 @@ private fun DeckTitleLine(
 // ── Page bar (hosted screens) ────────────────────────────────────────────────────────────────────
 
 /**
- * Title row above a hosted screen: back arrow on sub-pages, the Settings / Appearance switch on the
- * Settings tab, and the screen's own top-bar actions (what the classic top bar shows on the right).
+ * Title row above a hosted screen: back arrow on sub-pages, the title, and the screen's own
+ * top-bar actions (what the classic top bar shows on the right).
  */
 @Composable
 private fun DeckPageBar(
     title: String,
     showBack: Boolean,
     onBack: () -> Unit,
-    settingsSubTabs: Boolean,
-    onSettingsSubTab: (String) -> Unit,
-    currentRoute: String,
     actions: @Composable RowScope.() -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
@@ -1941,46 +1912,16 @@ private fun DeckPageBar(
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = cs.onSurface)
             }
         }
-        if (settingsSubTabs) {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                // "Settings" is the Deck settings editor; the classic Settings screen it hands off to counts as it.
-                listOf(DeckSettingsRoutes.APP to "Settings", Screen.Appearance.route to "Appearance").forEach { (route, label) ->
-                    val selected = currentRoute == route || (route == DeckSettingsRoutes.APP && currentRoute == Screen.Settings.route)
-                    val shape = deckShape(12.dp)
-                    val tabItem = rememberXmbHighlightItem()
-                    Box(
-                        modifier = Modifier
-                            .deckFocusRingInk(shape, tabItem, scaleTo = 1f)
-                            .clip(shape)
-                            .background(if (selected) cs.primary.copy(alpha = 0.16f) else Color.Transparent)
-                            .clickable { if (!selected) onSettingsSubTab(route) }
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                    ) {
-                        XmbInk(tabItem) {
-                            val ink = MaterialTheme.colorScheme
-                            Text(
-                                text = label,
-                                color = if (selected) ink.onSurface else ink.onSurfaceVariant,
-                                fontFamily = SoraFamily,
-                                fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
-                                fontSize = if (selected) 20.sp else 16.sp,
-                            )
-                        }
-                    }
-                }
-            }
-        } else {
-            Text(
-                text = title,
-                color = cs.onSurface,
-                fontFamily = SoraFamily,
-                fontWeight = FontWeight.Bold,
-                fontSize = 20.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-        }
+        Text(
+            text = title,
+            color = cs.onSurface,
+            fontFamily = SoraFamily,
+            fontWeight = FontWeight.Bold,
+            fontSize = 20.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
         Spacer(Modifier.weight(1f))
         Row(verticalAlignment = Alignment.CenterVertically, content = actions)
     }

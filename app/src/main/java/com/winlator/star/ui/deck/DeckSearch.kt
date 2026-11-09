@@ -33,7 +33,6 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -88,6 +87,8 @@ private data class SearchDestination(
     val route: String? = null,
     val store: Screen? = null,
     val about: Boolean = false,
+    /** The Tools tab to show when [route] is the Tools page (see [DeckToolsTabs]). */
+    val toolsTab: Int? = null,
 )
 
 /** Everything the search lists besides games. Keywords widen the match beyond the title. */
@@ -105,11 +106,10 @@ private val DESTINATIONS = listOf(
     SearchDestination("Tools", "Files, saves, logs", Icons.Filled.Build, "tools", route = DeckRoutes.TOOLS),
     SearchDestination("File Manager", "Tools › Files", Icons.Filled.FolderOpen, "files folders browse unpack archive 7z zip", route = Screen.FileManager.route),
     SearchDestination("Save Manager", "Tools › Saves", Icons.Filled.Save, "saves backup restore cloud sync", route = Screen.SaveManager.route),
-    SearchDestination("Wrappers", "Tools › Graphics wrappers", Icons.Filled.Layers, "wrapper vulkan graphics", route = Screen.Wrappers.route),
-    SearchDestination("Adrenotools", "Tools › GPU drivers", Icons.Filled.Memory, "gpu driver adreno turnip mesa", route = Screen.AdrenoTools.route),
-    SearchDestination("Settings", "App settings", Icons.Filled.Settings, "settings preferences performance network storage logs advanced", route = DeckSettingsRoutes.APP),
-    SearchDestination("Appearance", "Settings › Appearance", Icons.Filled.Palette, "appearance theme accent dark light interface style deck classic size font", route = Screen.Appearance.route),
-    SearchDestination("Logs", "Tools › Logs", Icons.Filled.Description, "logs log manager debug wine dxvk", route = DeckRoutes.TOOLS),
+    SearchDestination("Wrappers", "Components › Wrappers", Icons.Filled.Layers, "wrapper vulkan graphics", route = Screen.Wrappers.route),
+    SearchDestination("Adrenotools", "Components › Adrenotools", Icons.Filled.Memory, "gpu driver adreno turnip mesa", route = Screen.AdrenoTools.route),
+    SearchDestination("Settings", "App settings", Icons.Filled.Settings, "settings preferences appearance theme accent interface style font performance network storage backup advanced", route = DeckSettingsRoutes.APP),
+    SearchDestination("Logs", "Tools › Logs", Icons.Filled.Description, "logs log manager debug wine dxvk", route = DeckRoutes.TOOLS, toolsTab = DeckToolsTabs.LOGS),
     SearchDestination("About", "Version, updates and credits", Icons.Filled.Info, "about version update credits license", about = true),
 )
 
@@ -262,7 +262,11 @@ private fun openDestination(d: SearchDestination, onOpenRoute: (String) -> Unit,
     when {
         d.about -> onAbout()
         d.store != null -> onLaunchStore(d.store)
-        d.route != null -> onOpenRoute(d.route)
+        d.route != null -> {
+            // The Simple style has no Tools tabs, so a pending tab request would only linger until the Deck style is back.
+            if (d.toolsTab != null && !com.winlator.star.ui.theme.AppThemeState.simpleLook) DeckToolsTabs.requested = d.toolsTab
+            onOpenRoute(d.route)
+        }
     }
 }
 

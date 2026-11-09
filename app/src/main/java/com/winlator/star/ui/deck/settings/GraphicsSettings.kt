@@ -187,6 +187,8 @@ internal object GraphicsRows {
         note: (SettingsEnv, (String) -> String) -> String? = { _, _ -> null },
         /** For a key whose shown value depends on other keys of the string: decodes from the whole config instead. */
         decodeConfig: ((SettingsEnv, String?) -> String)? = null,
+        /** The kind of the row's "Get more" link (SettingDef.getMore). */
+        getMore: String? = null,
     ): SettingDef {
         fun valueIn(env: SettingsEnv, config: String?) = decodeConfig?.invoke(env, config) ?: decode(env, p.raw(config, key))
         fun changed(config: String, v: String): String = p.with(config, also(v, config) + (key to encode(v, p.raw(config, key))))
@@ -212,7 +214,7 @@ internal object GraphicsRows {
                     }
                 },
             ),
-            visible = visible, disabled = disabled, note = note,
+            visible = visible, disabled = disabled, note = note, getMore = getMore,
         )
     }
 
@@ -314,6 +316,7 @@ internal object GraphicsRows {
             // The async switches only exist for the builds that have them, as the classic OK writes them.
             also = { v, cfg -> asyncFor(v, cfg) },
             visible = { _, values -> plainDxvk(values) },
+            getMore = "dxvk",
         ),
         packedRow(
             DX_CFG, ID_VEGAS, "version", L("DXVK and VKD3D"), L("VEGAS version"), ADVANCED,
@@ -321,7 +324,12 @@ internal object GraphicsRows {
             control = { env, values -> versions(env.graphics.vegas, values(ID_VEGAS), env.graphics.loaded) },
             also = { v, cfg -> asyncFor(v, cfg) },
             visible = { _, values -> vegas(values) },
-            note = { env, values -> if (env.graphics.loaded && env.graphics.vegas.isEmpty()) L("No VEGAS build installed: download one below.") else null },
+            note = { env, values ->
+                if (!env.graphics.loaded || env.graphics.vegas.isNotEmpty()) null
+                else if (com.winlator.star.ui.theme.AppThemeState.simpleLook) L("No VEGAS build installed: download one below.")
+                else L("No VEGAS build installed: use Get more to download one.")
+            },
+            getMore = "vegas",
         ),
         packedRow(
             DX_CFG, ID_VKD3D, "vkd3dVersion", L("DXVK and VKD3D"), L("VKD3D version"), ADVANCED,
@@ -329,6 +337,7 @@ internal object GraphicsRows {
             control = { env, values -> versions(env.graphics.vkd3d, values(ID_VKD3D), env.graphics.loaded) },
             decode = { _, r -> r?.ifEmpty { null } ?: "None" },
             visible = { _, values -> dxvkLike(values) },
+            getMore = "vkd3d",
         ),
         packedRow(
             DX_CFG, "graphics.dx.async", "async", L("DXVK and VKD3D"), L("Async shaders"), ADVANCED,
@@ -395,6 +404,7 @@ internal object GraphicsRows {
             },
             decode = { _, r -> r?.ifEmpty { null } ?: DXVKConfigDialog.D7VK_BUNDLED },
             visible = { _, values -> dxvkLike(values) && values(ID_DDRAW) == "d7vk" },
+            getMore = "d7vk",
         ),
 
         // VEGAS config file: which one the game reads. Its keys are edited in the VEGAS config editor below the rows.
@@ -423,6 +433,7 @@ internal object GraphicsRows {
                 val p = values(ID_VEGAS_CONFIG)
                 if (p.isNotEmpty() && !File(p).isFile) "Not found: $p" else null
             },
+            getMore = "stock",
         ),
 
         // WineD3D (WineD3DConfigDialog)
@@ -626,7 +637,7 @@ internal object GraphicsRows {
             wayland = true,
         ),
         gdcRow(
-            "graphics.gdc.presentMode", "presentMode", L("Driver tuning"), L("Driver present mode"), EXPERT,
+            "graphics.gdc.presentMode", "presentMode", L("Driver tuning"), L("Turnip driver present mode"), EXPERT,
             hint = L("How the wrapper hands frames over. Not the screen renderer's setting."),
             control = { env, values ->
                 if (!waylandGame(env, values)) Control.Segmented(env.graphics.presentModes.map { Opt(it, it.replaceFirstChar(Char::uppercase)) })
@@ -1254,19 +1265,41 @@ internal class DeckGraphicsState(
         }
     }
 
+    /**
+     * A row's "Get more" (SettingDef.getMore, wired by the host through SettingsEnv.getMoreOpen): opens the download
+     * sheet of [kind] (dxvk, vkd3d, d7vk, vegas, stock, wrappers or turnip). False for any other kind.
+     */
+    fun openGetMore(kind: String): Boolean {
+        when (kind) {
+            "dxvk" -> sheet = ContentProfile.ContentType.CONTENT_TYPE_DXVK
+            "vkd3d" -> sheet = ContentProfile.ContentType.CONTENT_TYPE_VKD3D
+            "d7vk" -> sheet = ContentProfile.ContentType.CONTENT_TYPE_D7VK
+            "vegas" -> vegasSheet = true
+            "stock" -> stockSheet = true
+            "wrappers" -> wrappers = true
+            "turnip" -> turnipSheet = true
+            else -> return false
+        }
+        return true
+    }
+
     private fun bottomItems(): List<PageExtra> {
+        // The Deck / XMB editor reaches every download below from "Get more" on the version rows ([openGetMore]), so
+        // only the VEGAS config editor (a file editor, not a download) is listed; the Lab style has no such links
+        // and keeps the whole list.
+        val lab = com.winlator.star.ui.theme.AppThemeState.simpleLook
         val actions = buildList {
-            if (dxvkLike() && !vegas()) add(Action("dxvk", Icons.Filled.CloudDownload, L("Download DXVK versions"), L("Builds from the catalog. Installed ones appear under DXVK version.")) { sheet = ContentProfile.ContentType.CONTENT_TYPE_DXVK })
-            if (vegas()) add(Action("vegas", Icons.Filled.CloudDownload, L("Download VEGAS builds"), L("Releases of the VEGAS DXVK fork.")) { vegasSheet = true })
-            if (dxvkLike()) add(Action("vkd3d", Icons.Filled.CloudDownload, L("Download VKD3D versions"), L("DirectX 12 builds from the catalog.")) { sheet = ContentProfile.ContentType.CONTENT_TYPE_VKD3D })
-            if (dxvkLike() && value(GraphicsRows.ID_DDRAW) == "d7vk") add(Action("d7vk", Icons.Filled.CloudDownload, L("Download D7VK versions"), L("DirectDraw and Direct3D 7 on Vulkan.")) { sheet = ContentProfile.ContentType.CONTENT_TYPE_D7VK })
-            if (vegas()) add(Action("stock", Icons.Filled.CloudDownload, L("Download stock VEGAS configs"), L("The config files VEGAS releases ship. They appear under Config file.")) { stockSheet = true })
+            if (lab && dxvkLike() && !vegas()) add(Action("dxvk", Icons.Filled.CloudDownload, L("Download DXVK versions"), L("Builds from the catalog. Installed ones appear under DXVK version.")) { sheet = ContentProfile.ContentType.CONTENT_TYPE_DXVK })
+            if (lab && vegas()) add(Action("vegas", Icons.Filled.CloudDownload, L("Download VEGAS builds"), L("Releases of the VEGAS DXVK fork.")) { vegasSheet = true })
+            if (lab && dxvkLike()) add(Action("vkd3d", Icons.Filled.CloudDownload, L("Download VKD3D versions"), L("DirectX 12 builds from the catalog.")) { sheet = ContentProfile.ContentType.CONTENT_TYPE_VKD3D })
+            if (lab && dxvkLike() && value(GraphicsRows.ID_DDRAW) == "d7vk") add(Action("d7vk", Icons.Filled.CloudDownload, L("Download D7VK versions"), L("DirectDraw and Direct3D 7 on Vulkan.")) { sheet = ContentProfile.ContentType.CONTENT_TYPE_D7VK })
+            if (lab && vegas()) add(Action("stock", Icons.Filled.CloudDownload, L("Download stock VEGAS configs"), L("The config files VEGAS releases ship. They appear under Config file.")) { stockSheet = true })
             if (vegas()) add(Action("vegasEditor", Icons.Filled.Description, L("Edit the VEGAS config file"), L("Performance tier, each key of the file, backups, and deleting or installing VEGAS builds.")) { vegasEditor = true })
-            if (x11()) add(Action("wrappers", Icons.Filled.Inventory2, L("Manage graphics wrappers"), L("Download, import or delete the wrappers listed under Graphics driver.")) { wrappers = true })
-            if (!env.isLinuxEntry && env.wayland(this@DeckGraphicsState::value)) add(Action("turnip", Icons.Filled.CloudDownload, L("Download a Turnip driver"), L("Wayland needs an installed Turnip to put the game's frames on screen. New ones appear under Graphics driver.")) { turnipSheet = true })
+            if (lab && x11()) add(Action("wrappers", Icons.Filled.Inventory2, L("Manage graphics wrappers"), L("Download, import or delete the wrappers listed under Graphics driver.")) { wrappers = true })
+            if (lab && !env.isLinuxEntry && env.wayland(this@DeckGraphicsState::value)) add(Action("turnip", Icons.Filled.CloudDownload, L("Download a Turnip driver"), L("Wayland needs an installed Turnip to put the game's frames on screen. New ones appear under Graphics driver.")) { turnipSheet = true })
         }
         if (actions.isEmpty()) return emptyList()
-        return listOf(PageExtra("graphics-tools-label") { GroupLabel(L("Downloads and tools")) }) +
+        return listOf(PageExtra("graphics-tools-label") { GroupLabel(if (lab) L("Downloads and tools") else L("Tools")) }) +
             actions.mapIndexed { i, a ->
                 PageExtra("graphics-tool:${a.key}") {
                     GroupCard(first = i == 0, last = i == actions.lastIndex, highlight = false) { ActionRow(a) }

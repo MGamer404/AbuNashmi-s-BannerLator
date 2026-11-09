@@ -92,10 +92,14 @@ import java.io.File
  * Mirrors the Performance screen deliberately — same card layout, same always-live "?" help button
  * on every toggle. Here the help copy leads with the PERFORMANCE COST, because two of these
  * genuinely slow games down and users need to know that before leaving one on.
+ *
+ * [showOptions] false hides everything that is a setting (where logs go, the what-to-record switches and engines, how many
+ * runs to keep): the Deck shell's Tools > Logs tab is only the viewer, and those options are rows in Settings > Storage & data.
+ * Classic and Lab keep the default (true) and show the whole screen.
  */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-fun LogManagerScreen(onClose: () -> Unit) {
+fun LogManagerScreen(onClose: () -> Unit, showOptions: Boolean = true) {
     val context = LocalContext.current
     val prefs = remember { PreferenceManager.getDefaultSharedPreferences(context) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
@@ -217,8 +221,8 @@ fun LogManagerScreen(onClose: () -> Unit) {
             }
 
             // ── Where logs go ────────────────────────────────────────────
-            SectionLabel("Where logs go")
-            LogCard {
+            if (showOptions) SectionLabel("Where logs go")
+            if (showOptions) LogCard {
                 PickRow(
                     label = when (locationMode) {
                         LogLocation.MODE_DOWNLOAD -> "Download"
@@ -260,8 +264,9 @@ fun LogManagerScreen(onClose: () -> Unit) {
             }
 
             // ── What to record ───────────────────────────────────────────
-            SectionLabel("What to record")
+            SectionLabel(if (showOptions) "What to record" else "Diagnostics")
             LogCard {
+              if (showOptions) {
                 LogToggle("Wine debug", wineDebug,
                     hint = "Slows games down — for diagnosing a problem",
                     onInfo = { info = "Wine debug" to LogCopy.WINE }) {
@@ -379,6 +384,7 @@ fun LogManagerScreen(onClose: () -> Unit) {
                     storeDlTier = com.winlator.star.store.StoreDownloadTier.next(storeDlTier)
                     com.winlator.star.store.StoreDownloadTier.set(context, storeDlTier)
                 }
+              }
 
                 // Outlined rather than a filled button: the design keeps solid accent for switches
                 // only, and this is an occasional action, not the point of the screen.
@@ -425,7 +431,7 @@ fun LogManagerScreen(onClose: () -> Unit) {
             // ── Housekeeping ─────────────────────────────────────────────
             SectionLabel("Housekeeping")
             LogCard {
-                Box {
+                if (showOptions) Box {
                     PickRow(
                         label = "Keep last",
                         sub = if (keepLast == 0) "No history — each run replaces the last"
@@ -756,7 +762,7 @@ private val COMMON_WINE_CHANNELS = listOf(
  */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun WineChannelGroup(
+internal fun WineChannelGroup(
     selected: List<String>,
     onChange: (List<String>) -> Unit,
     modifier: Modifier = Modifier,
@@ -1262,7 +1268,7 @@ private fun InfoDot(onClick: () -> Unit) {
  * Help copy. Every entry leads with the performance cost, because that is the thing a user needs to
  * decide with — two of these are genuinely expensive to leave on.
  */
-private object LogCopy {
+internal object LogCopy {
     const val PER_GAME =
         "No performance cost.\n\n" +
         "Gives each game its own folder inside your log location, named after the game, so one " +

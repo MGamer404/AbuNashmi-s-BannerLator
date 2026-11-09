@@ -17,12 +17,15 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -31,9 +34,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.winlator.star.store.SaveManagerScreen
 import com.winlator.star.ui.LocalTopBarActions
+import com.winlator.star.ui.Screen
+import com.winlator.star.ui.screens.AdrenoToolsScreen
 import com.winlator.star.ui.screens.FileManagerScreen
 import com.winlator.star.ui.screens.InputControlsScreen
 import com.winlator.star.ui.screens.LogManagerScreen
+import com.winlator.star.ui.screens.WrapperManagerScreen
 import com.winlator.star.ui.screens.contents.ContentsHubScreen
 import com.winlator.star.ui.screens.contents.ContentsHubViewModel
 
@@ -43,30 +49,63 @@ import com.winlator.star.ui.screens.contents.ContentsHubViewModel
  */
 
 /**
- * Components: Deck header, then Browse / Installed / Saved archives / Linux runtime on the Deck tab
- * strip (L2/R2). Each tab is the Contents hub's own tab content, hosted without its rail or TabRow,
- * so installs, the install-progress popup and the source manager are unchanged.
+ * A sub-tab of the Components page that another route asked for: the search (and the classic
+ * Wrappers / Adrenotools routes) land on Components, and the page picks the tab up once.
+ */
+internal object DeckComponentsTabs {
+    const val WRAPPERS = 4
+    const val ADRENOTOOLS = 5
+
+    /** The Components tab index waiting to be shown, or null. The page clears it once it has switched. */
+    var requested by mutableStateOf<Int?>(null)
+
+    /** The Components tab a classic [route] stands for, or null when the route is not one of them. */
+    fun tabFor(route: String): Int? = when (route) {
+        Screen.Wrappers.route -> WRAPPERS
+        Screen.AdrenoTools.route -> ADRENOTOOLS
+        else -> null
+    }
+}
+
+/**
+ * Components: Deck header, then Browse / Installed / Saved archives / Linux runtime / Wrappers /
+ * Adrenotools on the Deck tab strip (L2/R2). The first four are the Contents hub's own tab content,
+ * hosted without its rail or TabRow, so installs, the install-progress popup and the source manager
+ * are unchanged. Wrappers and Adrenotools host the wrapper manager and the GPU driver manager screens.
  */
 @Composable
 internal fun DeckComponentsPage() {
     val vm: ContentsHubViewModel = viewModel()
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    val wanted = DeckComponentsTabs.requested
+    LaunchedEffect(wanted) {
+        if (wanted != null) {
+            tab = wanted
+            DeckComponentsTabs.requested = null
+        }
+    }
     val tabs = listOf(
         DeckTabItem("Browse", Icons.Filled.Download),
         DeckTabItem("Installed", Icons.Filled.CheckCircle),
         DeckTabItem("Saved archives", Icons.Filled.Folder),
         DeckTabItem("Linux runtime", Icons.Filled.DeveloperBoard),
+        DeckTabItem("Wrappers", Icons.Filled.Layers),
+        DeckTabItem("Adrenotools", Icons.Filled.Memory),
     )
     DeckHostedPage(
         icon = Icons.Filled.Extension,
         title = "Components",
-        description = "Wine and Proton builds, graphics translation layers, drivers and x86 translators. Install once, use in any container.",
+        description = "Wine and Proton builds, graphics translation layers, wrappers, drivers and x86 translators. Install once, use in any container.",
         tabs = tabs,
         selected = tab,
         onSelect = { tab = it },
         tabLabel = "View",
     ) {
-        ContentsHubScreen(vm = vm, hostTab = tab)
+        when (tab) {
+            DeckComponentsTabs.WRAPPERS -> WrapperManagerScreen()
+            DeckComponentsTabs.ADRENOTOOLS -> AdrenoToolsScreen()
+            else -> ContentsHubScreen(vm = vm, hostTab = tab)
+        }
     }
 }
 
@@ -89,23 +128,34 @@ internal fun DeckControlsPage() {
     }
 }
 
+/** A Tools tab another page asked for (the search's "Logs" entry); the page picks it up once. */
+internal object DeckToolsTabs {
+    const val LOGS = 2
+
+    /** The Tools tab index waiting to be shown, or null. The page clears it once it has switched. */
+    var requested by mutableStateOf<Int?>(null)
+}
+
 /**
- * Tools: Files / Saves / Logs / More. Files, Saves and Logs are the File Manager, Save Manager and Log
- * Manager screens hosted in place; More holds the drawer's leftovers and "Run setup again". Unpacking
- * an archive starts from a file's menu in the File Manager, since it needs a picked archive.
+ * Tools: Files / Saves / Logs. They are the File Manager, Save Manager and Log Manager screens hosted
+ * in place. The Log Manager is the viewer only here: what gets recorded is set in Settings > Storage
+ * & data. Unpacking an archive starts from a file's menu in the File Manager, since it needs a picked
+ * archive.
  */
 @Composable
-internal fun DeckToolsPage(
-    onNavigate: (String) -> Unit,
-    onMyAccount: () -> Unit,
-    onAbout: () -> Unit,
-) {
+internal fun DeckToolsPage() {
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    val wanted = DeckToolsTabs.requested
+    LaunchedEffect(wanted) {
+        if (wanted != null) {
+            tab = wanted
+            DeckToolsTabs.requested = null
+        }
+    }
     val tabs = listOf(
         DeckTabItem("Files", Icons.Filled.FolderOpen),
         DeckTabItem("Saves", Icons.Filled.Save),
         DeckTabItem("Logs", Icons.Filled.Description),
-        DeckTabItem("More", Icons.Filled.GridView),
     )
     DeckHostedPage(
         icon = Icons.Filled.Build,
@@ -121,8 +171,7 @@ internal fun DeckToolsPage(
         when (tab) {
             0 -> FileManagerScreen()
             1 -> SaveManagerScreen()
-            2 -> LogManagerScreen(onClose = { tab = 0 })
-            else -> DeckMoreTools(onNavigate = onNavigate, onMyAccount = onMyAccount, onAbout = onAbout)
+            else -> LogManagerScreen(onClose = { tab = 0 }, showOptions = false)
         }
     }
 }

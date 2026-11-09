@@ -44,8 +44,9 @@ import java.util.Locale
 // App-wide settings for the Deck Settings tab. Each one reads and writes the same preference the
 // classic screen that owns it uses (Settings, Performance, Input Controls › Device, the Save Manager,
 // Contents, Steam Friends), with the same side effects, and applies the moment it changes (there is
-// nothing to save). What is not ported (storage folders, logs, backups, Steam region, Lossless.dll,
-// the menu button) is one hand-off away.
+// nothing to save). The lists below (categories, handoffs, TARGET_*) are what Lab and the Classic shell read and must stay as
+// they are; the XMB / Deck Settings tab re-files these rows into its own six tabs (AppSettingsLayout), adds the rows of
+// AppSettingsRows and the page items of AppSettingsExtras, and does not use the hand-offs.
 
 internal object AppSettingsRegistry {
 
@@ -96,7 +97,9 @@ internal object AppSettingsRegistry {
         "app.advanced" to listOf(Handoff(T("Frame-gen training capture"), T("Contributing captures and the win-fg diagnostic log (classic Settings)."), TARGET_CLASSIC)),
     )
 
-    val defs: List<SettingDef> by lazy { buildDefs() }
+    // The legacy rows (Classic / Lab categories above) plus the rows only the XMB / Deck Settings tab has: they sit in "app.x.*"
+    // categories that are not in [categories], so Lab ignores them, and AppSettingsLayout files all of them into its tabs.
+    val defs: List<SettingDef> by lazy { buildDefs() + AppSettingsRows.defs() }
 
     private fun prefs(c: Context) = PreferenceManager.getDefaultSharedPreferences(c)
     private fun onOff(b: Boolean) = if (b) "1" else "0"

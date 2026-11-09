@@ -92,13 +92,14 @@ internal object WindowsRows {
     fun defs(): List<SettingDef> = listOf(
         SettingDef(
             id = "windows.wineVersion", category = "windows", group = "Wine", level = SettingLevel.ADVANCED,
-            label = L("Wine / Proton version"), hint = L("The Wine layer this container runs. Download more below."), tech = L("Wine Version"),
+            label = L("Wine / Proton version"), hint = L("The Wine layer this container runs."), tech = L("Wine Version"),
             control = { env, _ -> Control.Select((env.vm?.wineVersionEntries ?: emptyList()).map { Opt(it, it) }) },
             vm = VmBinding(get = { _, vm -> vm.selectedWineVersion }, set = { _, vm, v -> vm.onWineVersionChanged(v) }),
             onDefaults = false, showInGame = false,
             visible = { env, _ -> env.scope == EditorScope.CONTAINER },
             // As the classic editor: the layer is chosen when the container is created, and its prefix is built for it.
             disabled = { env, _ -> if (env.vm?.wineVersionEnabled == false) L("Fixed once the container exists: its Windows prefix was built for this layer.") else null },
+            getMore = "wine",
         ),
         SettingDef(
             id = ID_BG, category = "windows", group = L("Windows desktop"), level = SettingLevel.ADVANCED,
@@ -176,6 +177,16 @@ internal class DeckWindowsSection(
 
     fun startPicker() { awaiting = true }
 
+    /**
+     * A row's "Get more" (SettingDef.getMore, wired by the host through SettingsEnv.getMoreOpen): "wine" opens the
+     * Wine / Proton download sheet. False for any other kind, or when this section has no container form.
+     */
+    fun openGetMore(kind: String): Boolean {
+        if (kind != "wine" || vm == null) return false
+        wineSheet = true
+        return true
+    }
+
     override fun extras(): Map<String, CategoryExtra> {
         if (vm == null || env.world != World.WINE) return emptyMap()
         return mapOf("windows" to CategoryExtra(bottom = ::bottomItems))
@@ -183,7 +194,9 @@ internal class DeckWindowsSection(
 
     private fun bottomItems(): List<PageExtra> = buildList {
         val vm = vm ?: return@buildList
-        if (container) {
+        // The Deck / XMB editor reaches this sheet from "Get more" on the Wine / Proton version row ([openGetMore]);
+        // the Lab style has no such link, so it keeps its own download action.
+        if (container && com.winlator.star.ui.theme.AppThemeState.simpleLook) {
             addAll(actionItems("windows-wine", null, listOf(
                 DeckAction("wine", Icons.Filled.CloudDownload, L("Download Wine and Proton versions"),
                     L("Layers from the catalog, or install one from a file. New containers can use them.")) { wineSheet = true },

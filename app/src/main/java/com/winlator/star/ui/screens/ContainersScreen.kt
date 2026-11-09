@@ -206,7 +206,7 @@ fun ContainersScreen(
             // the field state as the seed for future new containers) via the EDIT_DEFAULTS_ID sentinel.
             // Containers screen only. Sits next to the import action.
             IconButton(onClick = { onNavigateToDetail(ContainerDetailViewModel.EDIT_DEFAULTS_ID) }) {
-                Icon(Icons.Filled.Settings, contentDescription = "New container defaults", tint = androidx.compose.ui.graphics.Color.White)
+                Icon(Icons.Filled.Settings, contentDescription = "Defaults for new containers", tint = androidx.compose.ui.graphics.Color.White)
             }
             IconButton(onClick = { showImportPicker = true }) {
                 Icon(Icons.Filled.FileDownload, contentDescription = "Import container", tint = androidx.compose.ui.graphics.Color.White)

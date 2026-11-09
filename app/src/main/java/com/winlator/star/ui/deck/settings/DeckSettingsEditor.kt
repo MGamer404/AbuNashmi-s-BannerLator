@@ -180,7 +180,7 @@ internal class CategoryExtra(
     val level: SettingLevel = SettingLevel.SIMPLE,
 )
 
-// The Simple / Advanced / Expert choice is remembered across editors.
+// The Simple / Advanced choice is remembered across editors.
 private const val LEVEL_PREF = "deck_settings_level"
 
 /**
@@ -205,10 +205,15 @@ internal fun DeckSettingsEditor(
     onChainLink: ((ChainLink) -> Unit)? = null,
     headerExtra: (@Composable () -> Unit)? = null,
     extras: Map<String, CategoryExtra> = emptyMap(),
-    /** A new container (Simple only): Save creates it and closes the editor. */
+    /** A new container: the bar is a persistent "Create container", and creating it closes the editor through [onExit]. */
     createMode: Boolean = false,
     /** Simple only: what Y does on this editor (All containers: switch the architecture). */
     yAction: Pair<String, () -> Unit>? = null,
+    /**
+     * The XMB / Deck tab layout: re-files [categories], [defs], [handoffs] and [extras] into its own tabs (see EditorLayout.kt).
+     * Null shows the registry's categories as they are. The Simple style ignores it. Must be remembered by the caller.
+     */
+    layout: EditorLayout? = null,
 ) {
     // The Simple style draws its own menus on the same source and rows: the container, All-containers and game
     // editors laid out like the Classic ones (SimpleClassicEditor.kt), the app settings as a Simple list (SimpleSettingsEditor.kt).
@@ -227,35 +232,42 @@ internal fun DeckSettingsEditor(
     // Classic, the plain Deck and the XMB phone layout keep the big header.
     val slim = rememberXmbHome() && !compact
     val prefs = remember { PreferenceManager.getDefaultSharedPreferences(context) }
-    var level by remember {
-        mutableStateOf(runCatching { SettingLevel.valueOf(prefs.getString(LEVEL_PREF, null) ?: "") }.getOrDefault(SettingLevel.SIMPLE))
-    }
+    // Two levels: a stored "EXPERT" (the old third level) reads as ADVANCED.
+    var level by remember { mutableStateOf(SettingLevel.parse(prefs.getString(LEVEL_PREF, null))) }
     val changeLevel: (SettingLevel) -> Unit = { l ->
-        level = l
-        prefs.edit().putString(LEVEL_PREF, l.name).apply()
+        val next = l.effective
+        level = next
+        prefs.edit().putString(LEVEL_PREF, next.name).apply()
     }
 
+    // The tab layer (XMB / Deck): the pages are the layout's tabs and rows, hand-offs and extras are re-filed into them.
+    val cats = layout?.tabs ?: categories
+    val allDefs = remember(defs, layout) { layout?.apply(defs) ?: defs }
+    val hands = remember(handoffs, layout) { layout?.rekeyHandoffs(handoffs) ?: handoffs }
+    val ex = remember(extras, layout) { layout?.rekeyExtras(extras) ?: extras }
+
+    // Values are looked up in the registry's full list: a row the layout hides still answers the rows that read it.
     val byId = remember(defs) { defs.associateBy { it.id } }
     val values: (String) -> String = { id -> byId[id]?.takeIf { source.shows(it) }?.let { source.value(it) } ?: "" }
     // The worlds never cross: a row or hand-off of another world is not offered here at all.
     fun applies(def: SettingDef) = source.shows(def) && env.world in def.worlds && def.visible(env, values)
-    val worldHandoffs = remember(handoffs, env) {
-        handoffs.mapValues { (_, list) -> list.filter { env.world in it.worlds } }.filterValues { it.isNotEmpty() }
+    val worldHandoffs = remember(hands, env) {
+        hands.mapValues { (_, list) -> list.filter { env.world in it.worlds } }.filterValues { it.isNotEmpty() }
     }
     LaunchedEffect(env) { env.loadAsync() }
 
     // Per category: every row that applies in this editor, and the ones shown at the chosen level.
-    val rowsByCat = categories.associate { c -> c.id to defs.filter { it.category == c.id && applies(it) } }
+    val rowsByCat = cats.associate { c -> c.id to allDefs.filter { it.category == c.id && applies(it) } }
     val shownByCat = rowsByCat.mapValues { (_, rows) -> rows.filter { it.level <= level } }
-    val visibleCats = categories.filter { c ->
-        shownByCat[c.id].orEmpty().isNotEmpty() || extras[c.id]?.let { it.level <= level } == true ||
+    val visibleCats = cats.filter { c ->
+        shownByCat[c.id].orEmpty().isNotEmpty() || ex[c.id]?.let { it.level.effective <= level } == true ||
             (level != SettingLevel.SIMPLE && worldHandoffs[c.id].orEmpty().isNotEmpty())
     }
     val tracksOverrides = env.scope == EditorScope.GAME || env.scope == EditorScope.CONTAINER
     fun overrides(catId: String): List<SettingDef> =
         if (tracksOverrides) rowsByCat[catId].orEmpty().filter { source.editable(it) && source.origin(it) == Origin.SET_HERE } else emptyList()
 
-    var selected by rememberSaveable { mutableStateOf(categories.firstOrNull()?.id ?: "") }
+    var selected by rememberSaveable { mutableStateOf(cats.firstOrNull()?.id ?: "") }
     val current = visibleCats.firstOrNull { it.id == selected } ?: visibleCats.firstOrNull()
     var phonePage by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf<String?>(null) }
@@ -279,11 +291,22 @@ internal fun DeckSettingsEditor(
 
     fun save(after: (() -> Unit)? = null) {
         if (saving) return
+        // A new container needs a Wine or Proton version to be created at all.
+        if (createMode && env.vm?.selectedWineVersion.isNullOrBlank()) {
+            Toast.makeText(context, "Install a Wine or Proton version first: use Get more next to Wine / Proton version.", Toast.LENGTH_LONG).show()
+            return
+        }
         saving = true
         source.save { ok ->
             saving = false
-            if (ok && env.scope != EditorScope.DEFAULTS) Toast.makeText(context, "Saved", Toast.LENGTH_SHORT).show()
-            if (ok) after?.invoke()
+            if (ok && createMode) {
+                // Created: the form is done, close the editor (which is the page that opened it).
+                Toast.makeText(context, "Container created", Toast.LENGTH_SHORT).show()
+                onExit?.invoke()
+            } else if (ok) {
+                if (env.scope != EditorScope.DEFAULTS) Toast.makeText(context, "Saved", Toast.LENGTH_SHORT).show()
+                after?.invoke()
+            }
         }
     }
 
@@ -316,21 +339,22 @@ internal fun DeckSettingsEditor(
         }
     }
 
-    // Controller: X / Start saves while there is something to save, Y searches, L1 / R1 step through categories.
+    // Controller: X / Start saves while there is something to save (a new container always has: Create), Y searches, L1 / R1 step through categories.
     val deckActions = LocalDeckActions.current
     val dirty = source.dirty
+    val showBar = dirty || createMode
     val saveNow by rememberUpdatedState { save() }
-    DisposableEffect(deckActions, dirty) {
+    DisposableEffect(deckActions, showBar) {
         val act: () -> Unit = { saveNow() }
-        if (dirty) {
+        if (showBar) {
             deckActions.options.value = act
-            deckActions.optionsLabel.value = "Save"
+            deckActions.optionsLabel.value = if (createMode) "Create" else "Save"
         }
         onDispose { if (deckActions.options.value === act) deckActions.options.value = null }
     }
     val searchNow by rememberUpdatedState {
         // A page with a search of its own (Windows components) takes Y; everywhere else it searches every setting.
-        val own = current?.takeIf { query == null && (!compact || phonePage) && extras[it.id]?.searchKey != null }
+        val own = current?.takeIf { query == null && (!compact || phonePage) && ex[it.id]?.searchKey != null }
         if (own != null) extraSearchFor = own.id else query = query ?: ""
     }
     val stepNow by rememberUpdatedState { delta: Int ->
@@ -391,8 +415,8 @@ internal fun DeckSettingsEditor(
                         onClose = { query = null },
                         source = source,
                         values = values,
-                        categories = categories,
-                        defs = defs.filter { applies(it) },
+                        categories = cats,
+                        defs = allDefs.filter { applies(it) },
                         handoffs = worldHandoffs,
                         level = level,
                         compact = compact,
@@ -426,7 +450,7 @@ internal fun DeckSettingsEditor(
                         onResetAll = { over.forEach { source.reset(it) } },
                         onHandoff = handoff,
                         onBack = if (compact) ({ phonePage = false }) else null,
-                        extra = extras[current.id],
+                        extra = ex[current.id],
                         searchRequested = extraSearchFor == current.id,
                         onSearchDone = { extraSearchFor = null },
                         modifier = mod,
@@ -480,8 +504,8 @@ internal fun DeckSettingsEditor(
                 }
             }
         }
-        if (dirty) {
-            UnsavedBar(saving = saving, compact = compact, onDiscard = { source.discard() }, onSave = { save() })
+        if (showBar) {
+            UnsavedBar(saving = saving, compact = compact, create = createMode, onDiscard = { source.discard() }, onSave = { save() })
         }
     }
 
@@ -735,7 +759,7 @@ private fun SlimEditorTop(
 
 /**
  * The XMB two-pane layout's section line, pinned above the section's rows: a small icon, the name, its hint (one line, cut with an
- * ellipsis where it does not fit), the small Reset pill when the section has overrides, and the compact Simple / Advanced / Expert
+ * ellipsis where it does not fit), the small Reset pill when the section has overrides, and the compact Simple / Advanced
  * switch at the right. It replaces the big icon tile and title and the old header row, so the rows get the room.
  */
 @Composable
@@ -805,11 +829,12 @@ internal fun DeckSegmented(options: List<Opt>, value: String, onPick: (String) -
 @Composable
 private fun LevelSwitch(level: SettingLevel, onLevel: (SettingLevel) -> Unit, slim: Boolean = false) {
     SegmentedPills(
-        options = SettingLevel.entries.map { Opt(it.name, it.label) },
-        value = level.name,
+        // Two choices: EXPERT is only an alias of ADVANCED (see SettingLevel).
+        options = listOf(SettingLevel.SIMPLE, SettingLevel.ADVANCED).map { Opt(it.name, it.label) },
+        value = level.effective.name,
         enabled = true,
         alignEnd = false,
-        onPick = { onLevel(SettingLevel.valueOf(it)) },
+        onPick = { onLevel(SettingLevel.parse(it)) },
         slim = slim,
     )
 }
@@ -1021,7 +1046,7 @@ private fun CategoryPage(
         }
         extra?.bottom?.invoke()?.forEach { add(ExtraItem(it)) }
         if (handoffs.isNotEmpty()) {
-            add(GroupItem(if (rows.isEmpty()) "In the classic editor" else "More settings"))
+            add(GroupItem(category.actionsLabel ?: if (rows.isEmpty()) "In the classic editor" else "More settings"))
             handoffs.forEachIndexed { i, h -> add(HandoffItem(h, first = i == 0, last = i == handoffs.lastIndex)) }
         }
     }
@@ -1195,7 +1220,11 @@ private fun SettingRow(
     val selectOpen = remember { mutableStateOf(false) }
     val checklistOpen = remember { mutableStateOf(false) }
     val edit = if (xmb && control is Control.TextField) rememberXmbEdit() else null
-    val hasUtility = def.help != null || origin == Origin.SET_HERE
+    // "Get more": a small button (an inner button of the row's focus group, like "?" and Reset) while the host can open it.
+    val getMoreKind = def.getMore
+    val getMoreOpen = env.getMoreOpen
+    val onGetMore: (() -> Unit)? = if (getMoreKind != null && getMoreOpen != null) ({ getMoreOpen(getMoreKind) }) else null
+    val hasUtility = def.help != null || onGetMore != null || origin == Origin.SET_HERE
     val utility = remember { FocusRequester() }
     var utilityTick by remember { mutableIntStateOf(0) }
     LaunchedEffect(group, utilityTick) {
@@ -1231,13 +1260,13 @@ private fun SettingRow(
         ) {
             if (inline) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    RowInfo(def, level, origin, baseline, env.scope, onHelp, resetNow, utility, Modifier.weight(1f).padding(end = 16.dp))
+                    RowInfo(def, level, origin, baseline, env.scope, onHelp, onGetMore, resetNow, utility, Modifier.weight(1f).padding(end = 16.dp))
                     Box(modifier = Modifier.widthIn(max = if (control is Control.Toggle) 90.dp else controlMax)) {
                         ControlView(control, value, enabled, alignEnd = true, onPick = onPick, onCustom = onCustom, selectOpen = selectOpen, checklistOpen = checklistOpen, edit = edit, menuScheme = plainScheme)
                     }
                 }
             } else {
-                RowInfo(def, level, origin, baseline, env.scope, onHelp, resetNow, utility, Modifier.fillMaxWidth())
+                RowInfo(def, level, origin, baseline, env.scope, onHelp, onGetMore, resetNow, utility, Modifier.fillMaxWidth())
                 Spacer(Modifier.height(12.dp))
                 ControlView(control, value, enabled, alignEnd = false, onPick = onPick, onCustom = onCustom, selectOpen = selectOpen, checklistOpen = checklistOpen, edit = edit, menuScheme = plainScheme)
             }
@@ -1317,6 +1346,7 @@ private fun RowInfo(
     baselineLabel: String?,
     scope: EditorScope,
     onHelp: () -> Unit,
+    onGetMore: (() -> Unit)?,
     onReset: () -> Unit,
     utility: FocusRequester,
     modifier: Modifier,
@@ -1341,6 +1371,8 @@ private fun RowInfo(
                     Icon(Icons.AutoMirrored.Filled.HelpOutline, contentDescription = "What is this?", tint = cs.onSurfaceVariant, modifier = Modifier.size(20.dp))
                 }
             }
+            // After the "?"; takes the Right-from-the-row request only when there is no "?".
+            if (onGetMore != null) GetMoreButton(onGetMore, if (def.help == null) utility else null)
         }
         def.hint?.let {
             Text(it, color = cs.onSurfaceVariant, fontSize = 14.sp, modifier = Modifier.padding(top = 3.dp))
@@ -1354,9 +1386,33 @@ private fun RowInfo(
                 modifier = Modifier.padding(top = 4.dp),
             )
         }
-        // The requester lands Right-from-the-row on the "?" when there is one, else on Reset (never both: one request, one target).
-        SourceLine(origin, baselineLabel, scope, onReset, if (def.help == null) utility else null)
+        // The requester lands Right-from-the-row on the "?" when there is one, else on Get more, else on Reset (never two: one request, one target).
+        SourceLine(origin, baselineLabel, scope, onReset, if (def.help == null && onGetMore == null) utility else null)
     }
+}
+
+/** The small "Get more" pill of a row (see SettingDef.getMore): opens where more of what the row lists can be downloaded. */
+@Composable
+private fun GetMoreButton(onClick: () -> Unit, utility: FocusRequester?) {
+    val cs = MaterialTheme.colorScheme
+    val shape = deckShape(12.dp)
+    Text(
+        text = "Get more",
+        color = cs.primary,
+        fontWeight = FontWeight.Bold,
+        fontSize = 13.sp,
+        maxLines = 1,
+        modifier = Modifier
+            .padding(start = 8.dp)
+            .deckFocusRing(shape, scaleTo = 1f)
+            // XMB: an inner button of the row's group, reached with Right from the row, like the "?" and Reset.
+            .xmbInner()
+            .then(if (utility != null) Modifier.focusRequester(utility) else Modifier)
+            .clip(shape)
+            .border(1.dp, cs.primary, shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+    )
 }
 
 @Composable
@@ -2054,7 +2110,7 @@ private fun SearchResult(title: String, path: String, value: String?, badge: Str
 }
 
 @Composable
-private fun UnsavedBar(saving: Boolean, compact: Boolean, onDiscard: () -> Unit, onSave: () -> Unit) {
+private fun UnsavedBar(saving: Boolean, compact: Boolean, create: Boolean = false, onDiscard: () -> Unit, onSave: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     val line = deckLine()
     Row(
@@ -2069,11 +2125,20 @@ private fun UnsavedBar(saving: Boolean, compact: Boolean, onDiscard: () -> Unit,
     ) {
         Box(Modifier.size(9.dp).clip(CircleShape).background(cs.primary))
         Spacer(Modifier.width(10.dp))
-        Text("Unsaved changes", color = cs.onSurface, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.weight(1f))
-        TextButton(onClick = onDiscard, enabled = !saving) {
-            Text("Discard", color = cs.onSurfaceVariant, fontWeight = FontWeight.Bold)
+        Text(
+            text = if (create) "New container, not created yet" else "Unsaved changes",
+            color = cs.onSurface,
+            fontWeight = FontWeight.Bold,
+            fontSize = 15.sp,
+            modifier = Modifier.weight(1f),
+        )
+        // A new container has nothing to discard: leaving the page is the way out.
+        if (!create) {
+            TextButton(onClick = onDiscard, enabled = !saving) {
+                Text("Discard", color = cs.onSurfaceVariant, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.width(8.dp))
         }
-        Spacer(Modifier.width(8.dp))
         Button(
             onClick = onSave,
             enabled = !saving,
@@ -2083,7 +2148,7 @@ private fun UnsavedBar(saving: Boolean, compact: Boolean, onDiscard: () -> Unit,
             if (saving) {
                 CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = cs.onPrimary)
             } else {
-                Text("Save", fontWeight = FontWeight.ExtraBold)
+                Text(if (create) "Create container" else "Save", fontWeight = FontWeight.ExtraBold)
             }
         }
     }
