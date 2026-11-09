@@ -172,7 +172,7 @@ private fun DeckSearchPanel(
                     .clickable(onClick = onDismiss, indication = null, interactionSource = remember { MutableInteractionSource() })
                     .padding(horizontal = if (compact) 12.dp else 48.dp, vertical = if (compact) 16.dp else 40.dp),
             ) {
-                val shape = RoundedCornerShape(28.dp)
+                val shape = deckShape(28.dp)
                 Column(
                     modifier = Modifier
                         .widthIn(max = 900.dp)
@@ -195,7 +195,7 @@ private fun DeckSearchPanel(
                                 contentAlignment = Alignment.Center,
                                 modifier = Modifier
                                     .deckFocusRingInk(RoundedCornerShape(14.dp), item, scaleTo = 1f)
-                                    .clip(RoundedCornerShape(14.dp))
+                                    .clip(deckShape(14.dp))
                                     .clickable(onClick = onDismiss)
                                     .size(44.dp),
                             ) {
@@ -213,7 +213,7 @@ private fun DeckSearchPanel(
                         keyboardActions = KeyboardActions(onSearch = {
                             games.firstOrNull()?.let { onOpenGame(it.file.path) } ?: places.firstOrNull()?.let { openDestination(it, onOpenRoute, onLaunchStore, onAbout) }
                         }),
-                        shape = RoundedCornerShape(18.dp),
+                        shape = deckShape(18.dp),
                         colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = cs.primary, unfocusedBorderColor = deckLine()),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -268,7 +268,7 @@ private fun openDestination(d: SearchDestination, onOpenRoute: (String) -> Unit,
 
 @Composable
 private fun SearchResultRow(title: String, subtitle: String, icon: ImageVector, cover: Shortcut?, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(14.dp)
+    val shape = deckShape(14.dp)
     if (rememberXmbHome()) {
         // XMB: the gliding outline marks the focused result (a faint fill, no flood) and its title turns accent through the ink.
         DeckInk { item, ink ->
@@ -314,7 +314,7 @@ private fun SearchResultBody(
             contentAlignment = Alignment.Center,
             modifier = Modifier
                 .size(46.dp)
-                .clip(RoundedCornerShape(12.dp))
+                .clip(deckShape(12.dp))
                 .background(cs.primary.copy(alpha = 0.14f)),
         ) {
             val bmp = cover?.icon

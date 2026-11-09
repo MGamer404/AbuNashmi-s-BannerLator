@@ -1,5 +1,14 @@
 package com.winlator.star.store
 
+import com.winlator.star.ui.simple.T
+import com.winlator.star.ui.simple.L
+import com.winlator.star.ui.simple.labTile
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
+import com.winlator.star.ui.simple.keepInViewWhen
+import com.winlator.star.ui.simple.simpleTap
+import com.winlator.star.ui.simple.tabFill
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
@@ -159,6 +168,71 @@ class SteamSaveManagerActivity : ComponentActivity() {
 internal fun SaveManagerScreen(
     focusAppId: Int = 0,
     onBack: (() -> Unit)? = null,
+    /** Lab: the Lab title and a tab row (L2/R2) in place of the header and side rail, over the Lab wallpaper. */
+    lab: Boolean = false,
+) {
+    androidx.compose.runtime.CompositionLocalProvider(LocalLabSaves provides lab) { SaveManagerScreenBody(focusAppId, onBack, lab) }
+}
+
+/** Lab: the save rows, their buttons and the settings switches drawn as Lab rows (visible controller focus). */
+private val LocalLabSaves = androidx.compose.runtime.staticCompositionLocalOf { false }
+
+/** A save row's card: Lab's card and line in Lab, Classic's otherwise. */
+@Composable
+private fun Modifier.saveCard(highlighted: Boolean = false): Modifier {
+    val cs = MaterialTheme.colorScheme
+    return if (LocalLabSaves.current) this
+        .background(com.winlator.star.ui.simple.SimpleCard, com.winlator.star.ui.simple.SimpleShape)
+        .border(if (highlighted) 2.dp else 1.dp, if (highlighted) cs.primary else com.winlator.star.ui.simple.SimpleLine, com.winlator.star.ui.simple.SimpleShape)
+    else this
+        .clip(RoundedCornerShape(12.dp))
+        .background(cs.surfaceVariant)
+        .border(if (highlighted) 2.dp else 1.dp, if (highlighted) cs.primary else cs.outline, RoundedCornerShape(12.dp))
+}
+
+/** A tappable card: Lab's eased outline and tint when the controller is on it, Classic's ripple otherwise. */
+@Composable
+private fun Modifier.saveClick(onClick: () -> Unit): Modifier =
+    if (LocalLabSaves.current) this.labTile(onClick = onClick) else this.clickable(onClick = onClick)
+
+/** A row's text action (Back up, Restore). */
+@Composable
+private fun SaveTextAction(label: String, onClick: () -> Unit, first: Boolean = false) {
+    if (!LocalLabSaves.current) { TextButton(onClick = onClick, modifier = Modifier.xmbBtn(CircleShape, first = first)) { Text(label) }; return }
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .padding(vertical = 3.dp)
+            .background(com.winlator.star.ui.simple.SimpleCard, com.winlator.star.ui.simple.SimpleShape)
+            .labTile(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+    ) { Text(L(label), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 14.sp) }
+}
+
+/** A row's icon action (download / upload). */
+@Composable
+private fun SaveIconAction(icon: androidx.compose.ui.graphics.vector.ImageVector, description: String, enabled: Boolean, onClick: () -> Unit) {
+    val tint = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)
+    if (!LocalLabSaves.current) {
+        IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.xmbBtn(CircleShape)) { Icon(imageVector = icon, contentDescription = description, tint = tint) }
+        return
+    }
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .padding(vertical = 3.dp)
+            .size(42.dp)
+            .background(com.winlator.star.ui.simple.SimpleCard, com.winlator.star.ui.simple.SimpleShape)
+            .then(if (enabled) Modifier.labTile(onClick = onClick) else Modifier),
+    ) { Icon(imageVector = icon, contentDescription = description, tint = tint, modifier = Modifier.size(22.dp)) }
+}
+
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun SaveManagerScreenBody(
+    focusAppId: Int,
+    onBack: (() -> Unit)?,
+    lab: Boolean,
 ) {
     val context = LocalContext.current
     // Signed-in gate (a saved Steam account). Read once; SteamPrefs.init is idempotent + cheap.
@@ -409,10 +483,35 @@ internal fun SaveManagerScreen(
     // Root Box so the status bar can float as an overlay over whichever tab is showing (matches how
     // the store screens place UninstallResultBar at their outermost container).
     Box(modifier = Modifier.fillMaxSize()) {
-    Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    Column(modifier = Modifier.fillMaxSize().background(if (lab) Color.Transparent else MaterialTheme.colorScheme.background)) {
+        if (lab) {
+            // Lab: the page title as on the other Lab pages, the Steam pill beside it, then the sections as tabs.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(start = 24.dp, end = 20.dp, top = 4.dp),
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(L("Manage").uppercase(), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 2.sp)
+                    Text(L("Save Manager"), color = com.winlator.star.ui.simple.SimpleStrong, fontFamily = com.winlator.star.ui.deck.SoraFamily, fontWeight = FontWeight.ExtraBold, fontSize = 26.sp)
+                }
+                if (signedIn) SteamStatusPill(status = steamStatus, onReconnect = { SteamRepository.getInstance().reconnectNow() })
+            }
+            LabSaveTabs(selectedTab, needSync) { selectedTab = it }
+            // L2/R2 step through the tabs from anywhere on the page (through the shell).
+            val deckActions = com.winlator.star.ui.deck.LocalDeckActions.current
+            DisposableEffect(deckActions) {
+                val step: (Int) -> Unit = { d ->
+                    val i = LAB_SAVE_TABS.indexOfFirst { it.first == selectedTab }.coerceAtLeast(0)
+                    selectedTab = LAB_SAVE_TABS[(i + d + LAB_SAVE_TABS.size) % LAB_SAVE_TABS.size].first
+                }
+                deckActions.subTab.value = step
+                deckActions.subTabLabel.value = "Tab"
+                onDispose { if (deckActions.subTab.value === step) deckActions.subTab.value = null }
+            }
+        }
         // Header bar — mirrors the Steam Library header idiom (back + title).
         // The Deck shell's landscape frame shows the title and the connection pill itself.
-        if (!com.winlator.star.ui.LocalHostedInDeck.current) Row(
+        if (!lab && !com.winlator.star.ui.LocalHostedInDeck.current) Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -463,7 +562,7 @@ internal fun SaveManagerScreen(
         }
 
         Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            CollapsibleRail(
+            if (!lab) CollapsibleRail(
                 state = railState,
                 title = "Save Manager",
                 sections = listOf(
@@ -481,10 +580,18 @@ internal fun SaveManagerScreen(
             )
 
             // ── Content: full height beside the rail ─────────────────────────────────────────────
-            Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
+            Column(
+                modifier = Modifier.weight(1f).fillMaxHeight().then(
+                    if (lab) Modifier
+                        .padding(start = 24.dp, end = 24.dp, bottom = 12.dp)
+                        .background(com.winlator.star.ui.simple.SimplePanelBrush, com.winlator.star.ui.simple.SimpleShape)
+                        .border(1.dp, com.winlator.star.ui.simple.SimpleLine, com.winlator.star.ui.simple.SimpleShape)
+                    else Modifier
+                ),
+            ) {
                 // Collapsed rail hides the section labels, so surface the active one over the content
                 // (matches ContainerDetailScreen) — the user never loses their place.
-                if (railState.collapsed) {
+                if (!lab && railState.collapsed) {
                     Text(
                         activeSection,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -656,6 +763,47 @@ internal fun SaveManagerScreen(
 // behavior). Now an inline rail section (was a cog dialog). State seeds from the shared
 // "save_manager_prefs". Turning a toggle OFF is gated behind a warning confirm (write only on
 // Continue; Cancel leaves it ON); turning ON writes through then shows a brief info dialog.
+/** Lab's Save Manager tabs, in the rail's order: (selectedTab value, label, icon). */
+private val LAB_SAVE_TABS = listOf(
+    Triple(0, "Steam", Icons.Filled.VideogameAsset),
+    Triple(1, T("Custom"), Icons.Filled.Folder),
+    Triple(3, "Epic", Icons.Filled.Cloud),
+    Triple(4, "GOG", Icons.Filled.Storefront),
+    Triple(2, T("Settings"), Icons.Filled.Settings),
+)
+
+@Composable
+private fun LabSaveTabs(selected: Int, needSync: Int, onPick: (Int) -> Unit) {
+    val accent = MaterialTheme.colorScheme.primary
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 24.dp, end = 24.dp, top = 10.dp, bottom = 12.dp),
+    ) {
+        com.winlator.star.ui.simple.SimpleGlyph("L2")
+        LAB_SAVE_TABS.forEach { (id, label, icon) ->
+            val on = id == selected
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .tabFill(on, accent)
+                    .simpleTap { onPick(id) }
+                    .keepInViewWhen(on)
+                    .padding(horizontal = 13.dp, vertical = 8.dp),
+            ) {
+                Icon(icon, contentDescription = null, tint = if (on) accent else com.winlator.star.ui.simple.SimpleMuted, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(L(label), color = if (on) com.winlator.star.ui.simple.SimpleStrong else com.winlator.star.ui.simple.SimpleMuted, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                if (id == 0 && needSync > 0) {
+                    Spacer(Modifier.width(6.dp))
+                    Text("$needSync", color = accent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+        com.winlator.star.ui.simple.SimpleGlyph("R2")
+    }
+}
+
 @Composable
 private fun SaveManagerSettingsSection(modifier: Modifier = Modifier) {
     val context = LocalContext.current
@@ -898,10 +1046,12 @@ private fun SettingsToggleRow(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
 ) {
+    val lab = LocalLabSaves.current
     Row(
         verticalAlignment = Alignment.CenterVertically,
+        // Lab: the whole row is one stop that flips the switch, with Lab's outline when the controller is on it.
         // XMB interface: the row is the stop (the switch inside takes the focus, A flips it).
-        modifier = Modifier.fillMaxWidth().xmbStop(RoundedCornerShape(10.dp), wholeSubtree = true),
+        modifier = Modifier.fillMaxWidth().then(if (lab) Modifier.labTile(onClick = { onCheckedChange(!checked) }).padding(horizontal = 10.dp, vertical = 8.dp) else Modifier.xmbStop(RoundedCornerShape(10.dp), wholeSubtree = true)),
     ) {
         Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
             Text(
@@ -915,7 +1065,7 @@ private fun SettingsToggleRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Switch(checked = checked, onCheckedChange = if (lab) null else onCheckedChange)
     }
 }
 
@@ -1167,9 +1317,7 @@ private fun CustomSaveRow(
         classicModifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
+            .saveCard()
             .padding(start = 12.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
         contentPadding = PaddingValues(start = 12.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
         card = true,
@@ -1238,10 +1386,10 @@ private fun CustomSaveRow(
             )
         } else {
             Column(horizontalAlignment = Alignment.End) {
-                TextButton(onClick = onBackup, modifier = Modifier.xmbBtn(CircleShape, first = true)) { Text("Back up") }
+                SaveTextAction(T("Back up"), onBackup, first = true)
                 // Restore is always available: latest vault snapshot if present, else browse for a
                 // GameHub/Bannerlator save file (the chooser decides).
-                TextButton(onClick = onRestore, modifier = Modifier.xmbBtn(CircleShape)) { Text("Restore") }
+                SaveTextAction(T("Restore"), onRestore)
             }
         }
     }
@@ -1361,12 +1509,10 @@ private fun EpicSaveRow(
         classicModifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
-            // Tapping the card opens the store detail page. The Up/Down IconButtons keep their own
+            .saveCard()
+            // Tapping the card opens the Epic store detail page. The Up/Down IconButtons keep their own
             // click handlers so they stay independently tappable (not swallowed by the card click).
-            .clickable(onClick = onOpen)
+            .saveClick(onOpen)
             .padding(start = 12.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
         contentPadding = PaddingValues(start = 12.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
         card = true,
@@ -1459,20 +1605,8 @@ private fun EpicSaveRow(
         } else {
             val disabledTint = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                IconButton(onClick = onDownload, enabled = actionsEnabled, modifier = Modifier.xmbBtn(CircleShape)) {
-                    Icon(
-                        imageVector = Icons.Filled.CloudDownload,
-                        contentDescription = "Download from Epic Cloud",
-                        tint = if (actionsEnabled) MaterialTheme.colorScheme.primary else disabledTint,
-                    )
-                }
-                IconButton(onClick = onUpload, enabled = actionsEnabled, modifier = Modifier.xmbBtn(CircleShape)) {
-                    Icon(
-                        imageVector = Icons.Filled.CloudUpload,
-                        contentDescription = "Upload to Epic Cloud",
-                        tint = if (actionsEnabled) MaterialTheme.colorScheme.primary else disabledTint,
-                    )
-                }
+                SaveIconAction(Icons.Filled.CloudDownload, "Download from Epic Cloud", actionsEnabled, onDownload)
+                SaveIconAction(Icons.Filled.CloudUpload, "Upload to Epic Cloud", actionsEnabled, onUpload)
             }
         }
     }
@@ -1665,12 +1799,10 @@ private fun GogSaveRow(
         classicModifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
-            // Tapping the card opens the store detail page. The Up/Down IconButtons keep their own
+            .saveCard()
+            // Tapping the card opens the GOG store detail page. The Up/Down IconButtons keep their own
             // click handlers so they stay independently tappable (not swallowed by the card click).
-            .clickable(onClick = onOpen)
+            .saveClick(onOpen)
             .padding(start = 12.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
         contentPadding = PaddingValues(start = 12.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
         card = true,
@@ -1764,20 +1896,8 @@ private fun GogSaveRow(
             // save folder is set (manual) or the game is auto-resolvable.
             val disabledTint = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                IconButton(onClick = onDownload, enabled = actionsEnabled, modifier = Modifier.xmbBtn(CircleShape)) {
-                    Icon(
-                        imageVector = Icons.Filled.CloudDownload,
-                        contentDescription = "Download from GOG Cloud",
-                        tint = if (actionsEnabled) MaterialTheme.colorScheme.primary else disabledTint,
-                    )
-                }
-                IconButton(onClick = onUpload, enabled = actionsEnabled, modifier = Modifier.xmbBtn(CircleShape)) {
-                    Icon(
-                        imageVector = Icons.Filled.CloudUpload,
-                        contentDescription = "Upload to GOG Cloud",
-                        tint = if (actionsEnabled) MaterialTheme.colorScheme.primary else disabledTint,
-                    )
-                }
+                SaveIconAction(Icons.Filled.CloudDownload, "Download from GOG Cloud", actionsEnabled, onDownload)
+                SaveIconAction(Icons.Filled.CloudUpload, "Upload to GOG Cloud", actionsEnabled, onUpload)
             }
         }
     }
@@ -1807,15 +1927,8 @@ private fun SaveStatusRow(
         classicModifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .border(
-                width = if (highlighted) 2.dp else 1.dp,
-                color = if (highlighted) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.outline,
-                shape = RoundedCornerShape(12.dp),
-            )
-            .clickable(onClick = onOpen)
+            .saveCard(highlighted)
+            .saveClick(onOpen)
             .padding(start = 12.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
         contentPadding = PaddingValues(start = 12.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
         card = true,
@@ -1910,20 +2023,8 @@ private fun SaveStatusRow(
         // Disabled while a move runs (live progress is in the row body) and for NOT_SET_UP rows.
         val disabledTint = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            IconButton(onClick = onSyncFrom, enabled = syncFromEnabled, modifier = Modifier.xmbBtn(CircleShape)) {
-                Icon(
-                    imageVector = Icons.Filled.CloudDownload,
-                    contentDescription = "Sync from Cloud",
-                    tint = if (syncFromEnabled) MaterialTheme.colorScheme.primary else disabledTint,
-                )
-            }
-            IconButton(onClick = onSyncTo, enabled = actionsEnabled, modifier = Modifier.xmbBtn(CircleShape)) {
-                Icon(
-                    imageVector = Icons.Filled.CloudUpload,
-                    contentDescription = "Sync to Cloud",
-                    tint = if (actionsEnabled) MaterialTheme.colorScheme.primary else disabledTint,
-                )
-            }
+            SaveIconAction(Icons.Filled.CloudDownload, "Sync from Cloud", syncFromEnabled, onSyncFrom)
+            SaveIconAction(Icons.Filled.CloudUpload, "Sync to Cloud", actionsEnabled, onSyncTo)
         }
     }
 }

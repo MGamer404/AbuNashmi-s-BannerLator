@@ -388,6 +388,12 @@ public class XServerDisplayActivity extends AppCompatActivity {
     // restores each process exactly (revert philosophy). Populated on toggle ON, cleared on OFF.
     private final java.util.HashMap<Integer, Integer> bigCoreAffinitySnapshot = new java.util.HashMap<>();
     private int frameRatingWindowId = -1;
+    // The session's own frame counter: counts the game's frames whether or not the FPS overlay is on, so the
+    // session's average and 1% low can be saved with the game when it closes (Lab's "Last session" and FPS history).
+    private final FpsCounter sessionFps = new FpsCounter();
+    private volatile int sessionFpsWindowId = -1;
+    // Settings › Performance › Save FPS of each session (on by default); read once when the session starts.
+    private boolean sessionFpsOn = true;
     // Wayland mode has no X window to bind the HUD to; the compositor's game window stands in.
     private static final int WAYLAND_HUD_WINDOW_ID = Integer.MAX_VALUE;
     // Master HUD on/off, parsed from the fps config's `hudEnabled` key (default on). When false, every
@@ -1409,8 +1415,58 @@ public class XServerDisplayActivity extends AppCompatActivity {
      * without re-touching WM state off-thread. We deliberately do NOT reassign {@code frameRatingWindowId}
      * or {@code mesaDrvWindowIds} here (those are owned by the WM thread) — the volatile int is enough.
      */
+    /**
+     * X11: count a present for the session stats when it comes from the game: the window the HUD follows, or the
+     * focused application window (on GL/Zink, whatever window presents while a game window is focused, as the HUD's
+     * self-heal does). The window found is remembered, so later frames skip the window-manager lookup.
+     */
+    private void countSessionFrame(int wid) {
+        if (!sessionFpsOn) return;
+        if (wid == sessionFpsWindowId || (wid != -1 && (wid == frameRatingWindowId || wid == glZinkHealedWindowId))) {
+            sessionFps.tick();
+            return;
+        }
+        try {
+            Window focused = xServer.windowManager.getFocusedWindow();
+            if (focused == null || !focused.isApplicationWindow() || focused.isDesktopWindow()) return;
+            boolean game = focused.id == wid;
+            if (!game && guestGlIsZink()) {
+                Window w = xServer.windowManager.getWindow(wid);
+                game = w == null || !w.isDesktopWindow();
+            }
+            if (game) {
+                sessionFpsWindowId = wid;
+                sessionFps.tick();
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    /** Saves the session's FPS with the game when it ends (at least 30 s of frames): last average, 1% low, history. */
+    private void saveSessionFps() {
+        try {
+            if (!sessionFpsOn || shortcutName == null || shortcutName.isEmpty() || playtimePrefs == null) return;
+            float secs = sessionFps.getSessionLengthSec();
+            float avg = sessionFps.getAvgFPS();
+            if (secs < 30f || avg <= 0f) return;
+            String k = shortcutName + "_fps";
+            SharedPreferences.Editor e = playtimePrefs.edit();
+            e.putFloat(k + "_last_avg", avg);
+            e.putInt(k + "_last_low", Math.round(sessionFps.getLow1Pct()));
+            e.putLong(k + "_last_at", System.currentTimeMillis());
+            // The last 24 session averages, oldest first.
+            String hist = playtimePrefs.getString(k + "_history", "");
+            java.util.ArrayList<String> list = new java.util.ArrayList<>();
+            for (String v : hist.split(",")) if (!v.trim().isEmpty()) list.add(v.trim());
+            list.add(String.valueOf(Math.round(avg)));
+            while (list.size() > 24) list.remove(0);
+            e.putString(k + "_history", android.text.TextUtils.join(",", list));
+            e.apply();
+        } catch (Throwable ignored) {}
+    }
+
     private void driveHudFrameTick(int wid) {
         feedPadFrame(wid);   // controller pacing follows the game's frames, HUD or not
+        countSessionFrame(wid);   // the saved session stats, HUD or not
         if (frameRatingWindowId == -1 || !hudCounterEnabled) return;   // HUD inactive or toggled off -> never count
         if (wid != frameRatingWindowId && wid != glZinkHealedWindowId) {
             if (!guestGlIsZink()) return;                      // only the GL/Zink present topology
@@ -2774,6 +2830,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
 
         // Initialize playtime tracking
         playtimePrefs = getSharedPreferences("playtime_stats", MODE_PRIVATE);
+        sessionFpsOn = androidx.preference.PreferenceManager.getDefaultSharedPreferences(this).getBoolean("save_session_fps", true);
         shortcutName = getIntent().getStringExtra("shortcut_name");
 
         // Ensure shortcutPath is not null before proceeding
@@ -5589,6 +5646,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
                 // The controllers and their slots for the controller log, before anything is released.
                 if (winHandler != null) com.winlator.star.core.ControllerLog.pads(winHandler.getPlayerSlotAssignments(), true);
                 savePlaytimeData(); // Save on destroy
+                saveSessionFps();
                 handler.removeCallbacks(savePlaytimeRunnable);
                 if (midiHandler != null) midiHandler.stop();
                 // Unregister sensor listener to avoid memory leaks
@@ -8727,7 +8785,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
     private boolean launchDInputVisible;
     private String launchDInputForcedWhy;
 
-    /** One line for this session's log under {@code area}: the Wayland session log (Download/Wayland-logs)
+    /** One line for this session's log under {@code area}: the Wayland session log (the game's log folder, wayland/)
      *  on Wayland, the Wine debug log on X11 when the Log Manager has it open; logcat always. */
     private void logSessionLine(String area, String line) {
         Log.i("XServerDisplayActivity", area + ": " + line);
@@ -9868,6 +9926,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
                 // temperature/GPU-load reads and BatteryManager binder calls, every 500 ms) runs on the
                 // sampler thread; one job is queued at a time, so a fast game can't pile them up.
                 if (padFeedWaylandGame) com.winlator.star.inputcontrols.BannerinWriter.onGameFrame();
+                if (sessionFpsOn) sessionFps.tick();   // the saved session stats, HUD or not (only the game surface reports frames)
                 if (frameRatingWindowId == -1 || !hudCounterEnabled) return;
                 fpsCounter.tick();
                 android.os.Handler h = waylandHudSampler;
@@ -10246,6 +10305,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
             @Override public void surfaceCreated(android.view.SurfaceHolder h) {
                 if (!started) {
                     started = true;
+                    setWaylandSessionLogDir();
                     com.winlator.star.wayland.WaylandCompositor.nativeStartWithSurface(
                             h.getSurface(), xdgRuntimeDir, fDriverPath, fLibraryName, nativeLibDir);
                     startWaylandVsync();
@@ -12142,6 +12202,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
         deckSeed.setSessionKind(inGameSessionKind);
         deckSeed.setGameTitle(shortcut != null && shortcut.name != null ? shortcut.name : (container != null ? container.getName() : ""));
         deckSeed.setLaunchedFromShortcut(shortcut != null);
+        deckSeed.setGameShortcutPath(shortcut != null && shortcut.file != null ? shortcut.file.getPath() : null);
         deckSeed.setHudSavedToShortcut(shortcutOwnsFpsConfig());
         if (isLinuxSteamSession()) setupLinuxSteamDrawerGlue(rootView);
         // Under the Deck layers, which are added after it, so a menu is always on top of the keyboard.
@@ -16079,6 +16140,23 @@ return true;
      * the container's own name ("Container-2"), which is still what they see in the Containers list.
      * Sanitising happens in {@link com.winlator.star.core.LogLocation#sanitizeFolderName}.
      */
+    /**
+     * The Wayland session log goes into this game's log folder, wayland/ (one file per run, the same
+     * keep-last as previous/). Written whatever the Wine debug switch says, as before; if the folder
+     * can't be made the compositor keeps Download/Wayland-logs.
+     */
+    private void setWaylandSessionLogDir() {
+        try {
+            java.io.File dir = com.winlator.star.core.LogLocation.resolveWaylandLogDir(this, currentLogGameName());
+            if (dir != null) com.winlator.star.core.LogRotation.pruneWaylandLogs(
+                    dir, com.winlator.star.core.LogLocation.keepLastRuns(this));
+            com.winlator.star.wayland.WaylandCompositor.nativeSetSessionLogDir(dir != null ? dir.getAbsolutePath() : null);
+            Log.i("XServerDisplayActivity", "wayland: session log folder " + (dir != null ? dir : "Download/Wayland-logs"));
+        } catch (Throwable t) {
+            Log.w("XServerDisplayActivity", "wayland: session log folder not set", t);
+        }
+    }
+
     private String currentLogGameName() {
         if (shortcut != null && shortcut.name != null && !shortcut.name.trim().isEmpty())
             return shortcut.name;

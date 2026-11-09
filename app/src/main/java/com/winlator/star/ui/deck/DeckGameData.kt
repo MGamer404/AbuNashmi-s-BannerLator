@@ -1,5 +1,7 @@
 package com.winlator.star.ui.deck
 
+import com.winlator.star.ui.simple.T
+import com.winlator.star.ui.simple.L
 import android.content.Context
 import android.text.format.DateUtils
 import com.winlator.star.androidgames.AndroidGames
@@ -42,6 +44,24 @@ internal fun readPlayStats(context: Context, shortcuts: List<Shortcut>): Map<Str
     }
 }
 
+/** A game's saved FPS (XServerDisplayActivity.saveSessionFps): the last session's average and 1% low, and the averages of up to 24 sessions. */
+internal data class FpsStats(val lastAvg: Float, val lastLow: Int, val lastAt: Long, val history: List<Int>)
+
+internal fun readFpsStats(context: Context, s: Shortcut): FpsStats? {
+    // Settings › Performance › Save FPS of each session off: the tiles show playtime instead.
+    if (!androidx.preference.PreferenceManager.getDefaultSharedPreferences(context).getBoolean("save_session_fps", true)) return null
+    val prefs = context.getSharedPreferences("playtime_stats", Context.MODE_PRIVATE)
+    val k = "${s.name}_fps"
+    val avg = prefs.getFloat("${k}_last_avg", 0f)
+    if (avg <= 0f) return null
+    return FpsStats(
+        lastAvg = avg,
+        lastLow = prefs.getInt("${k}_last_low", 0),
+        lastAt = prefs.getLong("${k}_last_at", 0L),
+        history = prefs.getString("${k}_history", "").orEmpty().split(',').mapNotNull { it.trim().toIntOrNull() },
+    )
+}
+
 internal fun lastPlayedOf(s: Shortcut): Long = s.getExtra(EXTRA_LAST_PLAYED, "").toLongOrNull() ?: 0L
 
 internal fun addedAtOf(s: Shortcut): Long = ShortcutOrder.parse(s.getExtra(ShortcutOrder.EXTRA_ADDED_AT, ""))
@@ -52,9 +72,9 @@ internal fun recentKeyOf(s: Shortcut): Long = ShortcutOrder.recentKey(lastPlayed
 internal fun playtimeLabel(ms: Long): String {
     val minutes = ms / 60_000L
     return when {
-        ms <= 0L -> "Not played yet"
-        minutes < 60L -> "${minutes.coerceAtLeast(1L)} min played"
-        else -> "%.1f h played".format(ms / 3_600_000.0)
+        ms <= 0L -> L("Not played yet")
+        minutes < 60L -> L("%1\$s min played", minutes.coerceAtLeast(1L))
+        else -> L("%1\$s h played", "%.1f".format(ms / 3_600_000.0))
     }
 }
 
@@ -63,8 +83,8 @@ internal fun playtimeShort(ms: Long): String {
     val minutes = ms / 60_000L
     return when {
         ms <= 0L -> "—"
-        minutes < 60L -> "${minutes.coerceAtLeast(1L)} min"
-        else -> "%.1f h".format(ms / 3_600_000.0)
+        minutes < 60L -> L("%1\$s min", minutes.coerceAtLeast(1L))
+        else -> L("%1\$s h", "%.1f".format(ms / 3_600_000.0))
     }
 }
 
@@ -73,9 +93,9 @@ internal fun lastPlayedLabel(context: Context, whenMs: Long): String? {
     if (whenMs <= 0L) return null
     val now = System.currentTimeMillis()
     return when {
-        DateUtils.isToday(whenMs) -> "Today"
-        DateUtils.isToday(whenMs + DateUtils.DAY_IN_MILLIS) -> "Yesterday"
-        now - whenMs < 7 * DateUtils.DAY_IN_MILLIS -> "${(now - whenMs) / DateUtils.DAY_IN_MILLIS} days ago"
+        DateUtils.isToday(whenMs) -> L("Today")
+        DateUtils.isToday(whenMs + DateUtils.DAY_IN_MILLIS) -> L("Yesterday")
+        now - whenMs < 7 * DateUtils.DAY_IN_MILLIS -> L("%1\$s days ago", (now - whenMs) / DateUtils.DAY_IN_MILLIS)
         else -> DateUtils.formatDateTime(context, whenMs, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_ABBREV_MONTH)
     }
 }
@@ -101,12 +121,13 @@ internal val STORE_SHELVES: List<Pair<String, (Shortcut) -> Boolean>> = listOf(
     "Amazon Games" to { s: Shortcut -> isAmazonShortcut(s) },
     "Xbox" to { s: Shortcut -> isXboxShortcut(s) },
     "Android" to { s: Shortcut -> AndroidGames.isAndroidEntry(s) },
-    "Added by me" to { s: Shortcut -> isCustomOriginShortcut(s) },
+    T("Added by me") to { s: Shortcut -> isCustomOriginShortcut(s) },
 )
 
 internal fun storeLabelOf(s: Shortcut): String = when {
     LinuxShortcuts.isLinuxEntry(s) -> "Linux"
-    else -> STORE_SHELVES.firstOrNull { it.second(s) }?.first ?: "Added by me"
+    // Store names stay as they are; "Added by me" is shown in Lab's language.
+    else -> L(STORE_SHELVES.firstOrNull { it.second(s) }?.first ?: "Added by me")
 }
 
 /**

@@ -1190,7 +1190,7 @@ private fun InputControlsTabs(selected: Int, onSelect: (Int) -> Unit) {
  * hardware, not of a game; sensitivity/target/activator/invert stay with the container.
  */
 @Composable
-private fun GyroscopeSection() {
+internal fun GyroscopeSection() {
     val context = LocalContext.current
     val sensor = remember { GyroCalibrator.getSensor(context) }
 
@@ -1288,7 +1288,7 @@ private fun GyroscopeSection() {
  * Android 12+; without it only a USB-connected controller works (the game session never prompts).
  */
 @Composable
-private fun SteamControllerSection() {
+internal fun SteamControllerSection() {
     val context = LocalContext.current
     var enabled by remember {
         mutableStateOf(com.winlator.star.ui.components.GlobalControllerPrefs.isSteamControllerEnabled(context))
@@ -1424,7 +1424,7 @@ private fun steamPaddleOptions(): List<Pair<String, Binding>> {
  * as the container/shortcut editors, writing the identical WinHandler slot-overrides JSON schema.
  */
 @Composable
-private fun GlobalPlayerSlotsSection() {
+internal fun GlobalPlayerSlotsSection() {
     val context = LocalContext.current
     var helpRes by remember { mutableStateOf<Int?>(null) }
     helpRes?.let { HelpDialog(it) { helpRes = null } }
@@ -1495,7 +1495,7 @@ private fun GlobalPlayerSlotsSection() {
  * takes the next key press through MainActivity (MenuButtonCaptureBus).
  */
 @Composable
-private fun MenuButtonSection() {
+internal fun MenuButtonSection() {
     val context = LocalContext.current
     val prefs = com.winlator.star.ui.components.GlobalControllerPrefs
     var keyCode by remember { mutableStateOf(prefs.getMenuButtonKeyCode(context)) }

@@ -1,5 +1,6 @@
 package com.winlator.star.ui.deck.settings
 
+import com.winlator.star.ui.deck.deckShape
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -204,7 +205,21 @@ internal fun DeckSettingsEditor(
     onChainLink: ((ChainLink) -> Unit)? = null,
     headerExtra: (@Composable () -> Unit)? = null,
     extras: Map<String, CategoryExtra> = emptyMap(),
+    /** A new container (Simple only): Save creates it and closes the editor. */
+    createMode: Boolean = false,
+    /** Simple only: what Y does on this editor (All containers: switch the architecture). */
+    yAction: Pair<String, () -> Unit>? = null,
 ) {
+    // The Simple style draws its own menus on the same source and rows: the container, All-containers and game
+    // editors laid out like the Classic ones (SimpleClassicEditor.kt), the app settings as a Simple list (SimpleSettingsEditor.kt).
+    if (com.winlator.star.ui.theme.AppThemeState.simpleLook) {
+        // App settings: one scrolling menu like the Classic Settings screen, with Logs as a tab (SimpleOneMenu.kt).
+        if (source.env.scope == EditorScope.APP) com.winlator.star.ui.simple.SimpleFlat {
+            SimpleOneMenuSettings(header, source, categories, defs, handoffs, onHandoff)
+        }
+        else SimpleClassicEditor(header, source, categories, defs, handoffs, onExit, onHandoff, headerExtra, extras, createMode, yAction)
+        return
+    }
     val context = LocalContext.current
     val env = source.env
     val compact = isDeckCompact(LocalConfiguration.current)
@@ -775,7 +790,7 @@ private fun IconTile(icon: ImageVector, size: Dp) {
     val cs = MaterialTheme.colorScheme
     Box(
         contentAlignment = Alignment.Center,
-        modifier = Modifier.size(size).clip(RoundedCornerShape(14.dp)).background(cs.primary.copy(alpha = 0.16f)),
+        modifier = Modifier.size(size).clip(deckShape(14.dp)).background(cs.primary.copy(alpha = 0.16f)),
     ) {
         Icon(icon, contentDescription = null, tint = cs.primary, modifier = Modifier.size(size * 0.52f))
     }
@@ -801,7 +816,7 @@ private fun LevelSwitch(level: SettingLevel, onLevel: (SettingLevel) -> Unit, sl
 
 @Composable
 private fun SearchButton(onClick: () -> Unit) {
-    val shape = RoundedCornerShape(14.dp)
+    val shape = deckShape(14.dp)
     DeckInk { item, cs ->
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -902,7 +917,7 @@ private fun CategoryItem(
     modifier: Modifier,
     rail: XmbRailState? = null,
 ) {
-    val shape = RoundedCornerShape(14.dp)
+    val shape = deckShape(14.dp)
     // XMB: the shown category's text keeps its accent when the outline moves on into the page.
     val shownInk = xmbSelectedInk()
     DeckInk { item, cs ->
@@ -1367,7 +1382,7 @@ private fun SourceLine(origin: Origin, baselineLabel: String?, scope: EditorScop
                     fontSize = 14.sp,
                 )
             }
-            val shape = RoundedCornerShape(12.dp)
+            val shape = deckShape(12.dp)
             Text(
                 text = "Reset",
                 color = cs.primary,
@@ -1396,13 +1411,13 @@ private fun SourcePill(label: String) {
         fontSize = 13.sp,
         modifier = Modifier
             .padding(top = 8.dp)
-            .clip(RoundedCornerShape(10.dp))
+            .clip(deckShape(10.dp))
             .background(deckInset(0.6f))
             .padding(horizontal = 10.dp, vertical = 4.dp),
     )
 }
 
-private fun optionsOf(control: Control): List<Opt> = when (control) {
+internal fun optionsOf(control: Control): List<Opt> = when (control) {
     is Control.Segmented -> control.options
     is Control.Chips -> control.options
     is Control.Select -> control.options
@@ -1410,7 +1425,7 @@ private fun optionsOf(control: Control): List<Opt> = when (control) {
 }
 
 /** A stored value as the row shows it: the option's label, On/Off, or the slider's display text. */
-private fun labelFor(control: Control, v: String): String = when (control) {
+internal fun labelFor(control: Control, v: String): String = when (control) {
     Control.Toggle -> if (v == "1") "On" else "Off"
     is Control.Segmented -> control.options.firstOrNull { it.value == v }?.label ?: v
     is Control.Chips -> control.options.firstOrNull { it.value == v }?.label ?: v
@@ -1484,7 +1499,7 @@ private fun ControlView(
         is Control.Chips -> ChipPills(control.options, value, enabled, alignEnd, onPick)
         is Control.Select -> SelectBox(control, value, enabled, selectOpen, onPick, onCustom, menuScheme)
         is Control.Slider -> SliderControl(control, value, enabled, onPick)
-        is Control.TextField -> TextControl(control, value, enabled, onPick, edit)
+        is Control.TextField -> TextControl(control, value, enabled, edit, onPick)
         Control.Cores -> CoresControl(value, enabled, onPick)
         is Control.Checklist -> ChecklistControl(control, value, enabled, checklistOpen)
     }
@@ -1568,7 +1583,7 @@ private fun ChipPills(options: List<Opt>, value: String, enabled: Boolean, align
 /** A rounded choice. [first]: in an XMB row, the one A on the row lands on (see [xmbLandingIndex]). */
 @Composable
 private fun Pill(label: String, selected: Boolean, enabled: Boolean, first: Boolean = false, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(22.dp)
+    val shape = deckShape(22.dp)
     DeckInk { item, cs ->
         Text(
             text = label,
@@ -1603,7 +1618,7 @@ private fun SelectBox(
     menuScheme: ColorScheme,
 ) {
     val cs = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(14.dp)
+    val shape = deckShape(14.dp)
     // Lifted to the row: A on an XMB row opens the menu.
     var open by openState
     // The menu is a popup of its own; inside an XMB row it would otherwise carry the row's accent ink.
@@ -1742,7 +1757,7 @@ private fun StepButton(icon: ImageVector, description: String, enabled: Boolean,
 }
 
 @Composable
-private fun TextControl(control: Control.TextField, value: String, enabled: Boolean, onPick: (String) -> Unit, edit: XmbEditState?) {
+internal fun TextControl(control: Control.TextField, value: String, enabled: Boolean, edit: XmbEditState? = null, onPick: (String) -> Unit) {
     var text by remember { mutableStateOf(value) }
     // Follow outside changes (Reset, Discard), but never overwrite what is being typed.
     LaunchedEffect(value) { if (value != text) text = value }
@@ -1761,7 +1776,7 @@ private fun TextControl(control: Control.TextField, value: String, enabled: Bool
             isError = error != null,
             placeholder = { Text(control.placeholder) },
             supportingText = if (error != null) { { Text(error) } } else null,
-            shape = RoundedCornerShape(14.dp),
+            shape = deckShape(14.dp),
             colors = deckFieldColors(),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
             keyboardActions = if (edit != null) xmbDoneActions { edit.stop() } else KeyboardActions.Default,
@@ -1785,7 +1800,7 @@ private fun TextControl(control: Control.TextField, value: String, enabled: Bool
 @Composable
 private fun ChecklistControl(control: Control.Checklist, value: String, enabled: Boolean, open: MutableState<Boolean>) {
     val cs = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(14.dp)
+    val shape = deckShape(14.dp)
     val items = control.items
     val off = value.split(',').filter { it.isNotEmpty() }.toSet()
     val usable = enabled && !items.isNullOrEmpty()
@@ -1819,7 +1834,7 @@ private fun ChecklistControl(control: Control.Checklist, value: String, enabled:
 
 /** Every item with a tick; the whole line is the focus target and A switches it. OK hands back the ones switched off. */
 @Composable
-private fun ChecklistDialog(title: String, all: List<String>, off: Set<String>, onDismiss: () -> Unit, onDone: (Set<String>) -> Unit) {
+internal fun ChecklistDialog(title: String, all: List<String>, off: Set<String>, onDismiss: () -> Unit, onDone: (Set<String>) -> Unit) {
     val cs = MaterialTheme.colorScheme
     var picked by remember(all, off) { mutableStateOf(all.filter { it in off }.toSet()) }
     val first = remember { FocusRequester() }
@@ -1855,7 +1870,7 @@ private fun ChecklistDialog(title: String, all: List<String>, off: Set<String>, 
 
 @Composable
 private fun ChecklistLine(label: String, checked: Boolean, modifier: Modifier = Modifier, onToggle: () -> Unit) {
-    val shape = RoundedCornerShape(10.dp)
+    val shape = deckShape(10.dp)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier
@@ -1872,7 +1887,7 @@ private fun ChecklistLine(label: String, checked: Boolean, modifier: Modifier = 
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun CoresControl(value: String, enabled: Boolean, onPick: (String) -> Unit) {
+internal fun CoresControl(value: String, enabled: Boolean, onPick: (String) -> Unit) {
     val cores = remember { Runtime.getRuntime().availableProcessors() }
     val on = value.split(',').mapNotNull { it.trim().toIntOrNull() }.toSet()
     // The last core left can't be turned off: a game needs at least one.
@@ -1967,7 +1982,7 @@ private fun SearchPane(
                     modifier = Modifier.size(40.dp).clip(CircleShape).clickable(onClick = onClose),
                 ) { Icon(Icons.Filled.Close, contentDescription = "Close search") }
             },
-            shape = RoundedCornerShape(16.dp),
+            shape = deckShape(16.dp),
             colors = deckFieldColors(),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             modifier = Modifier.fillMaxWidth().focusRequester(requester),
@@ -2003,7 +2018,7 @@ private fun SearchPane(
 
 @Composable
 private fun SearchResult(title: String, path: String, value: String?, badge: String?, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(16.dp)
+    val shape = deckShape(16.dp)
     DeckInk { item, cs ->
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -2024,7 +2039,7 @@ private fun SearchResult(title: String, path: String, value: String?, badge: Str
                             color = cs.primary,
                             fontWeight = FontWeight.Bold,
                             fontSize = 11.5.sp,
-                            modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(cs.primary.copy(alpha = 0.14f)).padding(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.clip(deckShape(8.dp)).background(cs.primary.copy(alpha = 0.14f)).padding(horizontal = 8.dp, vertical = 2.dp),
                         )
                     }
                 }
@@ -2062,7 +2077,7 @@ private fun UnsavedBar(saving: Boolean, compact: Boolean, onDiscard: () -> Unit,
         Button(
             onClick = onSave,
             enabled = !saving,
-            shape = RoundedCornerShape(12.dp),
+            shape = deckShape(12.dp),
             colors = ButtonDefaults.buttonColors(containerColor = cs.primary, contentColor = cs.onPrimary),
         ) {
             if (saving) {
@@ -2075,7 +2090,7 @@ private fun UnsavedBar(saving: Boolean, compact: Boolean, onDiscard: () -> Unit,
 }
 
 @Composable
-private fun CustomValueDialog(
+internal fun CustomValueDialog(
     def: SettingDef,
     control: Control.Select,
     current: String,

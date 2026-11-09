@@ -1,5 +1,6 @@
 package com.winlator.star.ui.deck.settings
 
+import com.winlator.star.ui.deck.deckShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -159,7 +160,7 @@ internal fun DeckLine(
     trailing: (@Composable () -> Unit)? = null,
 ) {
     if (rememberXmbHome()) {
-        val shape = RoundedCornerShape(12.dp)
+        val shape = deckShape(12.dp)
         val inset = Modifier.fillMaxWidth().xmbRowInset()
         when {
             onClick != null -> DeckInk { item, cs ->
@@ -183,7 +184,7 @@ internal fun DeckLine(
         Modifier
             .fillMaxWidth()
             .then(
-                if (onClick != null) Modifier.deckFocusRing(RoundedCornerShape(12.dp), scaleTo = 1f).clickable(enabled = enabled, onClick = onClick)
+                if (onClick != null) Modifier.deckFocusRing(deckShape(12.dp), scaleTo = 1f).clickable(enabled = enabled, onClick = onClick)
                 else Modifier
             ),
     )
@@ -235,7 +236,7 @@ private fun DeckLineBody(
 /** A small outlined button for a section line (Remove, Move up, Browse…). Inside an XMB line it is one of its inner buttons. */
 @Composable
 internal fun DeckSmallButton(label: String, icon: ImageVector? = null, enabled: Boolean = true, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(12.dp)
+    val shape = deckShape(12.dp)
     DeckInk { item, cs ->
         Row(
             verticalAlignment = Alignment.CenterVertically,

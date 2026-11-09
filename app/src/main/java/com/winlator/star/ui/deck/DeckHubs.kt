@@ -138,7 +138,7 @@ internal fun LazyGridScope.hubTiles(tiles: List<HubTile>, focusFirst: Boolean) {
 /** A big icon + title + subtitle tile. [focusFirst] takes the initial focus once composed. */
 @Composable
 internal fun HubTileCard(tile: HubTile, focusFirst: Boolean) {
-    val shape = RoundedCornerShape(18.dp)
+    val shape = deckShape(18.dp)
     val requester = remember { FocusRequester() }
     if (focusFirst) DeckEntryFocus { requester.requestFocus() }
     DeckInk { item, cs ->
@@ -158,7 +158,7 @@ internal fun HubTileCard(tile: HubTile, focusFirst: Boolean) {
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
                     .size(44.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(deckShape(12.dp))
                     .background(cs.primary.copy(alpha = 0.16f)),
             ) {
                 Icon(tile.icon, contentDescription = null, tint = cs.primary, modifier = Modifier.size(24.dp))

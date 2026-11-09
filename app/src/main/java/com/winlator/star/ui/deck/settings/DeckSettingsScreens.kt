@@ -1,5 +1,6 @@
 package com.winlator.star.ui.deck.settings
 
+import com.winlator.star.ui.simple.L
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
@@ -71,6 +72,8 @@ internal object DeckSettingsRoutes {
 
     fun game(path: String) = "deck_settings_game?path=" + Uri.encode(path)
     fun container(id: Int) = "deck_settings_container/$id"
+    /** The Simple style's New container: the container editor on a new form ([container] of this id). */
+    const val NEW_CONTAINER_ID = -1
 
     /** Every editor route. They draw their own header, so the shell hides its page bar for them. */
     fun isEditor(route: String?) = route != null && route.startsWith("deck_settings_")
@@ -173,7 +176,7 @@ private fun DeckGameSettings(path: String, navController: NavHostController) {
         }.getOrNull()
     }
     if (loaded == null) {
-        Loading("This game is no longer in your library.")
+        Loading(L("This game is no longer in your library."))
         return
     }
     val shortcutState = remember(path) { mutableStateOf(loaded) }
@@ -232,16 +235,16 @@ private fun DeckGameSettings(path: String, navController: NavHostController) {
     // Only a Wine game follows a Wine container: the Linux Steam client entry and Android games are
     // never linked to the container editor.
     val chain = if (env.world != World.WINE) emptyList() else listOf(
-        ChainLink("All containers", Icons.Filled.Layers) { navController.navigate(DeckSettingsRoutes.DEFAULTS) },
+        ChainLink(L("All containers"), Icons.Filled.Layers) { navController.navigate(DeckSettingsRoutes.DEFAULTS) },
         ChainLink(containerName, Icons.Filled.Inventory2) { navController.navigate(DeckSettingsRoutes.container(containerId)) },
-        ChainLink("This game", Icons.Filled.SportsEsports, null),
+        ChainLink(L("This game"), Icons.Filled.SportsEsports, null),
     )
     DeckSettingsEditor(
         header = EditorHeader(
             overline = when (env.world) {
-                World.LINUX -> "Linux Steam client"
-                World.ANDROID -> "Android game"
-                World.WINE -> "Game settings"
+                World.LINUX -> L("Linux Steam client")
+                World.ANDROID -> L("Android game")
+                World.WINE -> L("Game settings")
             },
             title = shortcut.name,
             icon = Icons.Filled.SportsEsports,
@@ -321,12 +324,14 @@ private fun DeckGameSettings(path: String, navController: NavHostController) {
 private fun DeckContainerSettings(id: Int, navController: NavHostController) {
     val context = LocalContext.current
     val defaultsMode = id == ContainerDetailViewModel.EDIT_DEFAULTS_ID
+    // A new container (the Simple style's New container): the same form the classic create screen fills, saved by its confirm().
+    val createMode = id == DeckSettingsRoutes.NEW_CONTAINER_ID
     var generation by remember { mutableIntStateOf(0) }
     // All containers keeps a profile per architecture; the one being edited survives a save or discard.
     var arch by rememberSaveable { mutableStateOf(NewContainerDefaults.ARCH_ARM64EC) }
     val vm: ContainerDetailViewModel = viewModel(key = "deck-container-$id-f$generation")
     val defaultsVm: ContainerDetailViewModel? =
-        if (defaultsMode) null else viewModel(key = "deck-container-$id-d$generation")
+        if (defaultsMode || createMode) null else viewModel(key = "deck-container-$id-d$generation")
     var ready by remember(vm) { mutableStateOf(false) }
     LaunchedEffect(vm, defaultsVm) {
         vm.init(id)
@@ -364,8 +369,8 @@ private fun DeckContainerSettings(id: Int, navController: NavHostController) {
         Loading()
         return
     }
-    if (!defaultsMode && vm.container == null) {
-        Loading("This container no longer exists.")
+    if (!defaultsMode && !createMode && vm.container == null) {
+        Loading(L("This container no longer exists."))
         return
     }
     val container = vm.container
@@ -378,21 +383,23 @@ private fun DeckContainerSettings(id: Int, navController: NavHostController) {
     }
     val extras = remember(components, graphics, sections) { categoryExtras(components, graphics, sections) }
 
-    val header = if (defaultsMode) {
+    val header = if (createMode) {
+        EditorHeader(overline = L("New container"), title = L("New Container"), icon = Icons.Filled.Inventory2)
+    } else if (defaultsMode) {
         EditorHeader(
-            overline = "Defaults for every container",
-            title = "All containers",
+            overline = L("Defaults for every container"),
+            title = L("All containers"),
             icon = Icons.Filled.Layers,
-            subtitle = "New containers start from these values. Existing containers keep their own.",
+            subtitle = L("New containers start from these values. Existing containers keep their own."),
         )
     } else {
         EditorHeader(
-            overline = "Container settings",
+            overline = L("Container settings"),
             title = vm.container?.name ?: vm.containerName,
             icon = Icons.Filled.Inventory2,
             chain = listOf(
-                ChainLink("All containers", Icons.Filled.Layers) { navController.navigate(DeckSettingsRoutes.DEFAULTS) },
-                ChainLink("This container", Icons.Filled.Inventory2, null),
+                ChainLink(L("All containers"), Icons.Filled.Layers) { navController.navigate(DeckSettingsRoutes.DEFAULTS) },
+                ChainLink(L("This container"), Icons.Filled.Inventory2, null),
             ),
             meta = listOf(vm.selectedWineVersion, if (vm.isArm64EC) "arm64ec" else "x86_64").filter { it.isNotEmpty() }.joinToString(" · "),
         )
@@ -406,12 +413,22 @@ private fun DeckContainerSettings(id: Int, navController: NavHostController) {
         onExit = { navController.popBackStack() },
         onHandoff = { h -> if (h.target == SettingsRegistry.TARGET_CLASSIC) navController.navigate("container_detail?id=$id") },
         onChainLink = { link -> link.onClick?.invoke() },
+        createMode = createMode,
+        yAction = if (!defaultsMode) null else ("Switch architecture" to {
+            val next = if (arch == NewContainerDefaults.ARCH_ARM64EC) NewContainerDefaults.ARCH_X86_64 else NewContainerDefaults.ARCH_ARM64EC
+            if (source.dirty) Toast.makeText(context, L("Save or discard your changes first."), Toast.LENGTH_SHORT).show()
+            else {
+                arch = next
+                vm.selectDefaultsArch(next)
+                Toast.makeText(context, if (next == NewContainerDefaults.ARCH_X86_64) L("x86-64 defaults") else L("ARM64EC defaults"), Toast.LENGTH_SHORT).show()
+            }
+        }),
         headerExtra = if (!defaultsMode) null else ({
             ArchSwitch(arch) { next ->
                 // Switching reloads the form from the other profile, so unsaved edits must be saved or discarded first.
                 if (next != arch) {
                     if (source.dirty) {
-                        Toast.makeText(context, "Save or discard your changes first.", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, L("Save or discard your changes first."), Toast.LENGTH_SHORT).show()
                     } else {
                         arch = next
                         vm.selectDefaultsArch(next)
@@ -483,9 +500,9 @@ private fun DeckAppSettings(navController: NavHostController, onAbout: () -> Uni
     DeckSettingsEditor(
         header = EditorHeader(
             overline = "Bannerlator",
-            title = "Settings",
+            title = L("Settings"),
             icon = Icons.Filled.Settings,
-            subtitle = "Every app setting applies straight away.",
+            subtitle = L("Every app setting applies straight away."),
         ),
         source = source,
         categories = AppSettingsRegistry.categories,
@@ -494,11 +511,15 @@ private fun DeckAppSettings(navController: NavHostController, onAbout: () -> Uni
         onExit = null,
         onHandoff = { h ->
             when (h.target) {
-                AppSettingsRegistry.TARGET_APPEARANCE -> navController.navigate(Screen.Appearance.route)
+                AppSettingsRegistry.TARGET_APPEARANCE -> navController.navigate(
+                    if (com.winlator.star.ui.theme.AppThemeState.simpleLook) com.winlator.star.ui.simple.SimpleRoutes.APPEARANCE else Screen.Appearance.route,
+                )
                 AppSettingsRegistry.TARGET_LOGS -> showLogs = true
                 AppSettingsRegistry.TARGET_ABOUT -> onAbout()
                 AppSettingsRegistry.TARGET_INPUT_CONTROLS -> navController.navigate(Screen.InputControls.route)
-                AppSettingsRegistry.TARGET_CONTENTS -> navController.navigate(Screen.Contents.route)
+                AppSettingsRegistry.TARGET_CONTENTS -> navController.navigate(
+                    if (com.winlator.star.ui.theme.AppThemeState.simpleLook) com.winlator.star.ui.simple.SimpleRoutes.DRIVERS else Screen.Contents.route,
+                )
                 AppSettingsRegistry.TARGET_DEFAULTS -> navController.navigate(DeckSettingsRoutes.DEFAULTS)
                 else -> navController.navigate(Screen.Settings.route)
             }

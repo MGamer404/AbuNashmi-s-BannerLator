@@ -12,6 +12,12 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.foundation.onFocusedBoundsChanged
+import androidx.compose.ui.layout.onPlaced
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.platform.LocalDensity
@@ -68,6 +74,45 @@ internal fun OutlinedAlertDialog(
     val panel = if (glass) modifier.xmbPanel(shape, containerColor) else modifier.border(1.dp, MaterialTheme.colorScheme.outline, shape)
     // XMB interface only (null elsewhere: the slots are wrapped exactly as they always were).
     val shared = if (rememberXmbHome()) remember { XmbSharedHost() } else null
+    // Lab: square Lab corners and line, Lab's title font, Lab's focus outline on the cards and buttons inside.
+    val lab = com.winlator.star.ui.theme.AppThemeState.simpleLook
+    if (lab) {
+        val accent = MaterialTheme.colorScheme.primary
+        val labShape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)
+        // The outline goes round the focused button itself, in its own pill shape (the slot is wider than the button).
+        val ring: @Composable (@Composable () -> Unit) -> Unit = { slot ->
+            androidx.compose.foundation.layout.Box(Modifier.labFocusedOutline(accent)) { slot() }
+        }
+        val labIndication = androidx.compose.runtime.remember(accent) { com.winlator.star.ui.simple.LabFocusIndication(accent) }
+        AlertDialog(
+            onDismissRequest = onDismissRequest,
+            confirmButton = {
+                DeckDialogBars()
+                ring { DeckDialogScaled(content = confirmButton) }
+            },
+            modifier = modifier.border(1.dp, com.winlator.star.ui.simple.SimpleLine, labShape),
+            dismissButton = dismissButton?.let { { ring { DeckDialogScaled(content = it) } } },
+            icon = icon?.let { { DeckDialogScaled(content = it) } },
+            title = title?.let {
+                {
+                    androidx.compose.material3.ProvideTextStyle(
+                        androidx.compose.material3.LocalTextStyle.current.copy(fontFamily = com.winlator.star.ui.deck.SoraFamily, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
+                    ) { DeckDialogScaled(content = it) }
+                }
+            },
+            text = text?.let {
+                { androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.LocalIndication provides labIndication) { DeckDialogScaled(content = it) } }
+            },
+            shape = labShape,
+            containerColor = if (containerColor == AlertDialogDefaults.containerColor) MaterialTheme.colorScheme.surface else containerColor,
+            iconContentColor = iconContentColor,
+            titleContentColor = titleContentColor,
+            textContentColor = textContentColor,
+            tonalElevation = tonalElevation,
+            properties = properties,
+        )
+        return
+    }
     AlertDialog(
         onDismissRequest = onDismissRequest,
         confirmButton = {
@@ -133,4 +178,34 @@ private fun DialogButtonSlot(content: @Composable () -> Unit) {
     Box(Modifier.xmbHighlight(CircleShape, item, wholeSubtree = true)) {
         XmbInk(item) { content() }
     }
+}
+
+/** Draws an accent pill outline round whichever control inside has controller focus, fitted to that control's bounds. */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun Modifier.labFocusedOutline(accent: Color): Modifier {
+    var self by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
+    var focused by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null, androidx.compose.runtime.neverEqualPolicy())
+    }
+    return this
+        .onPlaced { self = it }
+        .onFocusedBoundsChanged { focused = it }
+        .drawWithContent {
+            drawContent()
+            val s = self
+            val f = focused
+            if (s != null && f != null && s.isAttached && f.isAttached) {
+                val r = s.localBoundingBoxOf(f, clipBounds = false)
+                val gap = 2.dp.toPx()
+                val h = r.height + gap * 2
+                drawRoundRect(
+                    color = accent,
+                    topLeft = androidx.compose.ui.geometry.Offset(r.left - gap, r.top - gap),
+                    size = androidx.compose.ui.geometry.Size(r.width + gap * 2, h),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(h / 2f),
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()),
+                )
+            }
+        }
 }

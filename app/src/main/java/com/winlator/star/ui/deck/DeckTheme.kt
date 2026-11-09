@@ -82,11 +82,11 @@ internal fun DeckTheme(content: @Composable () -> Unit) {
         labelSmall     = base.labelSmall.body(FontWeight.Bold),
     )
     val shapes = Shapes(
-        extraSmall = RoundedCornerShape(8.dp),
-        small      = RoundedCornerShape(12.dp),
-        medium     = RoundedCornerShape(16.dp),
-        large      = RoundedCornerShape(18.dp),
-        extraLarge = RoundedCornerShape(24.dp),
+        extraSmall = deckShape(8.dp),
+        small      = deckShape(12.dp),
+        medium     = deckShape(16.dp),
+        large      = deckShape(18.dp),
+        extraLarge = deckShape(24.dp),
     )
     // The Deck style is drawn DECK_UI_SCALE smaller than the rest of the app (on top of the interface-size setting),
     // so a phone or handheld at its stock display size has room for the console layout. Once only: a dialog's
@@ -107,6 +107,16 @@ internal fun DeckTheme(content: @Composable () -> Unit) {
         )
     }
 }
+
+/** The Simple style's hard corner. */
+private val SimpleCorner = RoundedCornerShape(3.dp)
+
+/**
+ * A Deck corner of [radius], or the Simple style's hard 3 dp corner while Simple is on. Reads snapshot state
+ * (AppThemeState.simpleLook), so a composable that asks for it recomposes when the style changes.
+ */
+internal fun deckShape(radius: androidx.compose.ui.unit.Dp): androidx.compose.foundation.shape.CornerBasedShape =
+    if (com.winlator.star.ui.theme.AppThemeState.simpleLook) SimpleCorner else RoundedCornerShape(radius)
 
 /** How much smaller the Deck style draws than the rest of the app. */
 internal const val DECK_UI_SCALE = 0.8f
@@ -130,9 +140,12 @@ internal fun rememberXmbHintDensity(): Density {
 @Composable
 internal fun deckGlass(): Color = xmbPageFrost()?.bar ?: MaterialTheme.colorScheme.background.copy(alpha = 0.72f)
 
+/** A card fill a screen sets for the cards inside it (Lab's in-game menu over the game's art: see-through glass). */
+internal val LocalDeckCardFill = androidx.compose.runtime.staticCompositionLocalOf<Color?> { null }
+
 /** Card fill used by shelves and hub tiles: the theme surface at 90%. */
 @Composable
-internal fun deckCardFill(): Color = xmbPageFrost()?.card ?: MaterialTheme.colorScheme.surface.copy(alpha = 0.90f)
+internal fun deckCardFill(): Color = LocalDeckCardFill.current ?: xmbPageFrost()?.card ?: MaterialTheme.colorScheme.surface.copy(alpha = 0.90f)
 
 /** Hairline around cards and bars. */
 @Composable
@@ -184,6 +197,8 @@ internal fun Modifier.deckFocusRing(
     shape: Shape,
     scaleTo: Float = 1.05f,
     onFocused: (() -> Unit)? = null,
+    /** On an accent-filled control: Lab draws a contrasting ring (an accent one would not show). */
+    onAccent: Boolean = false,
 ): Modifier {
     if (xmbHighlightHostOrNull() != null) return this.xmbHighlight(shape, onFocused = onFocused)
     var focused by remember { mutableStateOf(false) }
@@ -197,7 +212,13 @@ internal fun Modifier.deckFocusRing(
         }
         .graphicsLayer { scaleX = scale; scaleY = scale }
         .then(
-            if (focused) Modifier
+            // Simple: a flat accent tint, no glow. Its shadow shows through the see-through Simple panels as a dark band.
+            if (focused && com.winlator.star.ui.theme.AppThemeState.simpleLook && onAccent) Modifier
+                .border(3.dp, com.winlator.star.ui.simple.SimpleStrong, shape)
+            else if (focused && com.winlator.star.ui.theme.AppThemeState.simpleLook) Modifier
+                .background(accent.copy(alpha = 0.16f), shape)
+                .border(2.dp, accent, shape)
+            else if (focused) Modifier
                 .shadow(18.dp, shape, ambientColor = accent, spotColor = accent)
                 .border(3.dp, accent, shape)
             else Modifier
@@ -215,7 +236,7 @@ internal fun DeckGlyph(text: String, kind: GlyphKind, modifier: Modifier = Modif
     val shape = when {
         round -> CircleShape
         kind == GlyphKind.BUMPER -> RoundedCornerShape(topStart = 9.dp, topEnd = 9.dp, bottomStart = 5.dp, bottomEnd = 5.dp)
-        else -> RoundedCornerShape(7.dp)
+        else -> deckShape(7.dp)
     }
     val (fill, ink) = when (kind) {
         GlyphKind.A -> cs.primary to cs.onPrimary

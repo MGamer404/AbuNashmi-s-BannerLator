@@ -64,6 +64,10 @@ object DeckInGameState {
     private val _gameTitle = MutableStateFlow("")
     val gameTitle: StateFlow<String> = _gameTitle
 
+    // The running game's shortcut (its .desktop path): Lab's in-game menu draws the game's art, logo and icon from it.
+    private val _gameShortcutPath = MutableStateFlow<String?>(null)
+    val gameShortcutPath: StateFlow<String?> = _gameShortcutPath
+
     // Launched from a shortcut: the "per game" settings are written to it; without one they land on the container.
     private val _launchedFromShortcut = MutableStateFlow(false)
     val launchedFromShortcut: StateFlow<Boolean> = _launchedFromShortcut
@@ -84,13 +88,39 @@ object DeckInGameState {
 
     fun isOpen(): Boolean = _panel.value != Panel.NONE
 
-    fun openQuick() = setPanel(Panel.QUICK)
+    // Lab: one in-game menu whose first page is Quick (the quick menu's controls), then the full menu's pages.
+    private val _labQuick = MutableStateFlow(true)
+    val labQuick: StateFlow<Boolean> = _labQuick
+    private val lab: Boolean get() = com.winlator.star.ui.theme.AppThemeState.simpleHome.value
 
-    fun openMenu() = setPanel(Panel.MENU)
+    fun openQuick() {
+        if (lab) _labQuick.value = true
+        setPanel(Panel.QUICK)
+    }
+
+    fun openMenu() {
+        if (lab) _labQuick.value = false
+        setPanel(Panel.MENU)
+    }
 
     fun openMenuAt(tab: MenuTab) {
         _menuTab.value = tab
+        _labQuick.value = false
         setPanel(Panel.MENU)
+    }
+
+    /** Lab: the Quick page. */
+    fun selectLabQuick() {
+        _labQuick.value = true
+        requestFocus()
+    }
+
+    /** Lab, L1 / R1: Quick, then the full menu's pages, round and round. */
+    private fun cycleLab(dir: Int, available: List<MenuTab>) {
+        val pages: List<MenuTab?> = listOf<MenuTab?>(null) + available
+        val i = if (_labQuick.value) 0 else pages.indexOf(_menuTab.value).coerceAtLeast(0)
+        val next = pages[(i + dir + pages.size) % pages.size]
+        if (next == null) selectLabQuick() else selectMenuTab(next)
     }
 
     fun close() = setPanel(Panel.NONE)
@@ -106,6 +136,7 @@ object DeckInGameState {
 
     fun selectMenuTab(tab: MenuTab) {
         _menuTab.value = tab
+        _labQuick.value = false
         requestFocus()
     }
 
@@ -156,6 +187,17 @@ object DeckInGameState {
     fun handlePanelKey(keyCode: Int): Boolean {
         val p = _panel.value
         if (p == Panel.NONE) return false
+        if (lab) {
+            // Lab's one menu: L1 / R1 step through Quick and the pages, X jumps between Quick and the last page, B closes.
+            when (keyCode) {
+                KeyEvent.KEYCODE_BUTTON_L1, KeyEvent.KEYCODE_BUTTON_R1 ->
+                    cycleLab(if (keyCode == KeyEvent.KEYCODE_BUTTON_L1) -1 else 1, availableMenuTabs(_sessionKind.value, tvTabShown(), friendsTabShown()))
+                KeyEvent.KEYCODE_BUTTON_X -> if (_labQuick.value) selectMenuTab(_menuTab.value) else selectLabQuick()
+                KeyEvent.KEYCODE_BUTTON_B -> close()
+                else -> return false
+            }
+            return true
+        }
         when (keyCode) {
             KeyEvent.KEYCODE_BUTTON_L1, KeyEvent.KEYCODE_BUTTON_R1 -> {
                 val dir = if (keyCode == KeyEvent.KEYCODE_BUTTON_L1) -1 else 1
@@ -174,6 +216,7 @@ object DeckInGameState {
 
     fun setSessionKind(v: InGameSessionKind) { _sessionKind.value = v }
     fun setGameTitle(v: String) { _gameTitle.value = v }
+    fun setGameShortcutPath(v: String?) { _gameShortcutPath.value = v }
     fun setLaunchedFromShortcut(v: Boolean) { _launchedFromShortcut.value = v }
     fun setHudSavedToShortcut(v: Boolean) { _hudSavedToShortcut.value = v }
     fun setCornerButton(v: Boolean) { _cornerButton.value = v }
@@ -199,6 +242,7 @@ object DeckInGameState {
         _quickTab.value = QuickTab.QUICK
         _sessionKind.value = InGameSessionKind.WINE_X11
         _gameTitle.value = ""
+        _gameShortcutPath.value = null
         _launchedFromShortcut.value = false
         _hudSavedToShortcut.value = false
         onPanelOpenChanged = null

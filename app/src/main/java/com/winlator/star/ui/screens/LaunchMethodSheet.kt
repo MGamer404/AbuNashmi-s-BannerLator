@@ -1,5 +1,8 @@
 package com.winlator.star.ui.screens
 
+import com.winlator.star.ui.simple.T
+import com.winlator.star.ui.simple.L
+import com.winlator.star.ui.simple.labTile
 import android.content.Intent
 import android.content.res.Configuration
 import android.widget.Toast
@@ -435,12 +438,24 @@ fun LaunchMethodSheet(
     val xmbHome = AppThemeState.uiStyle.collectAsState().value == AppThemeState.UI_STYLE_DECK &&
         AppThemeState.deckXmbHome.collectAsState().value
 
-    val rawLabel = when { !notInstalled -> "Raw .exe"; hasPc -> "Download"; else -> "Not on PC" }
+    val rawLabel = when { !notInstalled -> T("Raw .exe"); hasPc -> T("Download"); else -> T("Not on PC") }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
       androidx.compose.runtime.CompositionLocalProvider(LocalRawLabel provides rawLabel) {
         DeckDialogBars()
         DeckDialogScaled {
-            if (landscape && xmbHome) {
+            if (AppThemeState.simpleLook) {
+                // Lab: one card in Lab's look for both orientations (two columns in landscape).
+                androidx.compose.runtime.CompositionLocalProvider(LocalLabLaunch provides true) {
+                    LabLaunchCard(
+                        landscape, shortcut, source, appId, isSteam, hasDetails, enabledMethods, accent,
+                        method, { method = it }, goldbergMode, { goldbergMode = it },
+                        rememberChoice, { rememberChoice = it }, controllerPassthrough, onPassthroughToggle, steamInput, onSteamInputToggle,
+                        secureLaunch, { secureLaunch = it; vacTouched = true }, detectedVac,
+                        helpText, toggleHelp, { helpText = null }, onDismiss, doLaunch, openDetails,
+                        onVerifyFiles, onUpdateFiles, steamLiteClient, appSteamClient,
+                    )
+                }
+            } else if (landscape && xmbHome) {
                 DeckLandscapeCard(
                     shortcut, source, appId, isSteam, hasDetails, enabledMethods, accent,
                     method, { method = it }, goldbergMode, { goldbergMode = it },
@@ -470,6 +485,184 @@ fun LaunchMethodSheet(
             }
         }
       }
+    }
+}
+
+/** Lab's launch card is showing: option rows and switches take Lab's controller focus. */
+private val LocalLabLaunch = androidx.compose.runtime.staticCompositionLocalOf { false }
+
+/**
+ * Lab: the launch chooser in Lab's look (square corners, Lab lines, Lab's controller outline on every stop), for both
+ * orientations: one column in portrait, two in landscape (the method and its blocks left, the options right). The
+ * method blocks, options and footer action are the same pieces the other cards use. A starts on Launch.
+ */
+@Composable
+private fun LabLaunchCard(
+    landscape: Boolean,
+    shortcut: Shortcut,
+    source: GameSource,
+    appId: Int,
+    isSteam: Boolean,
+    hasDetails: Boolean,
+    enabledMethods: List<LaunchMethod>,
+    accent: Color,
+    method: LaunchMethod,
+    onMethod: (LaunchMethod) -> Unit,
+    goldbergMode: GoldbergMode,
+    onGoldbergMode: (GoldbergMode) -> Unit,
+    rememberChoice: Boolean,
+    onRemember: (Boolean) -> Unit,
+    passthrough: Boolean,
+    onPassthrough: (Boolean) -> Unit,
+    steamInput: Boolean,
+    onSteamInput: (Boolean) -> Unit,
+    secureLaunch: Boolean,
+    onSecureLaunch: (Boolean) -> Unit,
+    detectedVac: Boolean?,
+    helpText: String?,
+    toggleHelp: (String) -> Unit,
+    dismissHelp: () -> Unit,
+    onDismiss: () -> Unit,
+    doLaunch: () -> Unit,
+    openDetails: () -> Unit,
+    onVerifyFiles: (() -> Unit)?,
+    onUpdateFiles: (() -> Unit)?,
+    steamLiteClient: SteamLiteClientUi?,
+    appSteamClient: AppSteamClientUi?,
+) {
+    val cs = MaterialTheme.colorScheme
+    val rawLabel = LocalRawLabel.current
+    val xbox = source == GameSource.XBOX
+    val shown = if (xbox) listOf(LaunchMethod.RAW, LaunchMethod.STREAM)
+        else listOf(LaunchMethod.STEAMLITE, LaunchMethod.APPSTEAM, LaunchMethod.GOLDBERG, LaunchMethod.RAW)
+    fun labelOf(m: LaunchMethod) = when (m) {
+        LaunchMethod.STEAMLITE -> "SteamLite"; LaunchMethod.APPSTEAM -> L("Headless Steam"); LaunchMethod.GOLDBERG -> "Goldberg"
+        LaunchMethod.RAW -> L(rawLabel); LaunchMethod.STREAM -> L("Stream")
+    }
+    fun helpOf(m: LaunchMethod) = when (m) {
+        LaunchMethod.STEAMLITE -> HELP_STEAMLITE; LaunchMethod.APPSTEAM -> HELP_APPSTEAM; LaunchMethod.GOLDBERG -> HELP_GOLDBERG
+        LaunchMethod.RAW -> HELP_RAW; LaunchMethod.STREAM -> HELP_STREAM
+    }
+    val launchFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        withFrameNanos { }
+        runCatching { launchFocus.requestFocus() }
+    }
+    val footer = footerLaunch(method, steamLiteClient, appSteamClient, doLaunch)
+
+    val methodPart: @Composable () -> Unit = {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            com.winlator.star.ui.simple.LabTileLabel(L("Launch with"))
+            Spacer(Modifier.width(8.dp))
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.size(22.dp).border(1.dp, com.winlator.star.ui.simple.SimpleLine, RoundedCornerShape(50)).clickable { toggleHelp(HELP_LAUNCH_WITH) },
+            ) { Text("?", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = cs.onSurfaceVariant) }
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            shown.forEach { m ->
+                val on = m == method
+                val enabled = m in enabledMethods
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp)
+                        .background(if (on) accent.copy(alpha = 0.22f) else com.winlator.star.ui.simple.SimpleCard, com.winlator.star.ui.simple.SimpleShape)
+                        .border(if (on) 1.5.dp else 1.dp, if (on) accent else com.winlator.star.ui.simple.SimpleLine, com.winlator.star.ui.simple.SimpleShape)
+                        // A picks it; a long press explains it.
+                        .then(if (enabled) Modifier.labTile(onClick = { onMethod(m) }, onMenu = { toggleHelp(helpOf(m)) }) else Modifier.alpha(0.4f))
+                        .padding(horizontal = 6.dp, vertical = 8.dp),
+                ) {
+                    Text(
+                        labelOf(m), color = if (on) accent else com.winlator.star.ui.simple.SimpleStrong,
+                        fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(9.dp))
+        MethodDesc(method, source, detectedVac == true)
+        if (method == LaunchMethod.STEAMLITE && steamLiteClient != null) SteamLiteClientBlock(steamLiteClient, accent, compact = false, toggleHelp, doLaunch)
+        if (method == LaunchMethod.APPSTEAM) AppSteamClientBlock(appSteamClient, accent, compact = false, toggleHelp)
+        if (method == LaunchMethod.GOLDBERG) {
+            Spacer(Modifier.height(10.dp))
+            GoldbergDropdownPortrait(goldbergMode, accent, onGoldbergMode, toggleHelp)
+        }
+    }
+    val optionsPart: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit = {
+        OptionsBlock(
+            shortcut, isSteam, hasDetails, passthrough, onPassthrough, steamInput, onSteamInput,
+            secureLaunch, onSecureLaunch, detectedVac,
+            rememberChoice, onRemember, accent, toggleHelp, openDetails, compact = false,
+        )
+        if (isSteam && appId > 0 && (onVerifyFiles != null || onUpdateFiles != null)) {
+            Spacer(Modifier.height(12.dp))
+            MaintenanceRow(accent, compact = false, onVerifyFiles, onUpdateFiles)
+        }
+    }
+
+    Box(
+        Modifier
+            .padding(16.dp)
+            .width(if (landscape) 860.dp else 380.dp)
+            .heightIn(max = if (landscape) 620.dp else 720.dp)
+            .background(cs.surface.copy(alpha = 0.97f), com.winlator.star.ui.simple.SimpleShape)
+            .border(1.dp, com.winlator.star.ui.simple.SimpleLine, com.winlator.star.ui.simple.SimpleShape),
+    ) {
+        Column {
+            // Header: cover, name, where it comes from, close.
+            Row(Modifier.fillMaxWidth().padding(start = 16.dp, top = 14.dp, end = 14.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                GameCover(shortcut, accent, if (landscape) 54.dp else 44.dp, if (landscape) 72.dp else 58.dp)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(shortcut.name, color = com.winlator.star.ui.simple.SimpleStrong, fontFamily = com.winlator.star.ui.deck.SoraFamily, fontWeight = FontWeight.Bold, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(sourceSubline(source, appId), color = cs.onSurfaceVariant, fontSize = 12.sp, maxLines = 1)
+                }
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.size(38.dp).background(com.winlator.star.ui.simple.SimpleCard, com.winlator.star.ui.simple.SimpleShape).labTile(onClick = onDismiss),
+                ) { Icon(Icons.Filled.Close, contentDescription = "Close", tint = cs.onSurface, modifier = Modifier.size(18.dp)) }
+            }
+            Box(Modifier.fillMaxWidth().height(1.dp).background(com.winlator.star.ui.simple.SimpleLine))
+            if (landscape) {
+                Row(Modifier.weight(1f, fill = false).padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                    Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { methodPart() }
+                    Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { optionsPart() }
+                }
+            } else {
+                Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp)) {
+                    methodPart()
+                    Spacer(Modifier.height(12.dp))
+                    Box(Modifier.fillMaxWidth().height(1.dp).background(com.winlator.star.ui.simple.SimpleLine))
+                    Spacer(Modifier.height(4.dp))
+                    optionsPart()
+                }
+            }
+            Box(Modifier.fillMaxWidth().height(1.dp).background(com.winlator.star.ui.simple.SimpleLine))
+            // Footer: Cancel and Launch (focus starts here, so A launches straight away).
+            Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.background(com.winlator.star.ui.simple.SimpleCard, com.winlator.star.ui.simple.SimpleShape).labTile(onClick = onDismiss).padding(horizontal = 18.dp, vertical = 11.dp),
+                ) { Text(L("Cancel"), color = cs.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 14.sp) }
+                Spacer(Modifier.weight(1f))
+                val go = footer.second
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .background(if (go != null) accent else accent.copy(alpha = 0.4f), com.winlator.star.ui.simple.SimpleShape)
+                        .then(if (go != null) Modifier.labTile(onClick = go, requester = launchFocus, onAccent = true) else Modifier)
+                        .padding(horizontal = 22.dp, vertical = 11.dp),
+                ) {
+                    Text(L(footer.first), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Spacer(Modifier.width(8.dp))
+                    Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                }
+            }
+        }
+        if (helpText != null) HelpTip(helpText, dismissHelp)
     }
 }
 
@@ -1387,8 +1580,12 @@ private fun OptionRow(
     Row(
         Modifier
             .fillMaxWidth()
-            .then(if (onRowClick != null) Modifier.clickable(onClick = onRowClick) else Modifier)
-            .padding(vertical = if (compact) 6.dp else 9.dp, horizontal = 1.dp),
+            .then(
+                if (onRowClick == null) Modifier
+                else if (LocalLabLaunch.current) Modifier.labTile(onClick = onRowClick)
+                else Modifier.clickable(onClick = onRowClick)
+            )
+            .padding(vertical = if (compact) 6.dp else 9.dp, horizontal = if (LocalLabLaunch.current) 8.dp else 1.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
@@ -1440,16 +1637,16 @@ private fun footerLaunch(
 ): Pair<String, (() -> Unit)?> {
     if (method == LaunchMethod.APPSTEAM && appSteamClient != null) {
         return when {
-            appSteamClient.updating -> "Updating…" to null
-            appSteamClient.gated -> "Update & Launch" to appSteamClient.onUpdateAndLaunch
-            else -> "Launch" to doLaunch
+            appSteamClient.updating -> T("Updating…") to null
+            appSteamClient.gated -> T("Update & Launch") to appSteamClient.onUpdateAndLaunch
+            else -> T("Launch") to doLaunch
         }
     }
-    if (method != LaunchMethod.STEAMLITE || client == null) return "Launch" to doLaunch
+    if (method != LaunchMethod.STEAMLITE || client == null) return T("Launch") to doLaunch
     return when {
-        client.updating -> "Updating…" to null
-        client.gated -> "Update & Launch" to client.onUpdateAndLaunch
-        else -> "Launch" to doLaunch
+        client.updating -> T("Updating…") to null
+        client.gated -> T("Update & Launch") to client.onUpdateAndLaunch
+        else -> T("Launch") to doLaunch
     }
 }
 
@@ -1841,6 +2038,27 @@ private fun HelpDot(accent: Color, highlighted: Boolean, onClick: () -> Unit, mo
 /** M3 Switch styled as the mockup's accent pill toggle. */
 @Composable
 private fun PillSwitch(checked: Boolean, accent: Color, onCheckedChange: (Boolean) -> Unit) {
+    if (LocalLabLaunch.current) {
+        // Lab: an accent ring round the switch while the controller is on it.
+        var focused by remember { mutableStateOf(false) }
+        Box(
+            Modifier
+                .onFocusChanged { focused = it.hasFocus }
+                .border(2.dp, if (focused) accent else Color.Transparent, RoundedCornerShape(50))
+                .padding(3.dp),
+        ) {
+            // Without the 48 dp touch box round the switch, so the ring sits on the switch's own pill.
+            @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+            androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalMinimumInteractiveComponentEnforcement provides false) {
+                Switch(
+                    checked = checked,
+                    onCheckedChange = onCheckedChange,
+                    colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = accent, checkedBorderColor = accent),
+                )
+            }
+        }
+        return
+    }
     Switch(
         checked = checked,
         onCheckedChange = onCheckedChange,

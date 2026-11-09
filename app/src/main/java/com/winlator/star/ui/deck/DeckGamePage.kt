@@ -205,9 +205,9 @@ internal fun DeckGamePage(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
                         .deckFocusRingInk(RoundedCornerShape(16.dp), item, scaleTo = 1f)
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(deckShape(16.dp))
                         .background(deckGlass())
-                        .border(1.dp, deckLine(), RoundedCornerShape(16.dp))
+                        .border(1.dp, deckLine(), deckShape(16.dp))
                         .clickable(onClick = onBack)
                         .size(52.dp),
                 ) {
@@ -257,8 +257,8 @@ internal fun DeckGamePage(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier
                                 .deckFocusRingInk(RoundedCornerShape(16.dp), item, scaleTo = 1.03f)
-                                .clip(RoundedCornerShape(16.dp))
-                                .border(1.dp, deckLine(), RoundedCornerShape(16.dp))
+                                .clip(deckShape(16.dp))
+                                .border(1.dp, deckLine(), deckShape(16.dp))
                                 .clickable { onOpenContainer(s.container.id) }
                                 .heightIn(min = 38.dp)
                                 .padding(horizontal = 14.dp),
@@ -324,7 +324,7 @@ internal fun DeckGamePage(
                 // An Android game has neither, so the card is left out.
                 if (!isAndroid) {
                     val overrides = overrideCount(s)
-                    val setupShape = RoundedCornerShape(20.dp)
+                    val setupShape = deckShape(20.dp)
                     DeckInk { item, ink ->
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -397,7 +397,7 @@ internal fun DeckGamePage(
                         .fillMaxHeight()
                         .padding(vertical = 24.dp)
                         .xmbGlassCard(RoundedCornerShape(28.dp), deckGlass())
-                        .border(1.dp, deckLine(), RoundedCornerShape(28.dp))
+                        .border(1.dp, deckLine(), deckShape(28.dp))
                         .verticalScroll(rememberScrollState())
                         .padding(16.dp),
                 ) {
@@ -461,17 +461,17 @@ internal fun DeckGamePage(
 }
 
 /** One Deck game-menu entry: a classic ⋮ item (or Play / Container settings) with a line saying what it does. */
-private data class GameMenuEntry(val title: String, val hint: String, val action: GameMenuAction?, val danger: Boolean = false)
+internal data class GameMenuEntry(val title: String, val hint: String, val action: GameMenuAction?, val danger: Boolean = false)
 
 /** Pseudo-actions the classic ⋮ menu doesn't have. */
-private const val ENTRY_PLAY = "play"
-private const val ENTRY_CONTAINER = "container"
+internal const val ENTRY_PLAY = "play"
+internal const val ENTRY_CONTAINER = "container"
 
 /**
  * The classic ⋮ menu for [s] in Deck groups: the same items under the same rules ([gameMenuOffers]),
  * plus Play and Container settings at the top. An Android game has no container to open.
  */
-private fun gameMenuGroups(s: Shortcut): List<List<Pair<String?, GameMenuEntry>>> {
+internal fun gameMenuGroups(s: Shortcut): List<List<Pair<String?, GameMenuEntry>>> {
     val isAndroid = AndroidGames.isAndroidEntry(s)
     fun e(a: GameMenuAction, hint: String, danger: Boolean = false) =
         if (gameMenuOffers(a, s)) null as String? to GameMenuEntry(menuTitle(a), hint, a, danger) else null
@@ -496,6 +496,7 @@ private fun gameMenuGroups(s: Shortcut): List<List<Pair<String?, GameMenuEntry>>
             e(GameMenuAction.BACKUP_SAVES, "Zip this game's saves into its backup folder."),
             e(GameMenuAction.RESTORE_SAVES, "Pick a save backup and restore it into a container."),
             e(GameMenuAction.VIEW_LOGS, "This game's captured logs."),
+            e(GameMenuAction.SHARE_LOGS, "Zip this game's log folder and share it."),
             e(GameMenuAction.PROPERTIES, "Times played and total playtime."),
         ),
         listOfNotNull(
@@ -521,9 +522,10 @@ private fun menuTitle(a: GameMenuAction): String = when (a) {
 
 /** The grouped game menu, as cards of rows. Used on the game page's side column and in [DeckGameMenuSheet]. */
 /** Game-menu actions that need the installed copy of the game. */
-private val NEEDS_INSTALL = setOf(GameMenuAction.CLONE, GameMenuAction.COPY_TO_DRIVE_C, GameMenuAction.CHANGE_EXE,
+internal val NEEDS_INSTALL = setOf(GameMenuAction.CLONE, GameMenuAction.COPY_TO_DRIVE_C, GameMenuAction.CHANGE_EXE,
     GameMenuAction.ADD_TO_HOME, GameMenuAction.EXPORT, GameMenuAction.CLOUD_SAVES, GameMenuAction.BACKUP_SAVES,
-    GameMenuAction.RESTORE_SAVES, GameMenuAction.COMMUNITY_CONFIGS, GameMenuAction.VIEW_LOGS, GameMenuAction.PROPERTIES)
+    GameMenuAction.RESTORE_SAVES, GameMenuAction.COMMUNITY_CONFIGS, GameMenuAction.VIEW_LOGS, GameMenuAction.SHARE_LOGS,
+    GameMenuAction.PROPERTIES)
 
 @Composable
 internal fun DeckGameMenuList(
@@ -607,7 +609,7 @@ internal fun DeckGameMenuSheet(
                                 contentAlignment = Alignment.Center,
                                 modifier = Modifier
                                     .deckFocusRingInk(RoundedCornerShape(14.dp), item, scaleTo = 1f)
-                                    .clip(RoundedCornerShape(14.dp))
+                                    .clip(deckShape(14.dp))
                                     .clickable(onClick = onDismiss)
                                     .size(44.dp),
                             ) {
@@ -618,7 +620,7 @@ internal fun DeckGameMenuSheet(
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 14.dp)) {
                         Box(
                             contentAlignment = Alignment.Center,
-                            modifier = Modifier.size(width = 54.dp, height = 76.dp).clip(RoundedCornerShape(10.dp)).background(cs.surfaceVariant),
+                            modifier = Modifier.size(width = 54.dp, height = 76.dp).clip(deckShape(10.dp)).background(cs.surfaceVariant),
                         ) {
                             val bmp = shortcut.icon
                             if (bmp != null) {
