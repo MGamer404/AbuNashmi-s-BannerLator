@@ -624,7 +624,7 @@ internal class AppSettingsExtras(
         }
     }
 
-    private fun setExtraLogging(on: Boolean) {
+    private fun applyExtraLogging(on: Boolean) {
         extraLogging = on
         WinFgDiag.setExtraLoggingEnabled(context, on)
         AppUtils.showToast(context, if (on) L("Extra win-fg logging on") else L("Extra win-fg logging off"))
@@ -682,8 +682,8 @@ internal class AppSettingsExtras(
             DeckLine(
                 label = L("Extra win-fg logging (verbose)"),
                 hint = L("For debugging a win-fg freeze: turn this and the diagnostic log on, reproduce the freeze, then share the saved log."),
-                activate = { setExtraLogging(!extraLogging) },
-                trailing = { Switch(checked = extraLogging, onCheckedChange = { setExtraLogging(it) }) },
+                activate = { applyExtraLogging(!extraLogging) },
+                trailing = { Switch(checked = extraLogging, onCheckedChange = { applyExtraLogging(it) }) },
             )
         }
         lines += actionLine(DeckAction("diag", Icons.Filled.Description,
