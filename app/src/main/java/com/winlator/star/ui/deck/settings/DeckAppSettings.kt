@@ -10,13 +10,15 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavHostController
 import com.winlator.star.ui.Screen
+import com.winlator.star.ui.deck.rememberXmbHome
 import com.winlator.star.ui.simple.SimpleRoutes
 import com.winlator.star.ui.theme.AppThemeState
 
 // ── App settings ────────────────────────────────────────────────────────────────────────────────
 
 /**
- * The Settings tab. In the XMB / Deck interface it is the six-tab editor of [AppSettingsLayout]: the registry's rows plus the XMB-only
+ * The Settings tab. In the XMB / Deck interface it is the six-tab editor of [AppSettingsLayout] (XMB: theme popup, Steam library locations first,
+ * no logs; plain Deck: theme row, locations last, logs in Storage): the registry's rows plus the XMB-only
  * rows (AppSettingsRows), the page items of [AppSettingsExtras] (updates, folders, backup, sound banks, Lossless.dll, frame-gen
  * capture...) and no hand-off row at all. Lab (the Simple look) still gets the registry lists unchanged ([layout] null, no extras), so
  * its own Settings menu keeps working, hand-offs included. [onMyAccount] null hides the My account line of General > About and help.
@@ -27,11 +29,13 @@ internal fun DeckAppSettings(navController: NavHostController, onAbout: () -> Un
     val env = remember { SettingsEnv(context, EditorScope.APP, null, null) }
     val source = remember { AppSource(env) }
     val simple = AppThemeState.simpleLook
+    // XMB only: the new arrangement (theme popup, Steam library locations first, logs only in Tools > Logs). The plain Deck keeps its old one.
+    val xmb = rememberXmbHome()
     val about by rememberUpdatedState(onAbout)
     val account by rememberUpdatedState(onMyAccount)
     val openAbout: () -> Unit = { about() }
     val openAccount: () -> Unit = { account?.invoke() }
-    val tools = remember { AppSettingsExtras(context, openAbout, if (onMyAccount != null) openAccount else null) }
+    val tools = remember(xmb) { AppSettingsExtras(context, openAbout, if (onMyAccount != null) openAccount else null, xmb) }
     val extras = remember(tools, simple) { if (simple) emptyMap<String, CategoryExtra>() else tools.extras() }
     DeckSettingsEditor(
         header = EditorHeader(
@@ -62,7 +66,7 @@ internal fun DeckAppSettings(navController: NavHostController, onAbout: () -> Un
             }
         },
         extras = extras,
-        layout = if (simple) null else AppSettingsLayout.layout,
+        layout = if (simple) null else AppSettingsLayout.layoutFor(xmb),
     )
     if (!simple) tools.Dialogs()
 }

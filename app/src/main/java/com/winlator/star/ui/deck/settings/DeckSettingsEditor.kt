@@ -181,7 +181,7 @@ internal class CategoryExtra(
 )
 
 // The Simple / Advanced choice is remembered across editors.
-private const val LEVEL_PREF = "deck_settings_level"
+internal const val LEVEL_PREF = "deck_settings_level"
 
 /**
  * The Deck settings editor: categories on the left, the chosen category's rows on the right (on a
@@ -228,9 +228,12 @@ internal fun DeckSettingsEditor(
     val context = LocalContext.current
     val env = source.env
     val compact = isDeckCompact(LocalConfiguration.current)
-    // XMB two-pane layout: no title block, the mode switch and the section header share one slim line (see SlimEditorTop / SlimPageLine).
-    // Classic, the plain Deck and the XMB phone layout keep the big header.
-    val slim = rememberXmbHome() && !compact
+    // XMB two-pane layout: no title block, a slim header (see SlimHeader) that scrolls with the rows.
+    // The XMB phone layout keeps the big header (EditorTop), which also scrolls with the page. The plain Deck (not XMB) keeps the
+    // big header pinned above the page, as it always was ([scrollHeader] false).
+    val xmbHome = rememberXmbHome()
+    val scrollHeader = xmbHome
+    val slim = xmbHome && !compact
     val prefs = remember { PreferenceManager.getDefaultSharedPreferences(context) }
     // Two levels: a stored "EXPERT" (the old third level) reads as ADVANCED.
     var level by remember { mutableStateOf(SettingLevel.parse(prefs.getString(LEVEL_PREF, null))) }
@@ -384,54 +387,78 @@ internal fun DeckSettingsEditor(
         }
     }
 
+    // XMB: the page's header (back, name, "Inherits from" chain, level switch, Reset...) is the FIRST ITEM of the page's own list: it
+    // scrolls away with the rows and comes back when scrolling up (or when the controller goes Up from the first row). The category rail
+    // beside it keeps the full height. Only the phone's category list and an open search keep the big header pinned (see [editorTop]).
+    // Outside the XMB ([scrollHeader] false) the header is pinned above everything, as it was.
+    val onBackGuarded: (() -> Unit)? = onExit?.let { exit -> { guard(exit) } }
+    val chainGuarded: (ChainLink) -> Unit = { link -> onChainLink?.let { cb -> guard { cb(link) } } }
+    val editorTop: @Composable (Boolean) -> Unit = { inPage ->
+        EditorTop(
+            header = header,
+            level = level,
+            onLevel = changeLevel,
+            onSearch = { query = query ?: "" },
+            onBack = onBackGuarded,
+            onChainLink = chainGuarded,
+            compact = compact,
+            extra = headerExtra,
+            inPage = inPage,
+        )
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
-        if (slim) {
-            // Search is Y (and the shell's floating Search hint): both go through `deckActions.search` above, so the top line has no button.
-            SlimEditorTop(
-                header = header,
-                onBack = onExit?.let { exit -> { guard(exit) } },
-                onChainLink = { link -> onChainLink?.let { cb -> guard { cb(link) } } },
-                extra = headerExtra,
-            )
-        } else {
-            EditorTop(
-                header = header,
-                level = level,
-                onLevel = changeLevel,
-                onSearch = { query = query ?: "" },
-                onBack = onExit?.let { exit -> { guard(exit) } },
-                onChainLink = { link -> onChainLink?.let { cb -> guard { cb(link) } } },
-                compact = compact,
-                extra = headerExtra,
-            )
-        }
+        // The plain Deck (not XMB): the header is pinned above the page, as before.
+        if (!scrollHeader) editorTop(false)
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             val page: @Composable (Modifier) -> Unit = { mod ->
                 val q = query
                 if (q != null) {
-                    SearchPane(
-                        query = q,
-                        onQuery = { query = it },
-                        onClose = { query = null },
-                        source = source,
-                        values = values,
-                        categories = cats,
-                        defs = allDefs.filter { applies(it) },
-                        handoffs = worldHandoffs,
-                        level = level,
-                        compact = compact,
-                        onPick = { def ->
-                            if (def.level > level) changeLevel(def.level)
-                            openCategory(def.category)
-                            jumpTo = def.id
-                            flash = def.id
-                        },
-                        onHandoff = handoff,
-                        modifier = mod,
-                    )
+                    Column(modifier = mod) {
+                        // Search is Y (and the shell's floating Search hint) in the XMB two-pane layout, so it has no header line there.
+                        if (scrollHeader && !slim) editorTop(false)
+                        SearchPane(
+                            query = q,
+                            onQuery = { query = it },
+                            onClose = { query = null },
+                            source = source,
+                            values = values,
+                            categories = cats,
+                            defs = allDefs.filter { applies(it) },
+                            handoffs = worldHandoffs,
+                            level = level,
+                            compact = compact,
+                            onPick = { def ->
+                                if (def.level > level) changeLevel(def.level)
+                                openCategory(def.category)
+                                jumpTo = def.id
+                                flash = def.id
+                            },
+                            onHandoff = handoff,
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                        )
+                    }
                 } else if (current != null) {
                     val over = overrides(current.id)
+                    val topHeader: @Composable () -> Unit = {
+                        if (slim) {
+                            SlimHeader(
+                                header = header,
+                                category = current,
+                                overrideCount = over.size,
+                                onBack = onBackGuarded,
+                                onChainLink = chainGuarded,
+                                extra = headerExtra,
+                                onResetAll = { over.forEach { source.reset(it) } },
+                                level = level,
+                                onLevel = changeLevel,
+                            )
+                        } else {
+                            editorTop(true)
+                        }
+                    }
                     CategoryPage(
+                        topHeader = if (scrollHeader) topHeader else null,
                         category = current,
                         rows = shownByCat[current.id].orEmpty(),
                         handoffs = worldHandoffs[current.id].orEmpty(),
@@ -461,14 +488,18 @@ internal fun DeckSettingsEditor(
                 if (query != null || (phonePage && current != null)) {
                     page(Modifier.fillMaxSize())
                 } else {
-                    CategoryList(
-                        categories = visibleCats,
-                        current = current?.id,
-                        badge = { overrides(it).size },
-                        compact = true,
-                        onSelect = { openCategory(it.id) },
-                        modifier = Modifier.fillMaxSize(),
-                    )
+                    // XMB: the phone's category list has no page to scroll with, so its header stays on top of it.
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        if (scrollHeader) editorTop(false)
+                        CategoryList(
+                            categories = visibleCats,
+                            current = current?.id,
+                            badge = { overrides(it).size },
+                            compact = true,
+                            onSelect = { openCategory(it.id) },
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                        )
+                    }
                 }
             } else {
                 val listWidth = (LocalConfiguration.current.screenWidthDp * 0.28f).dp.coerceIn(180.dp, 300.dp)
@@ -482,25 +513,8 @@ internal fun DeckSettingsEditor(
                         focusKey = listFocus,
                         modifier = Modifier.width(listWidth).fillMaxHeight(),
                     )
-                    if (slim) {
-                        // XMB: the section's own line (icon, name, hint, Reset, the mode switch) is pinned above its rows.
-                        Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                            val shown = current
-                            if (query == null && shown != null) {
-                                val over = overrides(shown.id)
-                                SlimPageLine(
-                                    category = shown,
-                                    overrideCount = over.size,
-                                    onResetAll = { over.forEach { source.reset(it) } },
-                                    level = level,
-                                    onLevel = changeLevel,
-                                )
-                            }
-                            page(Modifier.weight(1f).fillMaxWidth())
-                        }
-                    } else {
-                        page(Modifier.weight(1f).fillMaxHeight())
-                    }
+                    // The header is the page's first list item (see topHeader), so the rail beside it is as tall as the pane.
+                    page(Modifier.weight(1f).fillMaxHeight())
                 }
             }
         }
@@ -577,12 +591,14 @@ private fun EditorTop(
     onChainLink: (ChainLink) -> Unit,
     compact: Boolean,
     extra: (@Composable () -> Unit)?,
+    /** The first item of a page's list: the list's own padding is the gutter, and the block is tighter (it scrolls away). */
+    inPage: Boolean = false,
 ) {
     val cs = MaterialTheme.colorScheme
-    val gutter = if (compact) 16.dp else 24.dp
+    val gutter = if (inPage) 0.dp else if (compact) 16.dp else 24.dp
     Column(
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-        modifier = Modifier.fillMaxWidth().padding(start = gutter, end = gutter, top = 14.dp, bottom = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(if (inPage) 8.dp else 10.dp),
+        modifier = Modifier.fillMaxWidth().padding(start = gutter, end = gutter, top = if (inPage) 4.dp else 14.dp, bottom = if (inPage) 4.dp else 8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (onBack != null) {
@@ -680,132 +696,132 @@ private fun SquareButton(icon: ImageVector, description: String, onClick: () -> 
 private fun ScreenScale.up(base: Float): Float = base * maxOf(factor, 1f)
 
 /**
- * The XMB two-pane layout's top line: the page's own name and where it inherits from, in one slim wrapping row (back button, name
- * with its small kicker, "Inherits from" chain, the Wine layer, a host's [extra]). The app Settings page has none of those (it is a
- * tab's root, no back, no chain), so it has no top line at all and the panes start straight under the shell's bar.
+ * The XMB two-pane layout's header: the FIRST ITEM of the page's list, so it scrolls away with the rows and comes back when scrolling
+ * up (or when the controller goes Up from the first row). Two slim lines. The top one, only when the page has a name, a chain, a
+ * Wine layer or a host's [extra]: back button, name with its small kicker, "Inherits from" chain, the Wine layer, [extra], and the
+ * Simple / Advanced switch at the right (the chain and the rest wrap onto a second slim line when they do not fit). Under it the
+ * section's line: a small icon, the name, its hint (one line, cut with an ellipsis), the small Reset pill when the section has
+ * overrides. The app Settings page (a tab's root: no back, no chain) has only the section line, and then it carries the switch.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun SlimEditorTop(
+private fun SlimHeader(
     header: EditorHeader,
+    category: SettingsCategory,
+    overrideCount: Int,
     onBack: (() -> Unit)?,
     onChainLink: (ChainLink) -> Unit,
     extra: (@Composable () -> Unit)?,
-) {
-    val named = onBack != null
-    if (!named && header.chain.isEmpty() && header.meta == null && extra == null) return
-    val cs = MaterialTheme.colorScheme
-    val ss = rememberScreenScale()
-    val rowH = ss.up(34f).dp
-    FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-        modifier = Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 6.dp, bottom = 2.dp),
-    ) {
-        if (onBack != null) {
-            SquareButton(Icons.AutoMirrored.Filled.ArrowBack, "Back", onBack, size = rowH, iconSize = 20.dp)
-        }
-        if (named) {
-            Column(modifier = Modifier.height(rowH).widthIn(max = 300.dp), verticalArrangement = Arrangement.Center) {
-                Text(
-                    text = header.overline.uppercase(),
-                    color = cs.primary,
-                    fontWeight = FontWeight.ExtraBold,
-                    fontSize = ss.up(9.5f).sp,
-                    lineHeight = ss.up(11f).sp,
-                    letterSpacing = 1.5.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = header.title,
-                    color = cs.onSurface,
-                    fontFamily = SoraFamily,
-                    fontWeight = FontWeight.ExtraBold,
-                    fontSize = ss.up(17f).sp,
-                    lineHeight = ss.up(20f).sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-        if (header.chain.isNotEmpty()) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.height(rowH).padding(start = if (named) 8.dp else 0.dp)) {
-                Icon(Icons.Filled.AccountTree, contentDescription = null, tint = cs.onSurfaceVariant, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(5.dp))
-                Text("Inherits from", color = cs.onSurfaceVariant, fontWeight = FontWeight.SemiBold, fontSize = ss.up(12.5f).sp, maxLines = 1)
-            }
-        }
-        header.chain.forEachIndexed { i, link ->
-            if (i > 0) {
-                Box(contentAlignment = Alignment.Center, modifier = Modifier.height(rowH)) {
-                    Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = cs.onSurfaceVariant, modifier = Modifier.size(16.dp))
-                }
-            }
-            Box(contentAlignment = Alignment.Center, modifier = Modifier.height(rowH)) {
-                ChainChip(link, onClick = { onChainLink(link) }, slim = true)
-            }
-        }
-        header.meta?.let {
-            Box(contentAlignment = Alignment.CenterStart, modifier = Modifier.height(rowH).padding(start = 6.dp)) {
-                Text(it, color = cs.onSurfaceVariant, fontWeight = FontWeight.SemiBold, fontSize = ss.up(12.5f).sp, maxLines = 1)
-            }
-        }
-        extra?.let { content ->
-            Box(contentAlignment = Alignment.CenterStart, modifier = Modifier.heightIn(min = rowH)) { content() }
-        }
-    }
-}
-
-/**
- * The XMB two-pane layout's section line, pinned above the section's rows: a small icon, the name, its hint (one line, cut with an
- * ellipsis where it does not fit), the small Reset pill when the section has overrides, and the compact Simple / Advanced
- * switch at the right. It replaces the big icon tile and title and the old header row, so the rows get the room.
- */
-@Composable
-private fun SlimPageLine(
-    category: SettingsCategory,
-    overrideCount: Int,
     onResetAll: () -> Unit,
     level: SettingLevel,
     onLevel: (SettingLevel) -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
     val ss = rememberScreenScale()
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = ss.up(40f).dp)
-            .padding(start = 18.dp, end = 24.dp, top = 3.dp, bottom = 3.dp),
-    ) {
-        Icon(category.icon, contentDescription = null, tint = cs.primary, modifier = Modifier.size(ss.up(20f).dp))
-        Spacer(Modifier.width(8.dp))
-        Text(
-            text = category.label,
-            color = cs.onSurface,
-            fontFamily = SoraFamily,
-            fontWeight = FontWeight.ExtraBold,
-            fontSize = ss.up(16f).sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.widthIn(max = 220.dp),
-        )
-        Spacer(Modifier.width(10.dp))
-        Text(
-            text = category.desc,
-            color = cs.onSurfaceVariant,
-            fontSize = ss.up(12.5f).sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        if (overrideCount > 0) {
-            Spacer(Modifier.width(8.dp))
-            ResetAllButton(overrideCount, onResetAll, slim = true)
+    val rowH = ss.up(32f).dp
+    val named = onBack != null
+    val hasTop = named || header.chain.isNotEmpty() || header.meta != null || extra != null
+    Column(modifier = Modifier.fillMaxWidth().padding(start = 6.dp, top = 2.dp, bottom = 4.dp)) {
+        if (hasTop) {
+            Row(verticalAlignment = Alignment.Top, modifier = Modifier.fillMaxWidth()) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    if (onBack != null) {
+                        SquareButton(Icons.AutoMirrored.Filled.ArrowBack, "Back", onBack, size = rowH, iconSize = 20.dp)
+                    }
+                    if (named) {
+                        Column(modifier = Modifier.height(rowH).widthIn(max = 300.dp), verticalArrangement = Arrangement.Center) {
+                            Text(
+                                text = header.overline.uppercase(),
+                                color = cs.primary,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = ss.up(9.5f).sp,
+                                lineHeight = ss.up(11f).sp,
+                                letterSpacing = 1.5.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = header.title,
+                                color = cs.onSurface,
+                                fontFamily = SoraFamily,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = ss.up(17f).sp,
+                                lineHeight = ss.up(20f).sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    if (header.chain.isNotEmpty()) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.height(rowH).padding(start = if (named) 8.dp else 0.dp)) {
+                            Icon(Icons.Filled.AccountTree, contentDescription = null, tint = cs.onSurfaceVariant, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(5.dp))
+                            Text("Inherits from", color = cs.onSurfaceVariant, fontWeight = FontWeight.SemiBold, fontSize = ss.up(12.5f).sp, maxLines = 1)
+                        }
+                    }
+                    header.chain.forEachIndexed { i, link ->
+                        if (i > 0) {
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.height(rowH)) {
+                                Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = cs.onSurfaceVariant, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.height(rowH)) {
+                            ChainChip(link, onClick = { onChainLink(link) }, slim = true)
+                        }
+                    }
+                    header.meta?.let {
+                        Box(contentAlignment = Alignment.CenterStart, modifier = Modifier.height(rowH).padding(start = 6.dp)) {
+                            Text(it, color = cs.onSurfaceVariant, fontWeight = FontWeight.SemiBold, fontSize = ss.up(12.5f).sp, maxLines = 1)
+                        }
+                    }
+                    extra?.let { content ->
+                        Box(contentAlignment = Alignment.CenterStart, modifier = Modifier.heightIn(min = rowH)) { content() }
+                    }
+                }
+                Spacer(Modifier.width(10.dp))
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.height(rowH)) {
+                    LevelSwitch(level, onLevel, slim = true)
+                }
+            }
         }
-        Spacer(Modifier.width(10.dp))
-        LevelSwitch(level, onLevel, slim = true)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().heightIn(min = ss.up(34f).dp).padding(top = 2.dp, bottom = 2.dp),
+        ) {
+            Icon(category.icon, contentDescription = null, tint = cs.primary, modifier = Modifier.size(ss.up(20f).dp))
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = category.label,
+                color = cs.onSurface,
+                fontFamily = SoraFamily,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = ss.up(16f).sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = 220.dp),
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = category.desc,
+                color = cs.onSurfaceVariant,
+                fontSize = ss.up(12.5f).sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (overrideCount > 0) {
+                Spacer(Modifier.width(8.dp))
+                ResetAllButton(overrideCount, onResetAll, slim = true)
+            }
+            if (!hasTop) {
+                Spacer(Modifier.width(10.dp))
+                LevelSwitch(level, onLevel, slim = true)
+            }
+        }
     }
 }
 
@@ -911,7 +927,13 @@ private fun CategoryList(
     DeckEntryFocus(focusKey) { requester.requestFocus() }
     LazyColumn(
         modifier = if (xmbRail != null) modifier.xmbRailGroup(xmbRail) else modifier,
-        contentPadding = PaddingValues(start = if (compact) 16.dp else 20.dp, end = if (compact) 16.dp else 8.dp, top = 6.dp, bottom = 24.dp),
+        // XMB rail: it keeps its width but gives the names every dp it can (the side tabs hold their name on up to two lines).
+        contentPadding = PaddingValues(
+            start = if (compact) 16.dp else if (xmbRail != null) 14.dp else 20.dp,
+            end = if (compact) 16.dp else if (xmbRail != null) 6.dp else 8.dp,
+            top = 6.dp,
+            bottom = 24.dp,
+        ),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         items(categories, key = { it.id }) { c ->
@@ -945,12 +967,16 @@ private fun CategoryItem(
     val shape = deckShape(14.dp)
     // XMB: the shown category's text keeps its accent when the outline moves on into the page.
     val shownInk = xmbSelectedInk()
+    // The XMB side rail (a [rail] state exists only there): equal-height tabs with room for a name on two lines. The plain Deck's
+    // list and the phone's rows keep their own size.
+    val side = rail != null
     DeckInk { item, cs ->
         val accent = cs.primary
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = modifier
                 .fillMaxWidth()
+                .then(if (side) Modifier.height(56.dp) else Modifier)
                 .xmbRailItem(rail, selected, onClick)
                 .deckFocusRingInk(shape, item, scaleTo = 1.02f, onFocused = onFocused)
                 .clip(shape)
@@ -967,25 +993,31 @@ private fun CategoryItem(
                         )
                     }
                 }
-                .padding(horizontal = 18.dp, vertical = 12.dp),
+                .padding(horizontal = if (side) 10.dp else 18.dp, vertical = if (side) 4.dp else 12.dp),
         ) {
-            Icon(category.icon, contentDescription = null, tint = if (selected) accent else cs.onSurfaceVariant, modifier = Modifier.size(22.dp))
-            Spacer(Modifier.width(14.dp))
+            Icon(
+                category.icon,
+                contentDescription = null,
+                tint = if (selected) accent else cs.onSurfaceVariant,
+                modifier = Modifier.size(if (side) 20.dp else 22.dp),
+            )
+            Spacer(Modifier.width(if (side) 8.dp else 14.dp))
             Text(
                 text = category.label,
                 color = if (selected) (shownInk ?: cs.onSurface) else cs.onSurfaceVariant,
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
-                fontSize = 16.sp,
-                maxLines = 1,
+                fontSize = if (side) 13.5.sp else 16.sp,
+                lineHeight = if (side) 16.sp else TextUnit.Unspecified,
+                maxLines = if (side) 2 else 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
             if (badge > 0) {
                 Box(
                     contentAlignment = Alignment.Center,
-                    modifier = Modifier.size(22.dp).clip(CircleShape).background(accent),
+                    modifier = Modifier.size(if (side) 18.dp else 22.dp).clip(CircleShape).background(accent),
                 ) {
-                    Text("$badge", color = cs.onPrimary, fontWeight = FontWeight.ExtraBold, fontSize = 11.5.sp)
+                    Text("$badge", color = cs.onPrimary, fontWeight = FontWeight.ExtraBold, fontSize = if (side) 10.5.sp else 11.5.sp)
                 }
             }
             if (compact) {
@@ -1001,6 +1033,8 @@ private fun CategoryItem(
 private sealed interface PageItem {
     val key: String
 }
+/** The editor's header (back, name, chain, level switch...): the first item of the list, so it scrolls with the rows. */
+private object TopHeaderItem : PageItem { override val key = "topHeader" }
 private object HeaderItem : PageItem { override val key = "header" }
 private class ResetAllItem(val count: Int) : PageItem { override val key = "resetAll" }
 private class GroupItem(val label: String, val tight: Boolean = false) : PageItem { override val key = "group:$label" }
@@ -1010,6 +1044,7 @@ private class ExtraItem(val extra: PageExtra) : PageItem { override val key = "e
 
 @Composable
 private fun CategoryPage(
+    topHeader: (@Composable () -> Unit)?,
     category: SettingsCategory,
     rows: List<SettingDef>,
     handoffs: List<Handoff>,
@@ -1034,14 +1069,16 @@ private fun CategoryPage(
     modifier: Modifier,
 ) {
     val pageItems = buildList<PageItem> {
-        // XMB two-pane: the header and the Reset button are the pinned slim line above this list (SlimPageLine), not items of it.
+        // The editor's header scrolls with the rows. XMB two-pane: it already holds the section's line and the Reset button (SlimHeader),
+        // so there is no section header or Reset item after it.
+        if (topHeader != null) add(TopHeaderItem)
         if (!slim) {
             add(HeaderItem)
             if (overrideCount > 0) add(ResetAllItem(overrideCount))
         }
         extra?.top?.invoke()?.forEach { add(ExtraItem(it)) }
         rows.groupBy { it.group }.forEach { (group, defs) ->
-            add(GroupItem(group, tight = slim && isEmpty()))
+            add(GroupItem(group, tight = slim && (isEmpty() || last() is TopHeaderItem)))
             defs.forEachIndexed { i, d -> add(RowItem(d, first = i == 0, last = i == defs.lastIndex)) }
         }
         extra?.bottom?.invoke()?.forEach { add(ExtraItem(it)) }
@@ -1081,6 +1118,7 @@ private fun CategoryPage(
         ) {
             items(pageItems, key = { it.key }) { item ->
                 when (item) {
+                    is TopHeaderItem -> topHeader?.invoke()
                     is HeaderItem -> PageHeader(category, onBack)
                     is ResetAllItem -> ResetAllButton(item.count, onResetAll)
                     is GroupItem -> GroupLabel(item.label, top = if (item.tight) 4.dp else 16.dp)
@@ -1188,7 +1226,7 @@ internal fun GroupCard(first: Boolean, last: Boolean, highlight: Boolean, conten
 // ── A setting row ───────────────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun SettingRow(
+internal fun SettingRow(
     def: SettingDef,
     source: SettingsSource,
     values: (String) -> String,

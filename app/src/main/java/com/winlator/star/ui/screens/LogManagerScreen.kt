@@ -94,12 +94,16 @@ import java.io.File
  * genuinely slow games down and users need to know that before leaving one on.
  *
  * [showOptions] false hides everything that is a setting (where logs go, the what-to-record switches and engines, how many
- * runs to keep): the Deck shell's Tools > Logs tab is only the viewer, and those options are rows in Settings > Storage & data.
- * Classic and Lab keep the default (true) and show the whole screen.
+ * runs to keep) and leaves the viewer only. Classic and Lab keep the default (true) and show the whole screen.
+ *
+ * [inDeckTools] is the Deck shell's Tools > Logs tab: all the recording options live here and nowhere in Settings, folded
+ * into a collapsible "Recording options" section at the top (collapsed until opened, and remembered) so the per-game list
+ * gets the room, the games sit two to a row as fixed-size tiles, and the store download-engine switches and speed tier are
+ * left out (they are in Settings > Storage & data). Everything else about the screen is unchanged; default false.
  */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-fun LogManagerScreen(onClose: () -> Unit, showOptions: Boolean = true) {
+fun LogManagerScreen(onClose: () -> Unit, showOptions: Boolean = true, inDeckTools: Boolean = false) {
     val context = LocalContext.current
     val prefs = remember { PreferenceManager.getDefaultSharedPreferences(context) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
@@ -198,6 +202,9 @@ fun LogManagerScreen(onClose: () -> Unit, showOptions: Boolean = true) {
 
     fun putBool(key: String, v: Boolean) = prefs.edit().putBoolean(key, v).apply()
     var storeDlTier by remember { mutableStateOf(com.winlator.star.store.StoreDownloadTier.get(context)) }
+    // Deck Tools > Logs: the options fold away; the choice is remembered (the tab is rebuilt every time you come back to it).
+    var optionsOpen by remember { mutableStateOf(prefs.getBoolean("deck_logs_options_open", false)) }
+    val optionsVisible = !inDeckTools || optionsOpen
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
@@ -208,7 +215,7 @@ fun LogManagerScreen(onClose: () -> Unit, showOptions: Boolean = true) {
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             // The Deck shell's landscape frame shows the title, and its tabs replace Close.
-            if (!com.winlator.star.ui.LocalHostedInDeck.current) Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            if (!com.winlator.star.ui.LocalHostedInDeck.current && !inDeckTools) Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Text(
                     "Log Manager",
                     style = MaterialTheme.typography.titleLarge,
@@ -220,9 +227,17 @@ fun LogManagerScreen(onClose: () -> Unit, showOptions: Boolean = true) {
                 }
             }
 
+            if (inDeckTools && showOptions) {
+                Spacer(Modifier.height(4.dp))
+                OptionsHeader(open = optionsOpen) {
+                    optionsOpen = !optionsOpen
+                    prefs.edit().putBoolean("deck_logs_options_open", optionsOpen).apply()
+                }
+            }
+
             // ── Where logs go ────────────────────────────────────────────
-            if (showOptions) SectionLabel("Where logs go")
-            if (showOptions) LogCard {
+            if (showOptions && optionsVisible) SectionLabel("Where logs go")
+            if (showOptions && optionsVisible) LogCard {
                 PickRow(
                     label = when (locationMode) {
                         LogLocation.MODE_DOWNLOAD -> "Download"
@@ -264,8 +279,8 @@ fun LogManagerScreen(onClose: () -> Unit, showOptions: Boolean = true) {
             }
 
             // ── What to record ───────────────────────────────────────────
-            SectionLabel(if (showOptions) "What to record" else "Diagnostics")
-            LogCard {
+            if (optionsVisible) SectionLabel(if (showOptions) "What to record" else "Diagnostics")
+            if (optionsVisible) LogCard {
               if (showOptions) {
                 LogToggle("Wine debug", wineDebug,
                     hint = "Slows games down — for diagnosing a problem",
@@ -339,6 +354,8 @@ fun LogManagerScreen(onClose: () -> Unit, showOptions: Boolean = true) {
                     onInfo = { info = "Exit reasons" to LogCopy.EXIT_REASONS }) {
                     exitAutosave = it; putBool(ExitReasonReporter.PREF_AUTOSAVE, it)
                 }
+                // The Deck's Tools > Logs leaves the download-engine switches and the speed tier out: they live in Settings > Storage & data.
+                if (!inDeckTools) {
                 // Developer switch for the native Rust Steam engine (docs/STEAM_RUST_ENGINE_PLAN.md).
                 // Read once per process by SteamRepository.initialize(), so it takes effect on the
                 // next app start. OFF = JavaSteam as today; ON = the full Steam stack (auth, session,
@@ -383,6 +400,7 @@ fun LogManagerScreen(onClose: () -> Unit, showOptions: Boolean = true) {
                 ) {
                     storeDlTier = com.winlator.star.store.StoreDownloadTier.next(storeDlTier)
                     com.winlator.star.store.StoreDownloadTier.set(context, storeDlTier)
+                }
                 }
               }
 
@@ -431,7 +449,7 @@ fun LogManagerScreen(onClose: () -> Unit, showOptions: Boolean = true) {
             // ── Housekeeping ─────────────────────────────────────────────
             SectionLabel("Housekeeping")
             LogCard {
-                if (showOptions) Box {
+                if (showOptions && optionsVisible) Box {
                     PickRow(
                         label = "Keep last",
                         sub = if (keepLast == 0) "No history — each run replaces the last"
@@ -487,6 +505,24 @@ fun LogManagerScreen(onClose: () -> Unit, showOptions: Boolean = true) {
             if (entries.isEmpty()) {
                 LogCard {
                     Text("No logs yet.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                }
+            } else if (inDeckTools) {
+                // Two equal tiles per row; a long game name is cut to one line, so it never makes its tile bigger.
+                entries.chunked(2).forEach { pair ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        pair.forEach { e ->
+                            Box(modifier = Modifier.weight(1f)) {
+                                GameLogCard(
+                                    entry = e,
+                                    onView = { viewing = e },
+                                    onShare = { shareLogGroup(context, e) },
+                                    onDelete = { confirmDelete = e },
+                                    tile = true,
+                                )
+                            }
+                        }
+                        if (pair.size == 1) Spacer(Modifier.weight(1f))
+                    }
                 }
             } else {
                 entries.forEach { e ->
@@ -1099,6 +1135,7 @@ private fun GameLogCard(
     onView: () -> Unit,
     onShare: () -> Unit,
     onDelete: () -> Unit,
+    tile: Boolean = false,
 ) {
     var expanded by remember { mutableStateOf(false) }
     // XMB interface: the card is a glass panel and one D-pad stop; A enters it (the name expands the file list, then
@@ -1134,26 +1171,39 @@ private fun GameLogCard(
                     null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(19.dp)
                 )
             }
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(if (tile) 8.dp else 10.dp))
             Column(modifier = Modifier.weight(1f).xmbClickOrBtn(RoundedCornerShape(8.dp), first = true) { expanded = !expanded }) {
+                // A tile is a fixed size: the name is one line however long it is, the details always two.
                 Text(if (entry.isAppBucket) "App & crash logs" else entry.name,
-                    color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
+                    color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp,
+                    maxLines = if (tile) 1 else Int.MAX_VALUE,
+                    overflow = if (tile) androidx.compose.ui.text.style.TextOverflow.Ellipsis else androidx.compose.ui.text.style.TextOverflow.Clip)
                 Text(
                     buildString {
                         append("${entry.fileCount} file${if (entry.fileCount == 1) "" else "s"}")
                         append(" · ").append(LogInventory.humanBytes(entry.totalBytes))
-                        if (entry.archivedRuns > 0) append(" · ${entry.archivedRuns} kept")
-                        append(" · ").append(relativeTime(entry.lastModified))
+                        append(if (tile) "\n" else " · ")
+                        if (entry.archivedRuns > 0) append("${entry.archivedRuns} kept · ")
+                        append(relativeTime(entry.lastModified))
                     },
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp,
+                    maxLines = if (tile) 2 else Int.MAX_VALUE,
+                    overflow = if (tile) androidx.compose.ui.text.style.TextOverflow.Ellipsis else androidx.compose.ui.text.style.TextOverflow.Clip
                 )
             }
         }
         if (expanded) {
             Spacer(Modifier.height(6.dp))
-            LogInventory.filesIn(entry.dir).forEach { f ->
+            val files = LogInventory.filesIn(entry.dir)
+            (if (tile) files.take(8) else files).forEach { f ->
                 Text("• ${f.name}  (${LogInventory.humanBytes(f.length())})",
                     color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp,
+                    maxLines = if (tile) 1 else Int.MAX_VALUE,
+                    overflow = if (tile) androidx.compose.ui.text.style.TextOverflow.Ellipsis else androidx.compose.ui.text.style.TextOverflow.Clip,
+                    modifier = Modifier.padding(start = 6.dp, top = 2.dp))
+            }
+            if (tile && files.size > 8) {
+                Text("+ ${files.size - 8} more", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp,
                     modifier = Modifier.padding(start = 6.dp, top = 2.dp))
             }
         }
@@ -1166,12 +1216,12 @@ private fun GameLogCard(
                 .background(MaterialTheme.colorScheme.outline)
         )
         Row(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (tile) 4.dp else 6.dp),
             modifier = Modifier.fillMaxWidth().padding(top = 9.dp)
         ) {
-            CardAction("View", modifier = Modifier.weight(1f), primary = true, onClick = onView)
-            CardAction("Share", modifier = Modifier.weight(1f), onClick = onShare)
-            CardAction("Delete", modifier = Modifier.weight(1f), danger = true, onClick = onDelete)
+            CardAction("View", modifier = Modifier.weight(1f), primary = true, small = tile, onClick = onView)
+            CardAction("Share", modifier = Modifier.weight(1f), small = tile, onClick = onShare)
+            CardAction("Delete", modifier = Modifier.weight(1f), danger = true, small = tile, onClick = onDelete)
         }
     }
 }
@@ -1183,6 +1233,7 @@ private fun CardAction(
     modifier: Modifier = Modifier,
     primary: Boolean = false,
     danger: Boolean = false,
+    small: Boolean = false,
     onClick: () -> Unit,
 ) {
     val fg = when {
@@ -1203,7 +1254,40 @@ private fun CardAction(
             .padding(vertical = 6.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(label, color = fg, fontSize = 12.sp)
+        Text(label, color = fg, fontSize = if (small) 11.sp else 12.sp, maxLines = if (small) 1 else Int.MAX_VALUE)
+    }
+}
+
+/**
+ * The Deck's "Recording options" header: one row that folds the whole recording-options block (where logs go, what to
+ * record, Wine debug channels, how many runs to keep) away so the per-game tiles get the room.
+ */
+@Composable
+private fun OptionsHeader(open: Boolean, onToggle: () -> Unit) {
+    val stop = rememberXmbHighlightItem()
+    XmbInk(stop) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .xmbStop(RoundedCornerShape(8.dp), stop, wholeSubtree = true)
+                .clickable { onToggle() }
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(8.dp))
+                .padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 10.dp)
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Recording options", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
+                Text(
+                    "What to record, Wine debug channels, log folder, runs to keep",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, maxLines = 2
+                )
+            }
+            Icon(
+                if (open) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                if (open) "Collapse recording options" else "Expand recording options",
+                tint = MaterialTheme.colorScheme.primary
+            )
+        }
     }
 }
 

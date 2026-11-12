@@ -28,11 +28,13 @@ class RegistryLayoutWalkTest {
     fun everyContainerRowHasATabExceptTheHiddenOnes() {
         val defs = containerDefs()
         assertTrue("the registry should declare rows", defs.size > 50)
-        val declared = EditorTabs.CONTAINER_IDS + EditorTabs.GAME + EditorTabs.LINUX
-        val orphans = defs.filter { d -> ContainerLayoutMap.tabFor(d.id, d.category) == null && d.id !in ContainerLayoutMap.HIDDEN }.map { it.id }
-        assertEquals("rows with no tab and not documented as hidden: $orphans", emptyList<String>(), orphans)
-        val strays = defs.filter { d -> ContainerLayoutMap.tabFor(d.id, d.category).let { it != null && it !in declared } }.map { it.id }
-        assertEquals("rows on a tab that no container / game page lists: $strays", emptyList<String>(), strays)
+        for (xmb in listOf(true, false)) {
+            val declared = (if (xmb) EditorTabs.CONTAINER_IDS else EditorTabs.DECK_CONTAINER_IDS) + EditorTabs.GAME + EditorTabs.LINUX
+            val orphans = defs.filter { d -> ContainerLayoutMap.tabFor(d.id, d.category, xmb) == null && d.id !in ContainerLayoutMap.HIDDEN }.map { it.id }
+            assertEquals("rows with no tab and not documented as hidden (xmb=$xmb): $orphans", emptyList<String>(), orphans)
+            val strays = defs.filter { d -> ContainerLayoutMap.tabFor(d.id, d.category, xmb).let { it != null && it !in declared } }.map { it.id }
+            assertEquals("rows on a tab that no container / game page lists (xmb=$xmb): $strays", emptyList<String>(), strays)
+        }
     }
 
     @Test
@@ -42,10 +44,16 @@ class RegistryLayoutWalkTest {
             "app.library.midiDefault", "app.performance.box64Preset", "app.performance.fexPreset",
             "app.controllers.steamController", "app.controllers.trackpadMouse", "app.controllers.onScreenPriority", "app.controllers.autoHide",
         )
-        val orphans = defs.filter { AppSettingsLayout.tabFor(it.id) == null && it.id !in documentedHidden }.map { it.id }
+        // XMB hides the logs rows (they are in Tools > Logs) and the theme preset row (a popup); the plain Deck shows them.
+        val xmbHidden = documentedHidden + defs.map { it.id }.filter { it.startsWith("app.logs.") || it == "app.appearance.preset" }
+        val orphans = defs.filter { AppSettingsLayout.tabFor(it.id, true) == null && it.id !in xmbHidden }.map { it.id }
         assertEquals("rows with no tab and not documented as hidden: $orphans", emptyList<String>(), orphans)
-        val strays = defs.filter { d -> AppSettingsLayout.tabFor(d.id).let { it != null && it !in EditorTabs.APP_IDS } }.map { it.id }
-        assertEquals("rows on a tab the Settings page does not list: $strays", emptyList<String>(), strays)
+        val deckOrphans = defs.filter { AppSettingsLayout.tabFor(it.id, false) == null && it.id !in documentedHidden }.map { it.id }
+        assertEquals("plain Deck rows with no tab and not documented as hidden: $deckOrphans", emptyList<String>(), deckOrphans)
+        for (xmb in listOf(true, false)) {
+            val strays = defs.filter { d -> AppSettingsLayout.tabFor(d.id, xmb).let { it != null && it !in EditorTabs.APP_IDS } }.map { it.id }
+            assertEquals("rows on a tab the Settings page does not list (xmb=$xmb): $strays", emptyList<String>(), strays)
+        }
     }
 
     @Test

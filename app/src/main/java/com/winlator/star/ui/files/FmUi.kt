@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -25,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -384,7 +386,7 @@ internal fun FmParentRow(compact: Boolean, onUp: () -> Unit) {
 
 /** Clickable path segments; the last one is where the pane is. */
 @Composable
-internal fun FmCrumbs(segments: List<Pair<String, () -> Unit>>, modifier: Modifier = Modifier) {
+internal fun FmCrumbs(segments: List<Pair<String, () -> Unit>>, modifier: Modifier = Modifier, vPad: Dp = 4.dp) {
     val cs = MaterialTheme.colorScheme
     val scroll = rememberScrollState()
     LaunchedEffect(segments.size, segments.lastOrNull()?.first) { scroll.scrollTo(scroll.maxValue) }
@@ -400,7 +402,7 @@ internal fun FmCrumbs(segments: List<Pair<String, () -> Unit>>, modifier: Modifi
                 modifier = Modifier
                     .clip(RoundedCornerShape(8.dp))
                     .clickable(enabled = !last, onClick = go)
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                    .padding(horizontal = 6.dp, vertical = vPad),
             )
             if (!last) Icon(Icons.Filled.ChevronRight, null, tint = cs.onSurfaceVariant, modifier = Modifier.size(16.dp))
         }
@@ -443,6 +445,39 @@ internal fun FmCapsule(
             } else {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape))
             }
+        }
+    }
+}
+
+/**
+ * The compact toolbar's clipboard chip: "Paste here (name)" with an X that empties the clipboard. [onPaste] null (no folder
+ * open, so nothing to paste into) leaves just the label and the X.
+ */
+@Composable
+internal fun FmPasteChip(label: String, onPaste: (() -> Unit)?, onClose: () -> Unit, modifier: Modifier = Modifier) {
+    val cs = MaterialTheme.colorScheme
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier.height(32.dp).widthIn(max = 260.dp).fmGlass(RoundedCornerShape(16.dp)).padding(start = 10.dp),
+    ) {
+        Icon(Icons.Filled.ContentPaste, null, tint = cs.primary, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(
+            label,
+            color = if (onPaste != null) cs.primary else cs.onSurface,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .weight(1f, fill = false)
+                .then(
+                    if (onPaste != null) Modifier.clip(RoundedCornerShape(10.dp)).clickable(onClick = onPaste).padding(horizontal = 4.dp, vertical = 6.dp)
+                    else Modifier
+                ),
+        )
+        IconButton(onClick = onClose, modifier = Modifier.size(32.dp)) {
+            Icon(Icons.Filled.Close, "Clear the clipboard", tint = cs.onSurfaceVariant, modifier = Modifier.size(16.dp))
         }
     }
 }

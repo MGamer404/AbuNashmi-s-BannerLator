@@ -106,9 +106,40 @@ import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.abs
 
+/**
+ * What the Deck / XMB Controls page (ui/deck/DeckControlsPage.kt) draws from [InputControlsScreen]: its profile and controller
+ * state, and the actions behind its buttons. The dialogs (name prompts, confirmations, import / download, controller test)
+ * stay this screen's own, so every action runs the same code the Classic screen runs.
+ */
+class InputControlsDeckState(
+    val profiles: List<ControlsProfile>,
+    val current: ControlsProfile?,
+    val controllers: List<ExternalController>,
+    /** The Default / Any Controller template of [current], or null while it has no entry. */
+    val defaultTemplate: ExternalController?,
+    val hasLayout: Boolean,
+    val binds: Int,
+    val layoutRev: Int,
+    val select: (ControlsProfile?) -> Unit,
+    val newProfile: () -> Unit,
+    val rename: (ControlsProfile) -> Unit,
+    val duplicate: (ControlsProfile) -> Unit,
+    val delete: (ControlsProfile) -> Unit,
+    val importProfile: () -> Unit,
+    /** The second argument asks for the legacy .icp instead of .icpx. */
+    val export: (ControlsProfile, Boolean) -> Unit,
+    val editLayout: (ControlsProfile) -> Unit,
+    /** Opens the bindings editor of the controller with this id (the Default template's id for the template). */
+    val openBindings: (String) -> Unit,
+    val testAndBind: () -> Unit,
+    /** Copies the bindings of the controller with the given id onto the first argument. */
+    val copyBindings: (ExternalController, String) -> Unit,
+    val removeController: (ExternalController) -> Unit,
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun InputControlsScreen() {
+fun InputControlsScreen(deckHost: (@Composable (InputControlsDeckState) -> Unit)? = null) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val activity = context as? MainActivity
@@ -558,6 +589,92 @@ fun InputControlsScreen() {
                 } else AppUtils.showToast(context, R.string.no_profile_selected)
             },
         )
+    }
+
+    // The Deck / XMB Controls page lays the same state and actions out itself (DeckControlsPage.kt); Classic passes no
+    // [deckHost] and takes the tabbed layout below, unchanged.
+    if (deckHost != null) {
+        val selectProfile: (ControlsProfile?) -> Unit = { p ->
+            val pos = if (p == null) 0 else profiles.indexOf(p) + 1
+            selectedProfileIdx = pos
+            loadProfile(pos)
+        }
+        deckHost(
+            InputControlsDeckState(
+                profiles = profiles,
+                current = currentProfile,
+                controllers = controllers,
+                defaultTemplate = currentProfile?.getController(ControlsProfile.DEFAULT_CONTROLLER_ID),
+                hasLayout = profileHasLayout,
+                binds = profileBinds,
+                layoutRev = layoutRev,
+                select = selectProfile,
+                newProfile = { promptCreateName = true },
+                rename = { p ->
+                    selectProfile(p)
+                    promptRenameOldName = p.getName()
+                },
+                duplicate = { p ->
+                    pendingConfirmation = R.string.do_you_want_to_duplicate_this_profile to {
+                        currentProfile = manager.duplicateProfile(p)
+                        refreshProfiles()
+                        refreshControllers()
+                    }
+                },
+                delete = { p ->
+                    pendingConfirmation = R.string.do_you_want_to_remove_this_profile to {
+                        manager.removeProfile(p)
+                        if (currentProfile === p) currentProfile = null
+                        refreshProfiles()
+                        refreshControllers()
+                    }
+                },
+                importProfile = { showImportChooser = true },
+                export = { p, legacy ->
+                    val exported = if (legacy) manager.exportLegacyProfile(p) else manager.exportProfile(p)
+                    if (exported != null) AppUtils.showToast(context,
+                        "${context.getString(R.string.profile_exported_to)} ${exported.path}")
+                },
+                editLayout = { p ->
+                    val intent = Intent(context, ControlsEditorActivity::class.java)
+                    intent.putExtra("profile_id", p.id)
+                    context.startActivity(intent)
+                    (context as? Activity)?.overridePendingTransition(
+                        com.winlator.star.R.anim.slide_in_up,
+                        com.winlator.star.R.anim.slide_out_down
+                    )
+                },
+                openBindings = { controllerId ->
+                    val profile = currentProfile
+                    if (profile != null) {
+                        val intent = Intent(context, ExternalControllerBindingsActivity::class.java)
+                        intent.putExtra("profile_id", profile.id)
+                        intent.putExtra("controller_id", controllerId)
+                        context.startActivity(intent)
+                        (context as? Activity)?.overridePendingTransition(
+                            com.winlator.star.R.anim.slide_in_up, com.winlator.star.R.anim.slide_out_down
+                        )
+                    } else AppUtils.showToast(context, R.string.no_profile_selected)
+                },
+                testAndBind = { showControllerTest = true },
+                copyBindings = { target, sourceId ->
+                    currentProfile?.loadControllers()
+                    val src = currentProfile?.getController(sourceId)
+                    if (src != null && src.getControllerBindingCount() > 0) {
+                        val tgt = currentProfile?.addController(target.getId())
+                        if (tgt != null) { tgt.copyBindingsFrom(src); currentProfile?.save(); refreshControllers() }
+                    }
+                },
+                removeController = { c ->
+                    pendingConfirmation = R.string.do_you_want_to_remove_this_controller to {
+                        currentProfile?.removeController(c)
+                        currentProfile?.save()
+                        refreshControllers()
+                    }
+                },
+            )
+        )
+        return
     }
 
     // ── Tabbed layout ───────────────────────────────────────────────
@@ -1014,7 +1131,7 @@ fun InputControlsScreen() {
  * (see `InputControlsView.onDraw` / `ControlElement.draw`), so no XServer is needed at rest.
  */
 @Composable
-private fun OnScreenLayoutPreview(profileId: Int, refreshKey: Int, onOpenEditor: () -> Unit) {
+internal fun OnScreenLayoutPreview(profileId: Int, refreshKey: Int, onOpenEditor: () -> Unit) {
     val context = LocalContext.current
     // Fresh throwaway instance; re-read when the profile changes OR we return from the editor (refreshKey).
     val previewProfile = remember(profileId, refreshKey) {
@@ -1126,7 +1243,7 @@ private fun ProfileBadge(text: String, fg: Color, bg: Color) {
 /** At-rest test rumble for a connected pad: pulse its OWN vibrator directly (no WinHandler / running
  *  game here), mirroring MainActivity.settingsControllerIdentify — VibratorManager (independent motors,
  *  API 31+) or the single vibrator otherwise. */
-private fun pulsePad(device: android.view.InputDevice) {
+internal fun pulsePad(device: android.view.InputDevice) {
     try {
         if (android.os.Build.VERSION.SDK_INT >= 31) {
             val vm = device.vibratorManager
@@ -1388,13 +1505,13 @@ internal fun SteamControllerSection() {
 }
 
 // SteamControllerBackend's extra-button order.
-private val STEAM_PADDLE_NAMES = listOf(
+internal val STEAM_PADDLE_NAMES = listOf(
     "L4 (upper left)", "L5 (lower left)", "R4 (upper right)", "R5 (lower right)",
     "… button (between the trackpads)",
 )
 
 /** Targets a back button can take: nothing, a gamepad button, a mouse click, or any keyboard key. */
-private fun steamPaddleOptions(): List<Pair<String, Binding>> {
+internal fun steamPaddleOptions(): List<Pair<String, Binding>> {
     val out = ArrayList<Pair<String, Binding>>()
     out += "Nothing" to Binding.NONE
     out += listOf(
@@ -1553,7 +1670,7 @@ internal fun MenuButtonSection() {
 /** "Press a button" prompt. The window is not focusable, so key presses reach MainActivity, which
  *  hands the next one to [onResult] (-1 = cancelled). */
 @Composable
-private fun MenuButtonCaptureDialog(onResult: (Int) -> Unit) {
+internal fun MenuButtonCaptureDialog(onResult: (Int) -> Unit) {
     DisposableEffect(Unit) {
         com.winlator.star.ui.components.MenuButtonCaptureBus.listener = { onResult(it) }
         onDispose { com.winlator.star.ui.components.MenuButtonCaptureBus.listener = null }

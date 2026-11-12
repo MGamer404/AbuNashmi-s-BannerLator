@@ -109,12 +109,14 @@ internal fun DeckComponentsPage() {
     }
 }
 
+// Controls: the XMB page is DeckControlsPage in DeckControlsPage.kt (its own tab strip and layout, no header).
+
 /**
- * Controls: Deck header over the classic Input Controls screen (profiles, on-screen layout editor,
- * controller bindings and the controller test), hosted as it is.
+ * Controls in the plain Deck (not the XMB interface): Deck header over the classic Input Controls screen (profiles, on-screen layout
+ * editor, controller bindings and the controller test), hosted as it is. DeckControlsPage hands over to this outside the XMB.
  */
 @Composable
-internal fun DeckControlsPage() {
+internal fun DeckControlsPageHosted() {
     DeckHostedPage(
         icon = Icons.Filled.SportsEsports,
         title = "Controls",
@@ -138,12 +140,15 @@ internal object DeckToolsTabs {
 
 /**
  * Tools: Files / Saves / Logs. They are the File Manager, Save Manager and Log Manager screens hosted
- * in place. The Log Manager is the viewer only here: what gets recorded is set in Settings > Storage
- * & data. Unpacking an archive starts from a file's menu in the File Manager, since it needs a picked
- * archive.
+ * in place. In the XMB interface they have no page header of their own (just the Files / Saves / Logs rail or strip), Files
+ * uses its slim one-row toolbar, and Logs carries every recording option (a collapsible "Recording options" section) with
+ * nothing about them in Settings. The plain Deck keeps the header, the full toolbar and a viewer-only Logs (what gets recorded is
+ * set in Settings > Storage & data there). Unpacking an archive starts from a file's menu in the File Manager, since it needs a
+ * picked archive.
  */
 @Composable
 internal fun DeckToolsPage() {
+    val xmb = rememberXmbHome()
     var tab by rememberSaveable { mutableIntStateOf(0) }
     val wanted = DeckToolsTabs.requested
     LaunchedEffect(wanted) {
@@ -167,11 +172,16 @@ internal fun DeckToolsPage() {
         tabLabel = "Tool",
         // Files and Saves bring their own side list, so the page tabs stay an icon rail on every Tools tab.
         compactTabs = true,
+        // XMB only: no "Tools" title row (nor its info button), the tabs and the screen under them are all there is. The plain
+        // Deck keeps its header.
+        showHeader = !xmb,
     ) {
         when (tab) {
-            0 -> FileManagerScreen()
+            0 -> FileManagerScreen(compactToolbar = xmb)
             1 -> SaveManagerScreen()
-            else -> LogManagerScreen(onClose = { tab = 0 }, showOptions = false)
+            // XMB: every recording option lives here (collapsible), in two-column tiles. Plain Deck: the viewer only, as before (the
+            // recording options are rows in Settings > Storage & data there).
+            else -> LogManagerScreen(onClose = { tab = 0 }, showOptions = xmb, inDeckTools = xmb)
         }
     }
 }
@@ -192,10 +202,11 @@ private fun DeckHostedPage(
     onSelect: (Int) -> Unit,
     tabLabel: String,
     compactTabs: Boolean = false,
+    showHeader: Boolean = true,
     content: @Composable () -> Unit,
 ) {
     if (deckRails()) {
-        DeckPageTitle(title, description)
+        if (showHeader) DeckPageTitle(title, description)
         if (tabs != null) DeckTabStrip(tabs = tabs, selected = selected, onSelect = onSelect, label = tabLabel, compactRail = compactTabs)
         Box(modifier = Modifier.fillMaxSize()) { content() }
         return
@@ -205,13 +216,16 @@ private fun DeckHostedPage(
     val topActions = LocalTopBarActions.current.value
     Column(modifier = Modifier.fillMaxSize()) {
         val headerModifier = Modifier.padding(start = gutter, end = gutter, top = 16.dp)
-        if (tabs == null) {
+        if (!showHeader) {
+            // No header: the tab strip below is the top of the page.
+            Spacer(Modifier.height(10.dp))
+        } else if (tabs == null) {
             DeckPageHeader(icon, title, if (compact) null else description, headerModifier) { topActions(this) }
         } else {
             DeckPageHeader(icon, title, if (compact) null else description, headerModifier)
         }
         if (tabs != null) {
-            Spacer(Modifier.height(14.dp))
+            if (showHeader) Spacer(Modifier.height(14.dp))
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = gutter),

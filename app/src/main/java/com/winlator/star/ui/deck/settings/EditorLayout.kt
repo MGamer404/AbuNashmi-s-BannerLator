@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.WebAsset
+import androidx.compose.material.icons.filled.Widgets
 import com.winlator.star.BuildConfig
 import com.winlator.star.ui.simple.T
 
@@ -30,18 +31,22 @@ import com.winlator.star.ui.simple.T
  *
  * 1. Declaring a tab. A tab is a plain [SettingsCategory] with a NEW id ("tab.graphics", "app.t.storage"...).
  *    The shared ids and their label / hint / icon live in [EditorTabs]:
- *      EditorTabs.GENERAL, GRAPHICS, PERFORMANCE, CONTROLS, WINDOWS, ADVANCED   container pages ("tab.general"...)
+ *      EditorTabs.GENERAL, GRAPHICS, PERFORMANCE, CONTROLS, WINDOWS, WINCOMP, ADVANCED   container pages ("tab.general"...)
  *      EditorTabs.GAME ("tab.game"), EditorTabs.LINUX ("tab.linux")             game pages only
  *      EditorTabs.APP_GENERAL, APP_APPEARANCE, APP_LIBRARY, APP_PERFORMANCE, APP_STORAGE, APP_ADVANCED   ("app.t.*")
- *      EditorTabs.tab(id: String): SettingsCategory                              one declared tab (error on an unknown id)
+ *      EditorTabs.tab(id: String, xmb: Boolean = true): SettingsCategory         one declared tab (error on an unknown id; the hints of Windows
+ *                                                                                  and Storage & data differ in the plain Deck, xmb = false)
  *    A new tab only needs a new `when` branch in [EditorTabs.tab] and an id in the list [EditorTabs.idsFor] returns.
  *
  * 2. Scope-specific tab lists (ordered, what [EditorLayout.tabs] should be):
- *      EditorTabs.idsFor(scope: EditorScope, world: World = World.WINE): List<String>
- *      EditorTabs.tabsFor(scope: EditorScope, world: World = World.WINE): List<SettingsCategory>
- *    APP: the six app tabs. DEFAULTS and CONTAINER: the same six container tabs, in this order: General,
- *    Graphics, Performance, Controls, Windows, Advanced. That is also the list for a NEW container
- *    (CONTAINER with `createMode = true`): create mode never changes the tabs. GAME: Game first, then the same six;
+ *      EditorTabs.idsFor(scope: EditorScope, world: World = World.WINE, xmb: Boolean): List<String>
+ *      EditorTabs.tabsFor(scope: EditorScope, world: World = World.WINE, xmb: Boolean): List<SettingsCategory>
+ *    `xmb` (no default: every caller says which) is true in the XMB interface and false in the plain Deck, which keeps the
+ *    six container tabs it always had (no Win components tab).
+ *    APP: the six app tabs. DEFAULTS and CONTAINER: the same seven container tabs (XMB), in this order: General,
+ *    Graphics, Performance, Controls, Windows, Win components, Advanced (plain Deck: the same without Win components).
+ *    That is also the list for a NEW container
+ *    (CONTAINER with `createMode = true`): create mode never changes the tabs. GAME: Game first, then the same ones;
  *    the Linux Steam client entry (World.LINUX) also gets "tab.linux" (before Advanced); an Android game only "tab.game".
  *    A tab whose rows, extras and hand-offs are all out of the editor's level or world is not listed at all
  *    (DeckSettingsEditor.visibleCats), so listing a tab for a world that has no rows in it is harmless.
@@ -226,6 +231,7 @@ internal object EditorTabs {
     const val PERFORMANCE = "tab.performance"
     const val CONTROLS = "tab.controls"
     const val WINDOWS = "tab.windows"
+    const val WINCOMP = "tab.wincomp"
     const val ADVANCED = "tab.advanced"
 
     // A game's own pages.
@@ -240,30 +246,41 @@ internal object EditorTabs {
     const val APP_STORAGE = "app.t.storage"
     const val APP_ADVANCED = "app.t.advanced"
 
-    val CONTAINER_IDS: List<String> = listOf(GENERAL, GRAPHICS, PERFORMANCE, CONTROLS, WINDOWS, ADVANCED)
+    /** The XMB interface's container tabs (with Win components). */
+    val CONTAINER_IDS: List<String> = listOf(GENERAL, GRAPHICS, PERFORMANCE, CONTROLS, WINDOWS, WINCOMP, ADVANCED)
+
+    /** The plain Deck's container tabs (as before: the components rows are on Windows). */
+    val DECK_CONTAINER_IDS: List<String> = listOf(GENERAL, GRAPHICS, PERFORMANCE, CONTROLS, WINDOWS, ADVANCED)
     val APP_IDS: List<String> = listOf(APP_GENERAL, APP_APPEARANCE, APP_LIBRARY, APP_PERFORMANCE, APP_STORAGE, APP_ADVANCED)
 
-    /** The ordered tab ids an editor of [scope] lists. A new container is CONTAINER: create mode adds nothing. */
-    fun idsFor(scope: EditorScope, world: World = World.WINE): List<String> = when (scope) {
+    /**
+     * The ordered tab ids an editor of [scope] lists. A new container is CONTAINER: create mode adds nothing. [xmb] true is the
+     * XMB interface (Win components tab), false the plain Deck (no such tab).
+     */
+    fun idsFor(scope: EditorScope, world: World = World.WINE, xmb: Boolean): List<String> = when (scope) {
         EditorScope.APP -> APP_IDS
-        EditorScope.DEFAULTS, EditorScope.CONTAINER -> CONTAINER_IDS
+        EditorScope.DEFAULTS, EditorScope.CONTAINER -> if (xmb) CONTAINER_IDS else DECK_CONTAINER_IDS
         EditorScope.GAME -> when (world) {
             World.ANDROID -> listOf(GAME)
-            World.LINUX -> listOf(GAME, GENERAL, GRAPHICS, PERFORMANCE, CONTROLS, WINDOWS, LINUX, ADVANCED)
-            World.WINE -> listOf(GAME) + CONTAINER_IDS
+            World.LINUX ->
+                if (xmb) listOf(GAME, GENERAL, GRAPHICS, PERFORMANCE, CONTROLS, WINDOWS, WINCOMP, LINUX, ADVANCED)
+                else listOf(GAME, GENERAL, GRAPHICS, PERFORMANCE, CONTROLS, WINDOWS, LINUX, ADVANCED)
+            World.WINE -> listOf(GAME) + (if (xmb) CONTAINER_IDS else DECK_CONTAINER_IDS)
         }
     }
 
     /** [idsFor] as the declared tabs. */
-    fun tabsFor(scope: EditorScope, world: World = World.WINE): List<SettingsCategory> = idsFor(scope, world).map { tab(it) }
+    fun tabsFor(scope: EditorScope, world: World = World.WINE, xmb: Boolean): List<SettingsCategory> = idsFor(scope, world, xmb).map { tab(it, xmb) }
 
     /** The declared tab of [id]. */
-    fun tab(id: String): SettingsCategory = when (id) {
+    fun tab(id: String, xmb: Boolean = true): SettingsCategory = when (id) {
         GENERAL -> SettingsCategory(id, T("General"), T("Name, Wine version, display, sound and TV."), Icons.Filled.Tune)
         GRAPHICS -> SettingsCategory(id, T("Graphics"), T("DirectX translation, GPU driver, resolution, HDR and visual effects."), Icons.Filled.Layers)
         PERFORMANCE -> SettingsCategory(id, T("Performance"), T("Frame limit and generation, sync, x86 translators, CPU cores, services and the overlay."), Icons.Filled.Speed)
         CONTROLS -> SettingsCategory(id, T("Controls"), T("Controllers, on-screen controls, mouse and touch, rumble and motion aim."), Icons.Filled.Gamepad)
-        WINDOWS -> SettingsCategory(id, T("Windows"), T("Language, desktop, drives and Windows components."), Icons.Filled.WebAsset)
+        WINDOWS -> SettingsCategory(id, T("Windows"),
+            if (xmb) T("Language, session, desktop, wallpaper and drives.") else T("Language, desktop, drives and Windows components."), Icons.Filled.WebAsset)
+        WINCOMP -> SettingsCategory(id, T("Win components"), T("Builtin or native DLLs, media codecs and the runtimes installed into the Windows prefix."), Icons.Filled.Widgets)
         ADVANCED -> SettingsCategory(id, T("Advanced"), T("Environment variables and going back to the app defaults."), Icons.Filled.Build)
         GAME -> SettingsCategory(id, T("Game"), T("Name, launch options and what happens when this game starts."), Icons.Filled.SportsEsports, actionsLabel = T("Game actions"))
         LINUX -> SettingsCategory(id, T("Linux runtime"), T("Only for the Linux Steam client entry: its drivers, Steam client options and speed tweaks."), Icons.Filled.Terminal)
@@ -271,7 +288,8 @@ internal object EditorTabs {
         APP_APPEARANCE -> SettingsCategory(id, T("Appearance"), T("Interface style, theme, accent colour, size and orientation."), Icons.Filled.Palette)
         APP_LIBRARY -> SettingsCategory(id, T("Games & library"), T("Cover art, Steam friends and chat, the Steam connection and component downloads."), Icons.AutoMirrored.Filled.LibraryBooks)
         APP_PERFORMANCE -> SettingsCategory(id, T("Performance"), T("Power defaults for every game, root controls and Lossless.dll."), Icons.Filled.Speed)
-        APP_STORAGE -> SettingsCategory(id, T("Storage & data"), T("Folders, sound banks, backups, downloads, logs and cloud saves."), Icons.Filled.Storage)
+        APP_STORAGE -> SettingsCategory(id, T("Storage & data"),
+            if (xmb) T("Folders, sound banks, backups, download engines and cloud saves.") else T("Folders, sound banks, backups, downloads, logs and cloud saves."), Icons.Filled.Storage)
         APP_ADVANCED -> SettingsCategory(id, T("Advanced"), T("Mouse and keyboard for Wine games, display server internals and experimental switches."), Icons.Filled.Science)
         else -> error("Unknown editor tab: $id")
     }

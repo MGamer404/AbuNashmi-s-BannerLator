@@ -1,6 +1,7 @@
 package com.winlator.star.ui.deck.settings
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -11,7 +12,11 @@ import org.junit.Test
  */
 class ContainerLayoutMapTest {
 
-    private fun tab(id: String, category: String = "") = ContainerLayoutMap.tabFor(id, category)
+    /** The XMB layout (seven tabs, Win components). */
+    private fun tab(id: String, category: String = "") = ContainerLayoutMap.tabFor(id, category, true)
+
+    /** The plain Deck layout (the six tabs it always had). */
+    private fun deckTab(id: String, category: String = "") = ContainerLayoutMap.tabFor(id, category, false)
 
     // ---- General ----
 
@@ -72,16 +77,34 @@ class ContainerLayoutMapTest {
     // ---- Windows ----
 
     @Test
-    fun windowsHoldsTheSessionDesktopAndTheComponentRows() {
+    fun windowsHoldsTheSessionAndDesktopRowsButNotTheComponents() {
         for (id in listOf("windows.locale", "windows.closeOnExit", "windows.runAsAdmin", "windows.theme", "windows.desktopBackground", "windows.desktopColor", "windows.wallpaperScope")) {
             assertEquals(id, EditorTabs.WINDOWS, tab(id, "windows"))
         }
-        for (id in listOf("components.direct3d", "components.directsound", "components.vcrun2010")) {
-            assertEquals(id, EditorTabs.WINDOWS, tab(id, SettingsRegistry.CAT_COMPONENTS))
+    }
+
+    // ---- Win components ----
+
+    @Test
+    fun winComponentsHoldsTheDllRowsAndTheCodecRows() {
+        for (id in listOf("components.direct3d", "components.directsound", "components.directmusic", "components.directshow", "components.directplay", "components.xaudio", "components.vcrun2010")) {
+            assertEquals(id, EditorTabs.WINCOMP, tab(id, SettingsRegistry.CAT_COMPONENTS))
         }
-        // Declared in the components category with a "windows." id: still Windows, never General.
-        assertEquals(EditorTabs.WINDOWS, tab("windows.codecBackend", SettingsRegistry.CAT_COMPONENTS))
-        assertEquals(EditorTabs.WINDOWS, tab("windows.softwareDecoding", SettingsRegistry.CAT_COMPONENTS))
+        // Declared in the components category with a "windows." id: Win components, never Windows or General.
+        assertEquals(EditorTabs.WINCOMP, tab("windows.codecBackend", SettingsRegistry.CAT_COMPONENTS))
+        assertEquals(EditorTabs.WINCOMP, tab("windows.softwareDecoding", SettingsRegistry.CAT_COMPONENTS))
+    }
+
+    @Test
+    fun everyComponentRowIsOneTheWinComponentsPageDraws() {
+        // The layout hides these rows from the list (tabOf = null) because the page draws them: the two rules must agree.
+        for (id in listOf("components.direct3d", "components.vcrun2010", "windows.codecBackend", "windows.softwareDecoding")) {
+            assertTrue(id, WinComponentsLogic.isComponentRow(id))
+            assertEquals(id, EditorTabs.WINCOMP, tab(id, SettingsRegistry.CAT_COMPONENTS))
+        }
+        for (id in listOf("windows.locale", "windows.wineVersion", "windows.desktopBackground", "graphics.dxWrapper")) {
+            assertFalse(id, WinComponentsLogic.isComponentRow(id))
+        }
     }
 
     // ---- Advanced ----
@@ -115,7 +138,7 @@ class ContainerLayoutMapTest {
     fun anUnknownIdFollowsItsOldCategory() {
         assertEquals(EditorTabs.GRAPHICS, tab("something.new", "graphics"))
         assertEquals(EditorTabs.PERFORMANCE, tab("something.new", "hud"))
-        assertEquals(EditorTabs.WINDOWS, tab("something.new", SettingsRegistry.CAT_COMPONENTS))
+        assertEquals(EditorTabs.WINCOMP, tab("something.new", SettingsRegistry.CAT_COMPONENTS))
     }
 
     @Test
@@ -142,10 +165,10 @@ class ContainerLayoutMapTest {
 
     @Test
     fun generalOrdersNameAndWineVersionThenDisplayThenAudio() {
-        val name = ContainerLayoutMap.rankOf("windows.containerName")
-        val wine = ContainerLayoutMap.rankOf("windows.wineVersion")
-        val display = ContainerLayoutMap.rankOf("display.resolution")
-        val audio = ContainerLayoutMap.rankOf("audio.driver")
+        val name = ContainerLayoutMap.rankOf("windows.containerName", true)
+        val wine = ContainerLayoutMap.rankOf("windows.wineVersion", true)
+        val display = ContainerLayoutMap.rankOf("display.resolution", true)
+        val audio = ContainerLayoutMap.rankOf("audio.driver", true)
         assertEquals(name, wine)
         assertTrue(name < display)
         assertTrue(display < audio)
@@ -153,10 +176,10 @@ class ContainerLayoutMapTest {
 
     @Test
     fun graphicsOrdersTheGraphicsRowsThenSupersamplingAndHdrThenTheEffects() {
-        val graphics = ContainerLayoutMap.rankOf("graphics.dxWrapper")
-        val renderScale = ContainerLayoutMap.rankOf("display.renderScale")
-        val hdr = ContainerLayoutMap.rankOf("display.hdrOutput")
-        val effects = ContainerLayoutMap.rankOf("visuals.vkbasalt")
+        val graphics = ContainerLayoutMap.rankOf("graphics.dxWrapper", true)
+        val renderScale = ContainerLayoutMap.rankOf("display.renderScale", true)
+        val hdr = ContainerLayoutMap.rankOf("display.hdrOutput", true)
+        val effects = ContainerLayoutMap.rankOf("visuals.vkbasalt", true)
         assertEquals(renderScale, hdr)
         assertTrue(graphics < renderScale)
         assertTrue(renderScale < effects)
@@ -164,38 +187,40 @@ class ContainerLayoutMapTest {
 
     @Test
     fun performanceOrdersTheTranslatorRowsBeforeTheOverlay() {
-        assertTrue(ContainerLayoutMap.rankOf("performance.fpsLimiter") < ContainerLayoutMap.rankOf("hud.show"))
-        assertEquals(ContainerLayoutMap.rankOf("hud.show"), ContainerLayoutMap.rankOf("hud.metric.cpu"))
+        assertTrue(ContainerLayoutMap.rankOf("performance.fpsLimiter", true) < ContainerLayoutMap.rankOf("hud.show", true))
+        assertEquals(ContainerLayoutMap.rankOf("hud.show", true), ContainerLayoutMap.rankOf("hud.metric.cpu", true))
     }
 
     @Test
-    fun windowsOrdersTheSessionRowsBeforeTheComponentsAndCodecs() {
-        val session = ContainerLayoutMap.rankOf("windows.locale")
-        assertTrue(session < ContainerLayoutMap.rankOf("components.direct3d"))
-        assertEquals(ContainerLayoutMap.rankOf("components.direct3d"), ContainerLayoutMap.rankOf("windows.codecBackend"))
-        assertEquals(ContainerLayoutMap.rankOf("components.direct3d"), ContainerLayoutMap.rankOf("windows.softwareDecoding"))
+    fun winComponentsKeepsTheRegistryOrderOfTheDllAndCodecRows() {
+        val dll = ContainerLayoutMap.rankOf("components.direct3d", true)
+        assertEquals(dll, ContainerLayoutMap.rankOf("components.vcrun2010", true))
+        assertEquals(dll, ContainerLayoutMap.rankOf("windows.codecBackend", true))
+        assertEquals(dll, ContainerLayoutMap.rankOf("windows.softwareDecoding", true))
     }
 
     // ---- Page extras ----
 
     @Test
     fun extrasOfEveryOldCategoryFeedTheirTab() {
-        assertEquals(setOf(EditorTabs.GAME), ContainerLayoutMap.extraTargets("game"))
-        assertEquals(setOf(EditorTabs.GRAPHICS), ContainerLayoutMap.extraTargets("graphics"))
-        assertEquals(setOf(EditorTabs.GRAPHICS), ContainerLayoutMap.extraTargets("visuals"))
-        assertEquals(setOf(EditorTabs.PERFORMANCE), ContainerLayoutMap.extraTargets("performance"))
-        assertEquals(setOf(EditorTabs.PERFORMANCE), ContainerLayoutMap.extraTargets("hud"))
-        assertEquals(setOf(EditorTabs.GENERAL), ContainerLayoutMap.extraTargets("audio"))
-        assertEquals(setOf(EditorTabs.CONTROLS), ContainerLayoutMap.extraTargets("input"))
-        assertEquals(setOf(EditorTabs.WINDOWS), ContainerLayoutMap.extraTargets(SettingsRegistry.CAT_COMPONENTS))
-        assertEquals(setOf(EditorTabs.LINUX), ContainerLayoutMap.extraTargets("linux"))
-        assertEquals(setOf(EditorTabs.ADVANCED), ContainerLayoutMap.extraTargets("expert"))
-        assertTrue(ContainerLayoutMap.extraTargets("nonsense").isEmpty())
+        assertEquals(setOf(EditorTabs.GAME), ContainerLayoutMap.extraTargets("game", true))
+        assertEquals(setOf(EditorTabs.GRAPHICS), ContainerLayoutMap.extraTargets("graphics", true))
+        assertEquals(setOf(EditorTabs.GRAPHICS), ContainerLayoutMap.extraTargets("visuals", true))
+        assertEquals(setOf(EditorTabs.PERFORMANCE), ContainerLayoutMap.extraTargets("performance", true))
+        assertEquals(setOf(EditorTabs.PERFORMANCE), ContainerLayoutMap.extraTargets("hud", true))
+        assertEquals(setOf(EditorTabs.GENERAL), ContainerLayoutMap.extraTargets("audio", true))
+        assertEquals(setOf(EditorTabs.CONTROLS), ContainerLayoutMap.extraTargets("input", true))
+        // The install lists (the old components category) and the Win components page feed the new tab, not Windows.
+        assertEquals(setOf(EditorTabs.WINCOMP), ContainerLayoutMap.extraTargets(SettingsRegistry.CAT_COMPONENTS, true))
+        assertEquals(setOf(EditorTabs.WINCOMP), ContainerLayoutMap.extraTargets(WinComponentsLogic.EXTRAS_KEY, true))
+        assertEquals(setOf(EditorTabs.LINUX), ContainerLayoutMap.extraTargets("linux", true))
+        assertEquals(setOf(EditorTabs.ADVANCED), ContainerLayoutMap.extraTargets("expert", true))
+        assertTrue(ContainerLayoutMap.extraTargets("nonsense", true).isEmpty())
     }
 
     @Test
     fun theWindowsExtrasSplitBetweenWindowsAndAdvanced() {
-        assertEquals(setOf(EditorTabs.WINDOWS, EditorTabs.ADVANCED), ContainerLayoutMap.extraTargets("windows"))
+        assertEquals(setOf(EditorTabs.WINDOWS, EditorTabs.ADVANCED), ContainerLayoutMap.extraTargets("windows", true))
         assertEquals(EditorTabs.ADVANCED, ContainerLayoutMap.extraTab("windows", "windows-reset:all"))
         assertEquals(EditorTabs.ADVANCED, ContainerLayoutMap.extraTab("windows", "windows-reset-label"))
         assertEquals(EditorTabs.WINDOWS, ContainerLayoutMap.extraTab("windows", "drives"))
@@ -205,7 +230,71 @@ class ContainerLayoutMapTest {
     }
 
     @Test
+    fun theWinComponentsPageSortsAboveTheInstallLists() {
+        assertTrue(ContainerLayoutMap.extraRank(WinComponentsLogic.EXTRAS_KEY, true) < ContainerLayoutMap.extraRank(SettingsRegistry.CAT_COMPONENTS, true))
+    }
+
+    @Test
+    fun theWinComponentsTabIsFedByBothSourcesAndWindowsByNeitherOfThem() {
+        val l = ContainerLayout.forScope(EditorScope.CONTAINER, xmb = true)
+        assertEquals(EditorTabs.WINCOMP, l.extraTabOf(SettingsRegistry.CAT_COMPONENTS, "components-search"))
+        assertEquals(EditorTabs.WINCOMP, l.extraTabOf(WinComponentsLogic.EXTRAS_KEY, "wincomp-row:components.direct3d"))
+        assertEquals(EditorTabs.WINDOWS, l.extraTabOf("windows", "windows-drives-add"))
+        assertEquals(7, l.tabs.size)
+    }
+
+    // ---- The plain Deck (XMB only: no Win components tab) ----
+
+    @Test
+    fun thePlainDeckKeepsTheComponentsAndCodecRowsOnWindows() {
+        for (id in listOf("components.direct3d", "components.directsound", "components.vcrun2010")) {
+            assertEquals(id, EditorTabs.WINDOWS, deckTab(id, SettingsRegistry.CAT_COMPONENTS))
+        }
+        assertEquals(EditorTabs.WINDOWS, deckTab("windows.codecBackend", SettingsRegistry.CAT_COMPONENTS))
+        assertEquals(EditorTabs.WINDOWS, deckTab("windows.softwareDecoding", SettingsRegistry.CAT_COMPONENTS))
+        assertEquals(EditorTabs.WINDOWS, deckTab("something.new", SettingsRegistry.CAT_COMPONENTS))
+        // They come after the session / desktop rows, as before.
+        assertTrue(ContainerLayoutMap.rankOf("windows.locale", false) < ContainerLayoutMap.rankOf("components.direct3d", false))
+        assertEquals(ContainerLayoutMap.rankOf("components.direct3d", false), ContainerLayoutMap.rankOf("windows.codecBackend", false))
+    }
+
+    @Test
+    fun everythingElseIsTheSameInBothLayouts() {
+        val ids = listOf(
+            "windows.containerName" to "windows", "windows.wineVersion" to "windows", "display.resolution" to "display", "display.renderScale" to "display",
+            "audio.driver" to "audio", "graphics.dxWrapper" to "graphics", "visuals.vkbasalt" to "visuals", "performance.fpsLimiter" to "performance",
+            "hud.show" to "hud", "hud.enabled" to "hud", "input.touchMode" to "input", "windows.locale" to "windows", "expert.env" to "expert",
+            "game.name" to "game", "launch.method" to "launch", "linux.clientCores" to "linux", "something.new" to "nonsense",
+        )
+        for ((id, cat) in ids) {
+            assertEquals(id, tab(id, cat), deckTab(id, cat))
+            assertEquals(id, ContainerLayoutMap.rankOf(id, true), ContainerLayoutMap.rankOf(id, false))
+        }
+    }
+
+    @Test
+    fun thePlainDeckFeedsTheInstallListsToWindowsAfterItsOwnExtrasAndHasNoWinComponentsPage() {
+        assertEquals(setOf(EditorTabs.WINDOWS), ContainerLayoutMap.extraTargets(SettingsRegistry.CAT_COMPONENTS, false))
+        assertTrue(ContainerLayoutMap.extraTargets(WinComponentsLogic.EXTRAS_KEY, false).isEmpty())
+        assertTrue(ContainerLayoutMap.extraRank("windows", false) < ContainerLayoutMap.extraRank(SettingsRegistry.CAT_COMPONENTS, false))
+        // The other categories are unchanged.
+        for (old in listOf("game", "graphics", "visuals", "performance", "hud", "audio", "input", "windows", "linux", "expert")) {
+            assertEquals(old, ContainerLayoutMap.extraTargets(old, true), ContainerLayoutMap.extraTargets(old, false))
+            assertEquals(old, ContainerLayoutMap.extraRank(old, true), ContainerLayoutMap.extraRank(old, false))
+        }
+    }
+
+    @Test
+    fun thePlainDeckLayoutHasSixTabsAndNoWinComponents() {
+        val l = ContainerLayout.forScope(EditorScope.CONTAINER, xmb = false)
+        assertEquals(6, l.tabs.size)
+        assertFalse(l.tabs.any { it.id == EditorTabs.WINCOMP })
+        assertEquals(EditorTabs.WINDOWS, l.extraTabOf(SettingsRegistry.CAT_COMPONENTS, "components-search"))
+        assertEquals(EditorTabs.WINDOWS, l.extraTabOf("windows", "windows-drives-add"))
+    }
+
+    @Test
     fun theEnvironmentVariablesComeBeforeTheResetAction() {
-        assertTrue(ContainerLayoutMap.extraRank("expert") < ContainerLayoutMap.extraRank("windows"))
+        assertTrue(ContainerLayoutMap.extraRank("expert", true) < ContainerLayoutMap.extraRank("windows", true))
     }
 }

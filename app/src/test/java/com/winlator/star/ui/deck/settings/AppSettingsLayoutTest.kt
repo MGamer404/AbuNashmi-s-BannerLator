@@ -11,7 +11,11 @@ import org.junit.Test
  */
 class AppSettingsLayoutTest {
 
-    private fun tab(id: String) = AppSettingsLayout.tabFor(id)
+    /** The XMB layout (the new arrangement). */
+    private fun tab(id: String) = AppSettingsLayout.tabFor(id, true)
+
+    /** The plain Deck layout (the earlier arrangement). */
+    private fun deckTab(id: String) = AppSettingsLayout.tabFor(id, false)
 
     @Test
     fun generalHoldsTheStartUpScreenAndTheUpdateSwitches() {
@@ -21,8 +25,14 @@ class AppSettingsLayoutTest {
     }
 
     @Test
+    fun theThemePresetIsAPageItemNotARow() {
+        // The Theme preset opens a popup grid of themes (ThemePresetPopup), so the XMB layout does not file its row anywhere.
+        assertNull(tab("app.appearance.preset"))
+    }
+
+    @Test
     fun appearanceHoldsTheNewAppearanceRows() {
-        for (id in listOf("app.appearance.style", "app.appearance.labLook", "app.appearance.preset", "app.appearance.orientation", "app.appearance.uiScale", "app.appearance.fontScale", "app.appearance.showStores", "app.appearance.showInternal", "app.appearance.showSd")) {
+        for (id in listOf("app.appearance.style", "app.appearance.labLook", "app.appearance.orientation", "app.appearance.uiScale", "app.appearance.fontScale", "app.appearance.showStores", "app.appearance.showInternal", "app.appearance.showSd")) {
             assertEquals(id, EditorTabs.APP_APPEARANCE, tab(id))
         }
     }
@@ -42,15 +52,39 @@ class AppSettingsLayoutTest {
     }
 
     @Test
-    fun storageHoldsTheDownloadEnginesTheSavesAndTheLogRecordingRows() {
+    fun storageHoldsTheDownloadEnginesAndTheSaves() {
         for (id in listOf("app.downloads.steamEngine", "app.downloads.epicEngine", "app.downloads.gogEngine", "app.downloads.amazonEngine", "app.downloads.speedTier")) {
             assertEquals(id, EditorTabs.APP_STORAGE, tab(id))
         }
         for (id in listOf("app.saves.steamCollect", "app.saves.steamUpload", "app.saves.steamDownload", "app.saves.goldbergCloud", "app.saves.gogUpload", "app.saves.gogDownload", "app.saves.customBackup", "app.saves.achievementSync")) {
             assertEquals(id, EditorTabs.APP_STORAGE, tab(id))
         }
+    }
+
+    @Test
+    fun noLogRowIsInSettings() {
+        // Everything about logs (what is recorded, where, how many) is in Tools > Logs.
         for (id in listOf("app.logs.location", "app.logs.perGame", "app.logs.wineDebug", "app.logs.box64", "app.logs.dxvk", "app.logs.controller", "app.logs.steamLite", "app.logs.headlessSteam", "app.logs.ubisoftReport", "app.logs.ubisoftDeep", "app.logs.logcat", "app.logs.crashReports", "app.logs.exitReasons", "app.logs.keepLast")) {
-            assertEquals(id, EditorTabs.APP_STORAGE, tab(id))
+            assertNull(id, tab(id))
+        }
+    }
+
+    @Test
+    fun thePlainDeckKeepsTheThemePresetRowAndTheLogsRowsInStorage() {
+        assertEquals(EditorTabs.APP_APPEARANCE, deckTab("app.appearance.preset"))
+        for (id in listOf("app.logs.location", "app.logs.perGame", "app.logs.wineDebug", "app.logs.box64", "app.logs.dxvk", "app.logs.controller", "app.logs.steamLite", "app.logs.headlessSteam", "app.logs.ubisoftReport", "app.logs.ubisoftDeep", "app.logs.logcat", "app.logs.crashReports", "app.logs.exitReasons", "app.logs.keepLast")) {
+            assertEquals(id, EditorTabs.APP_STORAGE, deckTab(id))
+        }
+        // Logs come after the saves in Storage; the saves after the download engines.
+        assertTrue(AppSettingsLayout.rankOf("app.saves.steamCollect", false) < AppSettingsLayout.rankOf("app.logs.location", false))
+        // The XMB layout puts nothing of the logs in Storage.
+        assertEquals(0, AppSettingsLayout.rankOf("app.logs.location", true))
+    }
+
+    @Test
+    fun theRestOfTheMappingIsTheSameInBothLayouts() {
+        for (id in listOf("app.general.landing", "app.appearance.style", "app.library.steamGridKey", "app.steam.region", "app.contents.keepRaw", "app.performance.sustained", "app.downloads.speedTier", "app.saves.steamCollect", "app.advanced.xr", "app.controllers.trueMouse", "app.controllers.steamController", "app.library.midiDefault", "app.nothing.here")) {
+            assertEquals(id, tab(id), deckTab(id))
         }
     }
 
@@ -89,7 +123,7 @@ class AppSettingsLayoutTest {
     fun everyTabARowCanLandOnIsOneOfTheSixAppTabs() {
         val ids = listOf(
             "app.general.landing", "app.appearance.style", "app.library.steamGridKey", "app.steam.region", "app.performance.sustained",
-            "app.downloads.speedTier", "app.saves.steamCollect", "app.logs.keepLast", "app.advanced.xr", "app.controllers.trueMouse", "app.contents.keepRaw",
+            "app.downloads.speedTier", "app.saves.steamCollect", "app.advanced.xr", "app.controllers.trueMouse", "app.contents.keepRaw",
         )
         for (id in ids) assertTrue(id, tab(id) in EditorTabs.APP_IDS)
         assertEquals(6, EditorTabs.APP_IDS.size)
@@ -98,13 +132,12 @@ class AppSettingsLayoutTest {
     @Test
     fun rowsKeepTheirOrderWithinATabByRank() {
         // Library: cover art (0), Steam friends (1), component downloads (2), then the Steam region (3).
-        assertTrue(AppSettingsLayout.rankOf("app.library.steamGridKey") < AppSettingsLayout.rankOf("app.steam.social"))
-        assertTrue(AppSettingsLayout.rankOf("app.steam.social") < AppSettingsLayout.rankOf("app.contents.keepRaw"))
-        assertTrue(AppSettingsLayout.rankOf("app.contents.keepRaw") < AppSettingsLayout.rankOf("app.steam.region"))
-        // Storage: download engines, then saves, then logs.
-        assertTrue(AppSettingsLayout.rankOf("app.downloads.speedTier") < AppSettingsLayout.rankOf("app.saves.steamCollect"))
-        assertTrue(AppSettingsLayout.rankOf("app.saves.steamCollect") < AppSettingsLayout.rankOf("app.logs.location"))
+        assertTrue(AppSettingsLayout.rankOf("app.library.steamGridKey", true) < AppSettingsLayout.rankOf("app.steam.social", true))
+        assertTrue(AppSettingsLayout.rankOf("app.steam.social", true) < AppSettingsLayout.rankOf("app.contents.keepRaw", true))
+        assertTrue(AppSettingsLayout.rankOf("app.contents.keepRaw", true) < AppSettingsLayout.rankOf("app.steam.region", true))
+        // Storage: download engines, then saves.
+        assertTrue(AppSettingsLayout.rankOf("app.downloads.speedTier", true) < AppSettingsLayout.rankOf("app.saves.steamCollect", true))
         // Advanced: the experimental switches, then mouse and keyboard.
-        assertTrue(AppSettingsLayout.rankOf("app.advanced.xr") < AppSettingsLayout.rankOf("app.controllers.cursorSpeed"))
+        assertTrue(AppSettingsLayout.rankOf("app.advanced.xr", true) < AppSettingsLayout.rankOf("app.controllers.cursorSpeed", true))
     }
 }

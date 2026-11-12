@@ -232,17 +232,50 @@ class EditorLayoutTest {
     // ---- Tab lists per scope ----
 
     @Test
-    fun containerPagesAreTheSameSixTabsOnEveryScope() {
-        val six = listOf(EditorTabs.GENERAL, EditorTabs.GRAPHICS, EditorTabs.PERFORMANCE, EditorTabs.CONTROLS, EditorTabs.WINDOWS, EditorTabs.ADVANCED)
-        assertEquals(six, EditorTabs.idsFor(EditorScope.CONTAINER))
-        assertEquals(six, EditorTabs.idsFor(EditorScope.DEFAULTS))
-        assertEquals(6, EditorTabs.CONTAINER_IDS.size)
+    fun containerPagesAreTheSameSevenTabsOnEveryScope() {
+        val seven = listOf(
+            EditorTabs.GENERAL, EditorTabs.GRAPHICS, EditorTabs.PERFORMANCE, EditorTabs.CONTROLS,
+            EditorTabs.WINDOWS, EditorTabs.WINCOMP, EditorTabs.ADVANCED,
+        )
+        assertEquals(seven, EditorTabs.idsFor(EditorScope.CONTAINER, xmb = true))
+        assertEquals(seven, EditorTabs.idsFor(EditorScope.DEFAULTS, xmb = true))
+        assertEquals(7, EditorTabs.CONTAINER_IDS.size)
     }
 
     @Test
-    fun aGameHasGameFirstThenTheSameSix() {
-        val ids = EditorTabs.idsFor(EditorScope.GAME, World.WINE)
-        assertEquals(7, ids.size)
+    fun winComponentsIsItsOwnTabRightAfterWindows() {
+        val ids = EditorTabs.CONTAINER_IDS
+        assertEquals(ids.indexOf(EditorTabs.WINDOWS) + 1, ids.indexOf(EditorTabs.WINCOMP))
+        assertEquals("tab.wincomp", EditorTabs.WINCOMP)
+        val tab = EditorTabs.tab(EditorTabs.WINCOMP)
+        assertEquals(EditorTabs.WINCOMP, tab.id)
+        assertEquals("Win components", tab.label)
+        // Windows no longer claims the components.
+        assertFalse(EditorTabs.tab(EditorTabs.WINDOWS).desc.contains("components"))
+    }
+
+    @Test
+    fun thePlainDeckKeepsTheSixContainerTabsOfBefore() {
+        val six = listOf(EditorTabs.GENERAL, EditorTabs.GRAPHICS, EditorTabs.PERFORMANCE, EditorTabs.CONTROLS, EditorTabs.WINDOWS, EditorTabs.ADVANCED)
+        assertEquals(six, EditorTabs.DECK_CONTAINER_IDS)
+        assertEquals(six, EditorTabs.idsFor(EditorScope.CONTAINER, xmb = false))
+        assertEquals(six, EditorTabs.idsFor(EditorScope.DEFAULTS, xmb = false))
+        assertEquals(listOf(EditorTabs.GAME) + six, EditorTabs.idsFor(EditorScope.GAME, World.WINE, xmb = false))
+        val linux = EditorTabs.idsFor(EditorScope.GAME, World.LINUX, xmb = false)
+        assertEquals(8, linux.size)
+        assertFalse(EditorTabs.WINCOMP in linux)
+        assertEquals(EditorTabs.APP_IDS, EditorTabs.idsFor(EditorScope.APP, xmb = false))
+        // The hints of Windows and Storage & data are the earlier ones there.
+        assertTrue(EditorTabs.tab(EditorTabs.WINDOWS, xmb = false).desc.contains("components"))
+        assertTrue(EditorTabs.tab(EditorTabs.APP_STORAGE, xmb = false).desc.contains("logs"))
+        assertFalse(EditorTabs.tab(EditorTabs.APP_STORAGE, xmb = true).desc.contains("logs"))
+        assertEquals(six, EditorTabs.tabsFor(EditorScope.CONTAINER, xmb = false).map { it.id })
+    }
+
+    @Test
+    fun aGameHasGameFirstThenTheSameSeven() {
+        val ids = EditorTabs.idsFor(EditorScope.GAME, World.WINE, xmb = true)
+        assertEquals(8, ids.size)
         assertEquals(EditorTabs.GAME, ids.first())
         assertEquals(EditorTabs.CONTAINER_IDS, ids.drop(1))
         assertFalse(EditorTabs.LINUX in ids)
@@ -250,17 +283,17 @@ class EditorLayoutTest {
 
     @Test
     fun onlyTheLinuxEntryHasTheLinuxRuntimeTab() {
-        val ids = EditorTabs.idsFor(EditorScope.GAME, World.LINUX)
-        assertEquals(8, ids.size)
+        val ids = EditorTabs.idsFor(EditorScope.GAME, World.LINUX, xmb = true)
+        assertEquals(9, ids.size)
         assertEquals(EditorTabs.GAME, ids.first())
         assertEquals(EditorTabs.ADVANCED, ids.last())
         assertTrue(ids.indexOf(EditorTabs.LINUX) in 1 until ids.lastIndex)
-        assertEquals(listOf(EditorTabs.GAME), EditorTabs.idsFor(EditorScope.GAME, World.ANDROID))
+        assertEquals(listOf(EditorTabs.GAME), EditorTabs.idsFor(EditorScope.GAME, World.ANDROID, xmb = true))
     }
 
     @Test
     fun appSettingsHaveSixTabsOfTheirOwn() {
-        val ids = EditorTabs.idsFor(EditorScope.APP)
+        val ids = EditorTabs.idsFor(EditorScope.APP, xmb = true)
         assertEquals(6, ids.size)
         assertTrue(ids.all { it.startsWith("app.t.") })
         assertEquals(ids.size, ids.toSet().size)
@@ -268,7 +301,7 @@ class EditorLayoutTest {
 
     @Test
     fun everyListedTabIsDeclaredWithItsOwnId() {
-        val all = EditorScope.values().flatMap { s -> World.values().flatMap { w -> EditorTabs.idsFor(s, w) } }.toSet()
+        val all = EditorScope.values().flatMap { s -> World.values().flatMap { w -> EditorTabs.idsFor(s, w, xmb = true) + EditorTabs.idsFor(s, w, xmb = false) } }.toSet()
         all.forEach { id -> assertEquals(id, EditorTabs.tab(id).id) }
         assertEquals("Game actions", EditorTabs.tab(EditorTabs.GAME).actionsLabel)
         assertNull(EditorTabs.tab(EditorTabs.GENERAL).actionsLabel)

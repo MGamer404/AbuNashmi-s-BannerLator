@@ -208,10 +208,12 @@ private fun DeckGameSettings(path: String, navController: NavHostController) {
     // The Graphics page's downloads and tools: a Wine game only, like the components page.
     val graphics = remember(source) { if (env.world != World.WINE) null else DeckGraphicsState(env, source, coroutines) }
     // The pages' lists, pickers and actions (each section says where it applies).
-    val sections = remember(source) { deckSections(env, source, coroutines) }
+    // XMB only: the Win components tab (the plain Deck keeps its six tabs, the components on Windows).
+    val xmb = rememberXmbHome()
+    val sections = remember(source, xmb) { deckSections(env, source, coroutines, xmb) }
     val extras = remember(components, graphics, sections) { categoryExtras(components, graphics, sections) }
-    // The XMB / Deck tabs: Game first, then the container pages' six (Linux runtime too for the Linux Steam client entry).
-    val layout = remember(env.world) { ContainerLayout.forScope(EditorScope.GAME, env.world) }
+    // The XMB / Deck tabs: Game first, then the container pages' (Linux runtime too for the Linux Steam client entry).
+    val layout = remember(env.world, xmb) { ContainerLayout.forScope(EditorScope.GAME, env.world, xmb) }
     BindGetMore(env, graphics, sections)
     LaunchedEffect(components) { components?.load() }
     OnReturn {
@@ -357,9 +359,11 @@ private fun DeckContainerSettings(id: Int, navController: NavHostController) {
         if (!defaultsMode && c != null && LinuxSettings.isLinuxContainer(c)) null else DeckGraphicsState(env, source, coroutines)
     }
     // The pages' lists, pickers and actions (each section says where it applies).
-    val sections = remember(source) { deckSections(env, source, coroutines) }
-    // The XMB / Deck tabs: the same six for New container, Defaults for new containers and Edit container.
-    val layout = remember(scope) { ContainerLayout.forScope(scope) }
+    // XMB only: the Win components tab (the plain Deck keeps its six tabs, the components on Windows).
+    val xmb = rememberXmbHome()
+    val sections = remember(source, xmb) { deckSections(env, source, coroutines, xmb) }
+    // The XMB / Deck tabs: the same ones for New container, Defaults for new containers and Edit container.
+    val layout = remember(scope, xmb) { ContainerLayout.forScope(scope, xmb = xmb) }
     BindGetMore(env, graphics, sections)
     OnReturn {
         // A picker a section opened (a drive's folder, a wallpaper) hands its result to this form, so it is not reloaded under it.
@@ -473,7 +477,7 @@ private fun openGetMore(kind: String, graphics: DeckGraphicsState?, sections: Li
  * Every section of the game, container and All-containers editors. Each one returns no page items
  * where it doesn't apply (scope, world), so one list serves all three.
  */
-private fun deckSections(env: SettingsEnv, source: SettingsSource, scope: CoroutineScope): List<DeckSection> = listOf(
+private fun deckSections(env: SettingsEnv, source: SettingsSource, scope: CoroutineScope, xmb: Boolean): List<DeckSection> = listOf(
     DeckIconSection(env, source, scope),
     DeckWrapperDetectedSection(env, source, scope),
     DeckPerformanceSection(env, source, scope),
@@ -482,7 +486,7 @@ private fun deckSections(env: SettingsEnv, source: SettingsSource, scope: Corout
     DeckAudioSection(env, source, scope),
     DeckInputSection(env, source, scope),
     DeckOverlaySection(env, source, scope),
-    DeckWindowsSection(env, source, scope),
+    DeckWindowsSection(env, source, scope, xmb),
     DeckLinuxSection(env, source, scope),
     DeckEnvVarsSection(env, source, scope),
 )
@@ -502,7 +506,7 @@ private fun categoryExtras(components: DeckComponentsState?, graphics: DeckGraph
 
 @Composable
 private fun ArchSwitch(arch: String, onArch: (String) -> Unit) {
-    // XMB two-pane layout: the slim top line (see SlimEditorTop), so this is the compact form too.
+    // XMB two-pane layout: the slim header (see SlimHeader in DeckSettingsEditor.kt), so this is the compact form too.
     val slim = rememberXmbHome() && !isDeckCompact(LocalConfiguration.current)
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(if (slim) 8.dp else 12.dp)) {
         Text("Container type", color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold, fontSize = if (slim) 12.5.sp else 14.sp)
