@@ -32,13 +32,6 @@ internal fun openSteamProfileInBrowser(ctx: Context, steamId: Long) {
     runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(steamProfileUrl(steamId)))) }
 }
 
-/** Opens the store's detail screen for [appId] (what a friend is playing). Never throws. */
-internal fun openSteamGameDetail(ctx: Context, appId: Int) {
-    runCatching {
-        ctx.startActivity(Intent(ctx, SteamGameDetailActivity::class.java).putExtra(SteamGameDetailActivity.EXTRA_APP_ID, appId))
-    }
-}
-
 /** How many of [friends] are reachable: in a game, online or away (the same rule as the "Online" chip of the storefront's Friends tab). */
 internal fun friendsOnlineCount(friends: List<SteamFriendsStore.SteamFriend>): Int =
     friends.count { FriendPresenceFilter.ONLINE.accepts(it.presence) }
