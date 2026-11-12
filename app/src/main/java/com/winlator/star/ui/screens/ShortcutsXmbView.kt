@@ -1137,7 +1137,7 @@ private fun XmbActionRow(action: XmbAction, selected: Boolean, accent: Color, ic
 }
 
 /** Centred home: the peeking cards' middle sits this far (dp, on a 412 dp phone) from the top, just below the host's floating tab bar; above it they fade out. */
-private const val XMB_PEEK_CLIP = 50f
+internal const val XMB_PEEK_CLIP = 50f
 
 /** The surface of the upper row's plain cards (Add game) and of the All Games card, so they always match. */
 internal val XMB_PLAIN_CARD = listOf(Color(0xFF2A2D33), Color(0xFF16181C))
