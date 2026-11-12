@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -27,6 +26,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.DriveFileMove
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -44,6 +44,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.onFocusChanged
@@ -71,10 +72,13 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.winlator.star.core.PeIconExtractor
 import com.winlator.star.core.StringUtils
+import com.winlator.star.ui.LocalXmbHintInset
 import com.winlator.star.ui.deck.xmbCardFill
 import com.winlator.star.ui.deck.xmbCardLine
 import com.winlator.star.ui.deck.xmbOnGlass
 import com.winlator.star.ui.screens.outlinedMenuCard
+import com.winlator.star.ui.screens.xmbMenuBack
+import com.winlator.star.ui.screens.xmbStop
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -140,7 +144,7 @@ internal class FmMenuEntry(
 @Composable
 internal fun FmMenu(expanded: Boolean, onDismiss: () -> Unit, entries: List<FmMenuEntry>) {
     val cs = MaterialTheme.colorScheme
-    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss, modifier = Modifier.outlinedMenuCard()) {
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss, modifier = Modifier.outlinedMenuCard().xmbMenuBack(onDismiss)) {
         entries.forEach { e ->
             DropdownMenuItem(
                 text = { Text(e.label, color = if (e.danger) cs.error else cs.onSurface) },
@@ -450,34 +454,41 @@ internal fun FmCapsule(
 }
 
 /**
- * The compact toolbar's clipboard chip: "Paste here (name)" with an X that empties the clipboard. [onPaste] null (no folder
- * open, so nothing to paste into) leaves just the label and the X.
+ * The compact toolbar's clipboard, as floating buttons: a round paste button (the Containers tab's "+" look: 56 dp, accent fill)
+ * with a small clear button beside it. Meant for the bottom right of the page (the caller aligns it); it lifts itself above the
+ * shell's floating Back / Search hints ([LocalXmbHintInset]). It names nothing: the icon says paste or move, the description for
+ * accessibility too. [onPaste] null (no folder open, so nothing to paste into) leaves the button dimmed and inert. Both are D-pad
+ * stops (A presses), with the XMB highlight on them.
  */
 @Composable
-internal fun FmPasteChip(label: String, onPaste: (() -> Unit)?, onClose: () -> Unit, modifier: Modifier = Modifier) {
+internal fun FmPasteFab(cut: Boolean, onPaste: (() -> Unit)?, onClear: () -> Unit, modifier: Modifier = Modifier) {
     val cs = MaterialTheme.colorScheme
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = modifier.height(32.dp).widthIn(max = 260.dp).fmGlass(RoundedCornerShape(16.dp)).padding(start = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = modifier.padding(20.dp).padding(bottom = LocalXmbHintInset.current),
     ) {
-        Icon(Icons.Filled.ContentPaste, null, tint = cs.primary, modifier = Modifier.size(16.dp))
-        Spacer(Modifier.width(6.dp))
-        Text(
-            label,
-            color = if (onPaste != null) cs.primary else cs.onSurface,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.size(40.dp).xmbStop(CircleShape).fmGlass(CircleShape).clickable(onClick = onClear),
+        ) {
+            Icon(Icons.Filled.Close, "Clear the clipboard", tint = cs.onSurfaceVariant, modifier = Modifier.size(20.dp))
+        }
+        Box(
+            contentAlignment = Alignment.Center,
             modifier = Modifier
-                .weight(1f, fill = false)
-                .then(
-                    if (onPaste != null) Modifier.clip(RoundedCornerShape(10.dp)).clickable(onClick = onPaste).padding(horizontal = 4.dp, vertical = 6.dp)
-                    else Modifier
-                ),
-        )
-        IconButton(onClick = onClose, modifier = Modifier.size(32.dp)) {
-            Icon(Icons.Filled.Close, "Clear the clipboard", tint = cs.onSurfaceVariant, modifier = Modifier.size(16.dp))
+                .size(56.dp)
+                .alpha(if (onPaste != null) 1f else 0.5f)
+                .xmbStop(CircleShape)
+                .clip(CircleShape)
+                .background(cs.primary)
+                .clickable(enabled = onPaste != null, onClick = { onPaste?.invoke() }),
+        ) {
+            Icon(
+                if (cut) Icons.Filled.DriveFileMove else Icons.Filled.ContentPaste,
+                if (cut) "Move here" else "Paste here",
+                tint = cs.onPrimary,
+            )
         }
     }
 }

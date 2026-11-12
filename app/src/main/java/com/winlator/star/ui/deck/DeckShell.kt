@@ -918,6 +918,10 @@ private fun DeckShellContent(
                             bottom = hintSs.dp(12f) + cutout.calculateBottomPadding(),
                         ),
                 ) {
+                    // Tools > Files only: "X Options" (the page's options callback, the same one X runs), first of the three.
+                    if (deckActions.xmbOptionsHint.value && deckActions.options.value != null) {
+                        DeckFloatingHint("X", GlyphKind.Y, "Options", { deckActions.options.value?.invoke() })
+                    }
                     // The same back action as B: a sub-page pops, Home asks for the second press (homeBack). Drawn with Search's
                     // glyph look (the round grey one), not the red B.
                     DeckFloatingHint("B", GlyphKind.Y, "Back", { if (backDispatcher != null) backDispatcher.onBackPressed() else nav.back() })

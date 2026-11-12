@@ -22,7 +22,6 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,10 +33,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -81,6 +81,31 @@ internal val LocalXmbHighlight = staticCompositionLocalOf<XmbHighlightHost?> { n
 
 /** The highlight item of the enclosing [XmbGroupItem] (or other owner of a registered item), for [XmbInk]. */
 internal val LocalXmbHighlightItem = compositionLocalOf<XmbHighlightItem?> { null }
+
+/**
+ * One slice of a card made of stacked rows (the settings pages' `GroupCard`): its [shape] (round at the card's ends only) and its
+ * layout [coords]. Rows inset a few dp inside it register under it, and the outline then lands on the slice, not on the row's
+ * inset box, so it covers the card's own border and corners (see [xmbFitsSlice]).
+ */
+@Stable
+internal class XmbSliceBox(internal val shape: Shape, internal val view: View) {
+    internal var coords: LayoutCoordinates? = null
+}
+
+/** The slice the composition is in, or null: [xmbHighlight] hands it to the item. */
+internal val LocalXmbSlice = compositionLocalOf<XmbSliceBox?> { null }
+
+/** A slice for a card of [shape] in the XMB interface (null elsewhere, so the classic and Deck looks are untouched). */
+@Composable
+internal fun rememberXmbSlice(shape: Shape): XmbSliceBox? {
+    if (!rememberXmbHome()) return null
+    val view = LocalView.current
+    return remember(shape, view) { XmbSliceBox(shape, view) }
+}
+
+/** Reports the slice's bounds: put it on the slice's own box, after the modifiers that size it. */
+internal fun Modifier.xmbSliceTrack(slice: XmbSliceBox?): Modifier =
+    if (slice == null) this else this.onGloballyPositioned { slice.coords = it }
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Pure helpers (no Compose runtime needed; unit-tested).
@@ -170,6 +195,50 @@ internal fun xmbShapeCornerPx(shape: Shape, width: Float, height: Float, density
     return xmbCornerClamp(mean, width, height)
 }
 
+/** The four corner radii (px) of an outline: top-left, top-right, bottom-right, bottom-left. */
+internal data class XmbCorners(val tl: Float, val tr: Float, val br: Float, val bl: Float) {
+    companion object {
+        val None = XmbCorners(0f, 0f, 0f, 0f)
+    }
+}
+
+/** [XmbCorners] of the four radii, each held to what a w x h box can show. */
+internal fun xmbCornersClamp(tl: Float, tr: Float, br: Float, bl: Float, width: Float, height: Float): XmbCorners =
+    XmbCorners(
+        xmbCornerClamp(tl, width, height),
+        xmbCornerClamp(tr, width, height),
+        xmbCornerClamp(br, width, height),
+        xmbCornerClamp(bl, width, height),
+    )
+
+/** The corner radii (px) a [shape] has in a w x h box, each corner on its own (a card's slice is round at the ends only). */
+internal fun xmbShapeCornersPx(shape: Shape, width: Float, height: Float, density: Density): XmbCorners {
+    if (shape !is CornerBasedShape) return XmbCorners.None
+    val size = Size(width, height)
+    return xmbCornersClamp(
+        shape.topStart.toPx(size, density), shape.topEnd.toPx(size, density),
+        shape.bottomEnd.toPx(size, density), shape.bottomStart.toPx(size, density),
+        width, height,
+    )
+}
+
+/** How far a row of a group card may sit inside the card's slice and still count as "the slice itself" (the row's own inset, 6 dp / 3 dp + the hairline). */
+internal const val XMB_HL_SLICE_MAX_H_DP = 8f
+internal const val XMB_HL_SLICE_MAX_V_DP = 6f
+
+/**
+ * Whether [item] is the row of a card's [slice]: inside it (to half a pixel) and no further from each side than [maxH] left and
+ * right / [maxV] top and bottom. A row inset a few dp from its slice then gets the outline on the slice itself, so it lies on the
+ * card's own edge and corners; a small button inside the row (far from the edges) keeps its own bounds.
+ */
+internal fun xmbFitsSlice(item: Rect, slice: Rect, maxH: Float, maxV: Float): Boolean {
+    val l = item.left - slice.left
+    val t = item.top - slice.top
+    val r = slice.right - item.right
+    val b = slice.bottom - item.bottom
+    return l >= -0.5f && t >= -0.5f && r >= -0.5f && b >= -0.5f && l <= maxH && r <= maxH && t <= maxV && b <= maxV
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // The item and the host.
 // ---------------------------------------------------------------------------------------------------------------------
@@ -186,6 +255,9 @@ internal class XmbHighlightItem {
     internal var tint: Color = Color.Unspecified
     internal var dimWhenInside: Boolean = false
     internal var focused: Boolean = false
+
+    /** The group-card slice this item is in, if any: the outline takes the slice's bounds when the item is its row. */
+    internal var slice: XmbSliceBox? = null
 
     /** [ROLE_HOT], [ROLE_SECONDARY] or [ROLE_NONE]; Compose state, changed only for the items that gain or lose the outline. */
     var role: Int by mutableIntStateOf(ROLE_NONE)
@@ -233,13 +305,21 @@ internal class XmbHighlightHost internal constructor(internal val view: View) {
 
     private val rect = Animatable(Rect.Zero, Rect.VectorConverter)
     private val alpha = Animatable(0f)
-    private val corner = Animatable(0f)
+
+    // The four corner radii of the outline: top-left, top-right, bottom-right, bottom-left.
+    private val cornerTl = Animatable(0f)
+    private val cornerTr = Animatable(0f)
+    private val cornerBr = Animatable(0f)
+    private val cornerBl = Animatable(0f)
     private val colorT = Animatable(1f)
     private var colorFrom = Color.Unspecified
     private var colorTo = Color.Unspecified
     private var secondaryRect by mutableStateOf<Rect?>(null)
-    private var secondaryCorner by mutableFloatStateOf(0f)
+    private var secondaryCorners by mutableStateOf(XmbCorners.None)
     private var lastItem: XmbHighlightItem? = null
+
+    /** Reused by every draw: the outline's rounded box as a path (rounded rects with four different corners need one). */
+    private val boxPath = Path()
 
     internal fun bump() {
         tick.intValue = tick.intValue + 1
@@ -303,18 +383,61 @@ internal class XmbHighlightHost internal constructor(internal val view: View) {
         return if (r.width > 0f && r.height > 0f) r else null
     }
 
-    private fun cornerOf(shape: Shape, r: Rect): Float = xmbShapeCornerPx(shape, r.width, r.height, density)
+    /** Where the outline goes for an item: [rect] and the [shape] whose corners it takes. */
+    private class Placed(val rect: Rect, val shape: Shape)
 
-    private data class Sample(val item: XmbHighlightItem?, val rect: Rect?, val secondary: Rect?, val secondaryCorner: Float)
+    /**
+     * The row of a group card sits a few dp inside the card's slice (its own inset), so the outline would float inside the card's
+     * border with smaller corners. When [item] is such a row, the outline goes on the slice itself (the visible part of it): its
+     * outer edge then lies on the card's edge, with the card's own corners (round at the card's ends, square between rows).
+     * Null when the item is not a row of its slice (a button inside it keeps its own bounds).
+     */
+    private fun sliceBoundsFor(item: XmbHighlightItem): Rect? {
+        val slice = item.slice ?: return null
+        if (slice.view !== view) return null
+        val layer = layerCoords ?: return null
+        val ic = item.coords ?: return null
+        val sc = slice.coords ?: return null
+        if (!layer.isAttached || !ic.isAttached || !sc.isAttached) return null
+        val itemFull = runCatching { layer.localBoundingBoxOf(ic, clipBounds = false) }.getOrNull() ?: return null
+        val sliceFull = runCatching { layer.localBoundingBoxOf(sc, clipBounds = false) }.getOrNull() ?: return null
+        val d = density.density
+        if (!xmbFitsSlice(itemFull, sliceFull, XMB_HL_SLICE_MAX_H_DP * d, XMB_HL_SLICE_MAX_V_DP * d)) return null
+        val shown = runCatching { layer.localBoundingBoxOf(sc, clipBounds = true) }.getOrNull() ?: return null
+        return if (shown.width > 0f && shown.height > 0f) shown else null
+    }
+
+    private fun placeOf(item: XmbHighlightItem): Placed? {
+        val r = boundsOf(item) ?: return null
+        val slice = item.slice
+        val s = if (slice != null) sliceBoundsFor(item) else null
+        return if (s != null && slice != null) Placed(s, slice.shape) else Placed(r, item.shape)
+    }
+
+    private fun cornersOf(p: Placed): XmbCorners = xmbShapeCornersPx(p.shape, p.rect.width, p.rect.height, density)
+
+    private data class Sample(
+        val item: XmbHighlightItem?,
+        val rect: Rect?,
+        val corners: XmbCorners,
+        val secondary: Rect?,
+        val secondaryCorners: XmbCorners,
+    )
 
     private fun sample(): Sample {
         @Suppress("UNUSED_VARIABLE")
         val dependency = tick.intValue
-        val h = hot ?: return Sample(null, null, null, 0f)
-        val r = boundsOf(h)
+        val h = hot ?: return Sample(null, null, XmbCorners.None, null, XmbCorners.None)
+        val p = placeOf(h)
         val s = secondaryItem
-        val sr = if (s != null) boundsOf(s) else null
-        return Sample(h, r, sr, if (s != null && sr != null) cornerOf(s.shape, sr) else 0f)
+        val sp = if (s != null) placeOf(s) else null
+        return Sample(
+            h,
+            p?.rect,
+            if (p != null) cornersOf(p) else XmbCorners.None,
+            sp?.rect,
+            if (sp != null) cornersOf(sp) else XmbCorners.None,
+        )
     }
 
     private fun currentColor(accent: Color): Color {
@@ -330,7 +453,7 @@ internal class XmbHighlightHost internal constructor(internal val view: View) {
 
     private suspend fun handle(s: Sample) {
         secondaryRect = s.secondary
-        secondaryCorner = s.secondaryCorner
+        secondaryCorners = s.secondaryCorners
         val item = s.item
         val target = s.rect
         if (item == null || target == null) {
@@ -345,7 +468,7 @@ internal class XmbHighlightHost internal constructor(internal val view: View) {
             val animating = rect.value != rect.targetValue
             lastItem = item
             val move = xmbMoveFor(wasHidden, changed, animating)
-            val c = cornerOf(item.shape, target)
+            val c = s.corners
             if (changed && item.tint != colorTo) {
                 val acc = accent?.value ?: Color.Unspecified
                 if (acc.isSpecified) {
@@ -363,9 +486,15 @@ internal class XmbHighlightHost internal constructor(internal val view: View) {
             if (alpha.value < 1f) launch { alpha.animateTo(1f, tween(XMB_HL_FADE_IN_MS)) }
             if (move == XmbHighlightMove.SNAP) {
                 rect.snapTo(target)
-                corner.snapTo(c)
+                cornerTl.snapTo(c.tl)
+                cornerTr.snapTo(c.tr)
+                cornerBr.snapTo(c.br)
+                cornerBl.snapTo(c.bl)
             } else {
-                launch { corner.animateTo(c, tween(XMB_HL_COLOR_MS)) }
+                launch { cornerTl.animateTo(c.tl, tween(XMB_HL_COLOR_MS)) }
+                launch { cornerTr.animateTo(c.tr, tween(XMB_HL_COLOR_MS)) }
+                launch { cornerBr.animateTo(c.br, tween(XMB_HL_COLOR_MS)) }
+                launch { cornerBl.animateTo(c.bl, tween(XMB_HL_COLOR_MS)) }
                 rect.animateTo(
                     target,
                     spring<Rect>(
@@ -387,32 +516,33 @@ internal class XmbHighlightHost internal constructor(internal val view: View) {
         with(scope) {
             val stroke = XMB_HL_STROKE_DP.dp.toPx()
             val dim = secondaryRect
-            if (dim != null) strokeBox(dim, secondaryCorner, color.copy(alpha = XMB_HL_DIM_ALPHA * a), stroke)
+            if (dim != null) strokeBox(dim, secondaryCorners, color.copy(alpha = XMB_HL_DIM_ALPHA * a), stroke)
             val r = rect.value
             if (r.width > stroke && r.height > stroke) {
-                val cr = corner.value
-                drawRoundRect(
-                    color = color.copy(alpha = XMB_HL_FILL_ALPHA * a),
-                    topLeft = r.topLeft,
-                    size = r.size,
-                    cornerRadius = CornerRadius(cr, cr),
-                )
-                strokeBox(r, cr, color.copy(alpha = a), stroke)
+                val corners = XmbCorners(cornerTl.value, cornerTr.value, cornerBr.value, cornerBl.value)
+                drawPath(boxPathOf(r, corners, 0f), color.copy(alpha = XMB_HL_FILL_ALPHA * a))
+                strokeBox(r, corners, color.copy(alpha = a), stroke)
             }
         }
     }
 
-    private fun DrawScope.strokeBox(r: Rect, cornerPx: Float, color: Color, stroke: Float) {
-        val half = stroke / 2f
-        if (r.width <= stroke || r.height <= stroke) return
-        val cr = max(0f, cornerPx - half)
-        drawRoundRect(
-            color = color,
-            topLeft = Offset(r.left + half, r.top + half),
-            size = Size(r.width - stroke, r.height - stroke),
-            cornerRadius = CornerRadius(cr, cr),
-            style = Stroke(width = stroke),
+    /** [boxPath] as the rounded box of [r] shrunk by [inset] on every side, its corners shrunk with it. */
+    private fun boxPathOf(r: Rect, c: XmbCorners, inset: Float): Path {
+        boxPath.rewind()
+        boxPath.addRoundRect(
+            RoundRect(
+                r.left + inset, r.top + inset, r.right - inset, r.bottom - inset,
+                CornerRadius(max(0f, c.tl - inset)), CornerRadius(max(0f, c.tr - inset)),
+                CornerRadius(max(0f, c.br - inset)), CornerRadius(max(0f, c.bl - inset)),
+            ),
         )
+        return boxPath
+    }
+
+    /** The outline: [stroke] wide, with its OUTER edge on [r]'s edge (centred half a stroke inside), so it covers the card's own border. */
+    private fun DrawScope.strokeBox(r: Rect, corners: XmbCorners, color: Color, stroke: Float) {
+        if (r.width <= stroke || r.height <= stroke) return
+        drawPath(boxPathOf(r, corners, stroke / 2f), color, style = Stroke(width = stroke))
     }
 }
 
@@ -516,6 +646,7 @@ internal fun Modifier.xmbHighlight(
     item.shape = shape
     item.tint = tint
     item.dimWhenInside = dimWhenInside
+    item.slice = LocalXmbSlice.current
     if (host == null) {
         val accent = MaterialTheme.colorScheme.primary
         var lit by remember { mutableStateOf(false) }

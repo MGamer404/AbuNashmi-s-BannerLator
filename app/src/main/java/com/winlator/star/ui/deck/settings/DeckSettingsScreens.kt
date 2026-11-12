@@ -509,7 +509,8 @@ private fun ArchSwitch(arch: String, onArch: (String) -> Unit) {
     // XMB two-pane layout: the slim header (see SlimHeader in DeckSettingsEditor.kt), so this is the compact form too.
     val slim = rememberXmbHome() && !isDeckCompact(LocalConfiguration.current)
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(if (slim) 8.dp else 12.dp)) {
-        Text("Container type", color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold, fontSize = if (slim) 12.5.sp else 14.sp)
+        // XMB two-pane: the switch sits in the tab's title line, between its hint and the Simple / Advanced switch; no room for a label.
+        if (!slim) Text("Container type", color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
         DeckSegmented(
             options = listOf(Opt(NewContainerDefaults.ARCH_ARM64EC, "ARM64EC"), Opt(NewContainerDefaults.ARCH_X86_64, "x86-64")),
             value = arch,

@@ -42,6 +42,8 @@ internal object DeckRoutes {
 internal class DeckActions {
     val options: MutableState<(() -> Unit)?> = mutableStateOf(null)
     val optionsLabel: MutableState<String> = mutableStateOf("Options")
+    /** XMB: true while a page asks for the floating "X Options" hint beside Back / Search (only Tools > Files does; X itself works on every page that sets [options]). */
+    val xmbOptionsHint: MutableState<Boolean> = mutableStateOf(false)
     val search: MutableState<(() -> Unit)?> = mutableStateOf(null)
     val subTab: MutableState<((Int) -> Unit)?> = mutableStateOf(null)
     val subTabLabel: MutableState<String> = mutableStateOf("Tab")

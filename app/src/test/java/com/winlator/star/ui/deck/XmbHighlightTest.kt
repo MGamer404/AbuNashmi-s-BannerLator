@@ -1,5 +1,6 @@
 package com.winlator.star.ui.deck
 
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -162,5 +163,37 @@ class XmbHighlightTest {
         entered = false
         onOuter = true
         assertEquals(XmbGroupAct.RUN, press(XmbGroupKey.ACTIVATE, hasAction = true))
+    }
+
+    // ---- The outline on a group card's slice ----
+
+    @Test
+    fun aRowInsetFromItsSliceIsTheSlice() {
+        val slice = Rect(0f, 100f, 1000f, 260f)
+        // The row's own inset: 6 dp each side, 3 dp (+1 for the hairline) top and bottom, at density 1.
+        assertTrue(xmbFitsSlice(Rect(6f, 104f, 994f, 257f), slice, 8f, 6f))
+        // Exactly the slice, or half a pixel out of it (rounding).
+        assertTrue(xmbFitsSlice(slice, slice, 8f, 6f))
+        assertTrue(xmbFitsSlice(Rect(-0.4f, 99.6f, 1000.4f, 260.4f), slice, 8f, 6f))
+    }
+
+    @Test
+    fun aButtonInsideTheRowKeepsItsOwnBounds() {
+        val slice = Rect(0f, 100f, 1000f, 260f)
+        // A "?" button, a pill row, a switch: well inside the row's padding.
+        assertTrue(!xmbFitsSlice(Rect(500f, 120f, 530f, 150f), slice, 8f, 6f))
+        assertTrue(!xmbFitsSlice(Rect(600f, 114f, 988f, 246f), slice, 8f, 6f))
+        // Wider than the slice (not inside it): not the slice either.
+        assertTrue(!xmbFitsSlice(Rect(-20f, 100f, 1020f, 260f), slice, 8f, 6f))
+    }
+
+    @Test
+    fun eachCornerIsHeldToTheBox() {
+        val c = xmbCornersClamp(18f, 18f, 0f, 0f, 400f, 30f)
+        assertEquals(15f, c.tl, 0f)
+        assertEquals(15f, c.tr, 0f)
+        assertEquals(0f, c.br, 0f)
+        assertEquals(0f, c.bl, 0f)
+        assertEquals(XmbCorners.None, xmbCornersClamp(-1f, 0f, 0f, -5f, 100f, 100f))
     }
 }

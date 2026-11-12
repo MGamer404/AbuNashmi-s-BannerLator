@@ -83,6 +83,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.CornerRadius
@@ -98,6 +99,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -138,6 +140,10 @@ import com.winlator.star.ui.deck.xmbDoneActions
 import com.winlator.star.ui.deck.xmbEditField
 import com.winlator.star.ui.deck.xmbGlassCard
 import com.winlator.star.ui.deck.xmbGlassSlice
+import com.winlator.star.ui.deck.xmbSliceTrack
+import com.winlator.star.ui.deck.LocalXmbSlice
+import com.winlator.star.ui.deck.rememberXmbSlice
+import androidx.compose.runtime.CompositionLocalProvider
 import com.winlator.star.ui.deck.xmbInner
 import com.winlator.star.ui.deck.xmbLandingIndex
 import com.winlator.star.ui.deck.xmbPageFrost
@@ -346,6 +352,8 @@ internal fun DeckSettingsEditor(
     val deckActions = LocalDeckActions.current
     val dirty = source.dirty
     val showBar = dirty || createMode
+    // XMB two-pane: Create / Save + Discard are small buttons floating at the page's bottom right, not a full-width bar.
+    val floatBar = slim
     val saveNow by rememberUpdatedState { save() }
     DisposableEffect(deckActions, showBar) {
         val act: () -> Unit = { saveNow() }
@@ -404,6 +412,8 @@ internal fun DeckSettingsEditor(
             compact = compact,
             extra = headerExtra,
             inPage = inPage,
+            // XMB: no "Inherits from" chain (nor the Wine layer text) anywhere.
+            showChain = !scrollHeader,
         )
     }
 
@@ -443,11 +453,8 @@ internal fun DeckSettingsEditor(
                     val topHeader: @Composable () -> Unit = {
                         if (slim) {
                             SlimHeader(
-                                header = header,
                                 category = current,
                                 overrideCount = over.size,
-                                onBack = onBackGuarded,
-                                onChainLink = chainGuarded,
                                 extra = headerExtra,
                                 onResetAll = { over.forEach { source.reset(it) } },
                                 level = level,
@@ -468,6 +475,8 @@ internal fun DeckSettingsEditor(
                         overrideCount = over.size,
                         compact = compact,
                         slim = slim,
+                        // The floating Create / Save buttons (XMB two-pane) cover the page's bottom corner: room to scroll past them.
+                        bottomRoom = if (floatBar && showBar) 64.dp else 0.dp,
                         jumpTo = jumpTo,
                         onJumpDone = { jumpTo = null },
                         flash = flash,
@@ -504,21 +513,35 @@ internal fun DeckSettingsEditor(
             } else {
                 val listWidth = (LocalConfiguration.current.screenWidthDp * 0.28f).dp.coerceIn(180.dp, 300.dp)
                 Row(modifier = Modifier.fillMaxSize()) {
-                    CategoryList(
-                        categories = visibleCats,
-                        current = current?.id,
-                        badge = { overrides(it).size },
-                        compact = false,
-                        onSelect = { selected = it.id; query = null },
-                        focusKey = listFocus,
-                        modifier = Modifier.width(listWidth).fillMaxHeight(),
-                    )
-                    // The header is the page's first list item (see topHeader), so the rail beside it is as tall as the pane.
+                    // XMB: the rail starts with a FIXED block (back arrow, kicker and name) that never scrolls and never reaches
+                    // into the page; the app Settings page (no back) has none. The tabs fill the rest.
+                    Column(modifier = Modifier.width(listWidth).fillMaxHeight()) {
+                        if (slim && onBackGuarded != null) RailHeader(header, onBackGuarded)
+                        CategoryList(
+                            categories = visibleCats,
+                            current = current?.id,
+                            badge = { overrides(it).size },
+                            compact = false,
+                            onSelect = { selected = it.id; query = null },
+                            focusKey = listFocus,
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                        )
+                    }
+                    // The tab's own line is the page's first list item (see topHeader), so the rail beside it is as tall as the pane.
                     page(Modifier.weight(1f).fillMaxHeight())
                 }
             }
+            if (showBar && floatBar) {
+                FloatingSaveButtons(
+                    saving = saving,
+                    create = createMode,
+                    onDiscard = { if (!saving) source.discard() },
+                    onSave = { save() },
+                    modifier = Modifier.align(Alignment.BottomEnd),
+                )
+            }
         }
-        if (showBar) {
+        if (showBar && !floatBar) {
             UnsavedBar(saving = saving, compact = compact, create = createMode, onDiscard = { source.discard() }, onSave = { save() })
         }
     }
@@ -593,6 +616,8 @@ private fun EditorTop(
     extra: (@Composable () -> Unit)?,
     /** The first item of a page's list: the list's own padding is the gutter, and the block is tighter (it scrolls away). */
     inPage: Boolean = false,
+    /** False in the XMB: the "Inherits from" chain and the Wine layer text are not shown. */
+    showChain: Boolean = true,
 ) {
     val cs = MaterialTheme.colorScheme
     val gutter = if (inPage) 0.dp else if (compact) 16.dp else 24.dp
@@ -642,7 +667,7 @@ private fun EditorTop(
                 SearchButton(onSearch)
             }
         }
-        if (header.chain.isNotEmpty() || header.meta != null) {
+        if (showChain && (header.chain.isNotEmpty() || header.meta != null)) {
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -696,21 +721,16 @@ private fun SquareButton(icon: ImageVector, description: String, onClick: () -> 
 private fun ScreenScale.up(base: Float): Float = base * maxOf(factor, 1f)
 
 /**
- * The XMB two-pane layout's header: the FIRST ITEM of the page's list, so it scrolls away with the rows and comes back when scrolling
- * up (or when the controller goes Up from the first row). Two slim lines. The top one, only when the page has a name, a chain, a
- * Wine layer or a host's [extra]: back button, name with its small kicker, "Inherits from" chain, the Wine layer, [extra], and the
- * Simple / Advanced switch at the right (the chain and the rest wrap onto a second slim line when they do not fit). Under it the
- * section's line: a small icon, the name, its hint (one line, cut with an ellipsis), the small Reset pill when the section has
- * overrides. The app Settings page (a tab's root: no back, no chain) has only the section line, and then it carries the switch.
+ * The XMB two-pane layout's page header: the FIRST ITEM of the page's list, so it scrolls away with the rows and comes back when
+ * scrolling up (or when the controller goes Up from the first row). ONE slim line, the tab's own: a small icon, the name, its hint
+ * (cut with an ellipsis to make room), the small Reset pill when the tab has overrides, a host's [extra] (the All-containers
+ * ARM64EC / x86-64 switch) and the Simple / Advanced switch at the right. On a narrow pane the Reset pill drops under the line.
+ * The back button and the container's name are not here: they are the rail's fixed block (see [RailHeader]).
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SlimHeader(
-    header: EditorHeader,
     category: SettingsCategory,
     overrideCount: Int,
-    onBack: (() -> Unit)?,
-    onChainLink: (ChainLink) -> Unit,
     extra: (@Composable () -> Unit)?,
     onResetAll: () -> Unit,
     level: SettingLevel,
@@ -718,108 +738,148 @@ private fun SlimHeader(
 ) {
     val cs = MaterialTheme.colorScheme
     val ss = rememberScreenScale()
-    val rowH = ss.up(32f).dp
-    val named = onBack != null
-    val hasTop = named || header.chain.isNotEmpty() || header.meta != null || extra != null
-    Column(modifier = Modifier.fillMaxWidth().padding(start = 6.dp, top = 2.dp, bottom = 4.dp)) {
-        if (hasTop) {
-            Row(verticalAlignment = Alignment.Top, modifier = Modifier.fillMaxWidth()) {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth().padding(start = 6.dp, top = 2.dp, bottom = 4.dp)) {
+        // Below this width the Reset pill goes on a line of its own, so the hint keeps some room.
+        val tight = maxWidth < (if (extra != null) 700.dp else 500.dp)
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().heightIn(min = ss.up(34f).dp).padding(top = 2.dp, bottom = 2.dp),
+            ) {
+                Icon(category.icon, contentDescription = null, tint = cs.primary, modifier = Modifier.size(ss.up(20f).dp))
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = category.label,
+                    color = cs.onSurface,
+                    fontFamily = SoraFamily,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = ss.up(16f).sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 220.dp),
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = category.desc,
+                    color = cs.onSurfaceVariant,
+                    fontSize = ss.up(12.5f).sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
-                ) {
-                    if (onBack != null) {
-                        SquareButton(Icons.AutoMirrored.Filled.ArrowBack, "Back", onBack, size = rowH, iconSize = 20.dp)
-                    }
-                    if (named) {
-                        Column(modifier = Modifier.height(rowH).widthIn(max = 300.dp), verticalArrangement = Arrangement.Center) {
-                            Text(
-                                text = header.overline.uppercase(),
-                                color = cs.primary,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = ss.up(9.5f).sp,
-                                lineHeight = ss.up(11f).sp,
-                                letterSpacing = 1.5.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                text = header.title,
-                                color = cs.onSurface,
-                                fontFamily = SoraFamily,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = ss.up(17f).sp,
-                                lineHeight = ss.up(20f).sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                    if (header.chain.isNotEmpty()) {
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.height(rowH).padding(start = if (named) 8.dp else 0.dp)) {
-                            Icon(Icons.Filled.AccountTree, contentDescription = null, tint = cs.onSurfaceVariant, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(5.dp))
-                            Text("Inherits from", color = cs.onSurfaceVariant, fontWeight = FontWeight.SemiBold, fontSize = ss.up(12.5f).sp, maxLines = 1)
-                        }
-                    }
-                    header.chain.forEachIndexed { i, link ->
-                        if (i > 0) {
-                            Box(contentAlignment = Alignment.Center, modifier = Modifier.height(rowH)) {
-                                Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = cs.onSurfaceVariant, modifier = Modifier.size(16.dp))
-                            }
-                        }
-                        Box(contentAlignment = Alignment.Center, modifier = Modifier.height(rowH)) {
-                            ChainChip(link, onClick = { onChainLink(link) }, slim = true)
-                        }
-                    }
-                    header.meta?.let {
-                        Box(contentAlignment = Alignment.CenterStart, modifier = Modifier.height(rowH).padding(start = 6.dp)) {
-                            Text(it, color = cs.onSurfaceVariant, fontWeight = FontWeight.SemiBold, fontSize = ss.up(12.5f).sp, maxLines = 1)
-                        }
-                    }
-                    extra?.let { content ->
-                        Box(contentAlignment = Alignment.CenterStart, modifier = Modifier.heightIn(min = rowH)) { content() }
-                    }
+                )
+                if (overrideCount > 0 && !tight) {
+                    Spacer(Modifier.width(8.dp))
+                    ResetAllButton(overrideCount, onResetAll, slim = true)
+                }
+                extra?.let { content ->
+                    Spacer(Modifier.width(10.dp))
+                    Box(contentAlignment = Alignment.Center) { content() }
                 }
                 Spacer(Modifier.width(10.dp))
-                Box(contentAlignment = Alignment.Center, modifier = Modifier.height(rowH)) {
-                    LevelSwitch(level, onLevel, slim = true)
-                }
+                LevelSwitch(level, onLevel, slim = true)
+            }
+            if (overrideCount > 0 && tight) {
+                Box(modifier = Modifier.padding(top = 2.dp)) { ResetAllButton(overrideCount, onResetAll, slim = true) }
             }
         }
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth().heightIn(min = ss.up(34f).dp).padding(top = 2.dp, bottom = 2.dp),
-        ) {
-            Icon(category.icon, contentDescription = null, tint = cs.primary, modifier = Modifier.size(ss.up(20f).dp))
-            Spacer(Modifier.width(8.dp))
+    }
+}
+
+/**
+ * The XMB rail's fixed top block (two-pane editors that have a back: a container, a game, the defaults, a new container): the back
+ * arrow with the kicker ("Container settings", "Container defaults"...) and the name under it. It does not scroll; the name wraps to
+ * two lines at most and is cut with an ellipsis, so it never reaches into the page. A kicker that repeats the name (a new container)
+ * is left out.
+ */
+@Composable
+private fun RailHeader(header: EditorHeader, onBack: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    val ss = rememberScreenScale()
+    val kicker = header.overline.takeIf { !it.equals(header.title, ignoreCase = true) }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 4.dp),
+    ) {
+        SquareButton(Icons.AutoMirrored.Filled.ArrowBack, "Back", onBack, size = ss.up(36f).dp, iconSize = 20.dp)
+        Spacer(Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            if (kicker != null) {
+                Text(
+                    text = kicker.uppercase(),
+                    color = cs.primary,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = ss.up(9.5f).sp,
+                    lineHeight = ss.up(11f).sp,
+                    letterSpacing = 1.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             Text(
-                text = category.label,
+                text = header.title,
                 color = cs.onSurface,
                 fontFamily = SoraFamily,
                 fontWeight = FontWeight.ExtraBold,
-                fontSize = ss.up(16f).sp,
-                maxLines = 1,
+                fontSize = ss.up(15f).sp,
+                lineHeight = ss.up(18f).sp,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.widthIn(max = 220.dp),
             )
-            Spacer(Modifier.width(10.dp))
-            Text(
-                text = category.desc,
-                color = cs.onSurfaceVariant,
-                fontSize = ss.up(12.5f).sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            if (overrideCount > 0) {
-                Spacer(Modifier.width(8.dp))
-                ResetAllButton(overrideCount, onResetAll, slim = true)
+        }
+    }
+}
+
+/**
+ * XMB two-pane: Create (a new container) or Save with a small Discard (unsaved edits), floating at the bottom right of the page above
+ * the Back / Search hints, in place of the full-width [UnsavedBar]. Both are D-pad stops; the controller's Start / X still saves.
+ */
+@Composable
+private fun FloatingSaveButtons(saving: Boolean, create: Boolean, onDiscard: () -> Unit, onSave: () -> Unit, modifier: Modifier = Modifier) {
+    val pill = RoundedCornerShape(22.dp)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        // 24 dp from the right is the page's own edge; above the floating hints (LocalXmbHintInset) like the other floating buttons.
+        modifier = modifier.padding(end = 24.dp, bottom = 12.dp + LocalXmbHintInset.current),
+    ) {
+        // A new container has nothing to discard: leaving the page is the way out.
+        if (!create) {
+            DeckInk { item, cs ->
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(44.dp)
+                        .shadow(6.dp, CircleShape)
+                        .deckFocusRingInk(CircleShape, item, scaleTo = 1f)
+                        .clip(CircleShape)
+                        .background(cs.surface)
+                        .background(deckCardFill())
+                        .border(1.dp, deckLine(), CircleShape)
+                        .clickable(enabled = !saving, onClick = onDiscard),
+                ) {
+                    Icon(Icons.Filled.Close, contentDescription = "Discard changes", tint = cs.onSurfaceVariant, modifier = Modifier.size(20.dp))
+                }
             }
-            if (!hasTop) {
-                Spacer(Modifier.width(10.dp))
-                LevelSwitch(level, onLevel, slim = true)
+        }
+        DeckInk { item, cs ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .height(44.dp)
+                    .shadow(6.dp, pill)
+                    .deckFocusRingInk(pill, item, scaleTo = 1f)
+                    .clip(pill)
+                    .background(cs.primary)
+                    .clickable(enabled = !saving, onClick = onSave)
+                    .padding(horizontal = 18.dp),
+            ) {
+                if (saving) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = cs.onPrimary)
+                } else {
+                    Icon(Icons.Filled.Check, contentDescription = null, tint = cs.onPrimary, modifier = Modifier.size(20.dp))
+                    Text(if (create) "Create" else "Save", color = cs.onPrimary, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, maxLines = 1)
+                }
             }
         }
     }
@@ -934,7 +994,8 @@ private fun CategoryList(
             top = 6.dp,
             bottom = 24.dp,
         ),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        // XMB rail: the tabs sit close together (each is only as tall as its two lines).
+        verticalArrangement = Arrangement.spacedBy(if (xmbRail != null) 2.dp else 4.dp),
     ) {
         items(categories, key = { it.id }) { c ->
             CategoryItem(
@@ -970,13 +1031,15 @@ private fun CategoryItem(
     // The XMB side rail (a [rail] state exists only there): equal-height tabs with room for a name on two lines. The plain Deck's
     // list and the phone's rows keep their own size.
     val side = rail != null
+    // Side tab: exactly two lines of the label (13.5 sp text on a 16 sp line) plus a little air, whatever the font scale.
+    val sideHeight = with(LocalDensity.current) { (16.sp * 2).toDp() } + 10.dp
     DeckInk { item, cs ->
         val accent = cs.primary
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = modifier
                 .fillMaxWidth()
-                .then(if (side) Modifier.height(56.dp) else Modifier)
+                .then(if (side) Modifier.height(sideHeight) else Modifier)
                 .xmbRailItem(rail, selected, onClick)
                 .deckFocusRingInk(shape, item, scaleTo = 1.02f, onFocused = onFocused)
                 .clip(shape)
@@ -993,7 +1056,7 @@ private fun CategoryItem(
                         )
                     }
                 }
-                .padding(horizontal = if (side) 10.dp else 18.dp, vertical = if (side) 4.dp else 12.dp),
+                .padding(horizontal = if (side) 10.dp else 18.dp, vertical = if (side) 2.dp else 12.dp),
         ) {
             Icon(
                 category.icon,
@@ -1054,6 +1117,7 @@ private fun CategoryPage(
     overrideCount: Int,
     compact: Boolean,
     slim: Boolean,
+    bottomRoom: Dp,
     jumpTo: String?,
     onJumpDone: () -> Unit,
     flash: String?,
@@ -1113,7 +1177,7 @@ private fun CategoryPage(
         val controlMax = maxWidth * 0.52f
         LazyColumn(
             state = listState,
-            contentPadding = PaddingValues(start = if (compact) 16.dp else sideRoom, end = if (compact) 16.dp else 24.dp, top = 4.dp, bottom = 28.dp),
+            contentPadding = PaddingValues(start = if (compact) 16.dp else sideRoom, end = if (compact) 16.dp else 24.dp, top = 4.dp, bottom = 28.dp + bottomRoom),
             modifier = Modifier.fillMaxSize(),
         ) {
             items(pageItems, key = { it.key }) { item ->
@@ -1210,16 +1274,22 @@ internal fun GroupCard(first: Boolean, last: Boolean, highlight: Boolean, conten
     val top = if (first) 18.dp else 0.dp
     val bottom = if (last) 18.dp else 0.dp
     val shape = RoundedCornerShape(topStart = top, topEnd = top, bottomStart = bottom, bottomEnd = bottom)
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            // The glass card, a slice at a time: its sheen and edge light are on the top of the whole group card, so only its
-            // first slice carries them; every slice paints its part of the shadow round the card.
-            .xmbGlassSlice(shape, first, last)
-            .background(if (highlight) cs.primary.copy(alpha = 0.12f) else Color.Transparent),
-    ) {
-        if (!first) HorizontalDivider(thickness = 1.dp, color = deckLineAt(0.6f))
-        content()
+    // XMB: the slice's bounds and corners, so the gliding outline of a row in it lands on the slice (the card's own edge), not on
+    // the row's inset box (see XmbSliceBox). Null elsewhere.
+    val slice = rememberXmbSlice(shape)
+    CompositionLocalProvider(LocalXmbSlice provides slice) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .xmbSliceTrack(slice)
+                // The glass card, a slice at a time: its sheen and edge light are on the top of the whole group card, so only its
+                // first slice carries them; every slice paints its part of the shadow round the card.
+                .xmbGlassSlice(shape, first, last)
+                .background(if (highlight) cs.primary.copy(alpha = 0.12f) else Color.Transparent),
+        ) {
+            if (!first) HorizontalDivider(thickness = 1.dp, color = deckLineAt(0.6f))
+            content()
+        }
     }
 }
 
