@@ -190,8 +190,10 @@ private fun XmbTabsPageBody(
         LocalTopBarOverlayInset.current,
         if (compact) 0.dp else cutout.calculateTopPadding() + xmbFloatingBarBand(ss, portrait = !deckRails()),
     )
-    val gutterStart = ss.dp(16f) + (if (compact) 0.dp else cutout.calculateStartPadding(dir))
-    val gutterEnd = ss.dp(16f) + (if (compact) 0.dp else cutout.calculateEndPadding(dir))
+    // The same gutter on both sides (the wider of the two camera-hole insets), so the pill bar and the pages are centred on the screen.
+    val cutoutSide = if (compact) 0.dp else maxOf(cutout.calculateStartPadding(dir), cutout.calculateEndPadding(dir))
+    val gutterStart = ss.dp(16f) + cutoutSide
+    val gutterEnd = ss.dp(16f) + cutoutSide
     val pad = PaddingValues(start = gutterStart, top = ss.dp(8f), end = gutterEnd, bottom = LocalXmbHintInset.current + ss.dp(8f))
     if (focus.contentPadding != pad) focus.contentPadding = pad
 

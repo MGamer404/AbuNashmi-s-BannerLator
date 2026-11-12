@@ -235,6 +235,11 @@ internal fun ShortcutsXmbView(
      * card is the whole row.
      */
     allShortcuts: List<Shortcut>? = null,
+    /**
+     * [steamHome] in the Deck shell only: what Start (and a tap on the shell's "Start Add Game" hint) runs while the covers hold the
+     * cursor. Null = Start is left alone and no hint shows (the host passes null while its tabs page is up, which has its own).
+     */
+    onAddGame: (() -> Unit)? = null,
 ) {
     if (shortcuts.isEmpty() && allShortcuts == null) return
     val context = LocalContext.current
@@ -402,6 +407,16 @@ internal fun ShortcutsXmbView(
     DisposableEffect(allOpen, inDeckShell, deckActions) {
         if (inDeckShell && allOpen) deckActions.xmbAllGamesOpen.value = true
         onDispose { deckActions.xmbAllGamesOpen.value = false }
+    }
+    // Steam home: Start adds a game and the shell shows its "Start Add Game" hint, while the covers (not the options, nor a nested menu)
+    // hold the cursor. The options' own column is the cursor's place then, and the hint would only be noise beside it.
+    val addNow by rememberUpdatedState(onAddGame)
+    val addHere = steam && inDeckShell && onAddGame != null && !optsOpen && !nested && !allOpen
+    DisposableEffect(addHere, deckActions) {
+        if (!addHere) return@DisposableEffect onDispose {}
+        val run: () -> Unit = { addNow?.invoke() }
+        deckActions.xmbAddGameHint.value = run
+        onDispose { if (deckActions.xmbAddGameHint.value === run) deckActions.xmbAddGameHint.value = null }
     }
     // 1 = centred (no options), 0 = the options layout; the cards peek above the centred row.
     val cT by animateFloatAsState(if (centered) 1f else 0f, tween(300), label = "xmbCentred")
@@ -597,6 +612,11 @@ internal fun ShortcutsXmbView(
                             else -> null
                         } ?: return@onPreviewKeyEvent false
                         return@onPreviewKeyEvent nav.onKey(k, xmbScope)
+                    }
+                    // Steam home, the covers holding the cursor: Start adds a game (the shell's hint says so).
+                    if (e.key == Key.ButtonStart && addHere) {
+                        if (e.nativeKeyEvent.repeatCount == 0) addNow?.invoke()
+                        return@onPreviewKeyEvent true
                     }
                     // The row above the games: Left/Right pick a card, the games stay where they are.
                     if (upperOpen) {

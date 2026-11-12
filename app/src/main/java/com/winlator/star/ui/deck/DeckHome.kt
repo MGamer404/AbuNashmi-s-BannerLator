@@ -577,6 +577,8 @@ internal fun DeckHome(
                     focusTick = if (xmbHome) deckActions.enterTick.intValue + tabsPageClosed else 0,
                     // The peek tabs highlight the one the page last showed; Down and a tap on one open the page (the tabs' own actions).
                     homeTabSel = tabsPageTab,
+                    // Start / the shell's "Add Game" hint work on the Home too (not while the tabs page is up: it has its own).
+                    onAddGame = if (xmbHome && !tabsPageOpen) ({ addGame() }) else null,
                 )
             }
         }

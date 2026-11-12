@@ -85,7 +85,7 @@ private val XMB_STEAM_OUTLINE = Color.White.copy(alpha = 0.92f)
 
 /** The backdrop's gradient ends in this dark navy, at [XMB_STEAM_FADE_MAX] of full strength at the bottom edge. */
 private val XMB_STEAM_NAVY = Color(0xFF0B1426)
-private const val XMB_STEAM_FADE_MAX = 0.58f
+private const val XMB_STEAM_FADE_MAX = 0.35f
 
 /** The covers that are not the focused one are dimmed this much (an opaque black overlay, so the backdrop never shows through) while the options are open. */
 private const val XMB_STEAM_DIM = 0.45f
@@ -102,11 +102,11 @@ private val XMB_STEAM_TIGHT = LineHeightStyle(LineHeightStyle.Alignment.Center, 
 /** The title's line box hugs its glyphs from above: the line is cut from below (the descenders hang out of it), so the subtitle can sit right under. */
 private val XMB_STEAM_TOP = LineHeightStyle(LineHeightStyle.Alignment.Top, LineHeightStyle.Trim.Both)
 
-/** The subtitle's text: light, but a step under the title's white. */
-private val XMB_STEAM_MUTED = Color.White.copy(alpha = 0.72f)
+/** The subtitle's text: nearly white, a hair under the title's white. */
+private val XMB_STEAM_MUTED = Color.White.copy(alpha = 0.9f)
 
-/** The tabs' text: light grey (near white); the one under the cursor is pure white in a thin white outline pill. */
-private val XMB_STEAM_TAB_INK = Color.White.copy(alpha = 0.92f)
+/** The tabs' text: near white; the one under the cursor is pure white in a thin white outline pill. */
+private val XMB_STEAM_TAB_INK = Color.White.copy(alpha = 0.97f)
 
 /** The cards' corners are nearly square, as on the Steam Deck. */
 private val XMB_STEAM_CORNER = 2.dp
@@ -135,7 +135,7 @@ private fun XmbSteamPicture(
  * the device) crossfading as the cursor moves, cropped to fill the whole screen (a landscape hero is scaled to the screen's height, a
  * portrait or low-res one to its width, so no band of anything else shows under it and there is no seam). A dark scrim over the top
  * fifth keeps the shell's header readable, and a soft gradient to dark navy starts at [fadeFrom] (a share of the screen's height: the
- * top edge of the text tabs) and is darkest, but only about half opaque, at the bottom edge. [picture] (the cover) is the usual
+ * top edge of the text tabs) and is darkest, but only about a third opaque, at the bottom edge. [picture] (the cover) is the usual
  * blurred backdrop, which stays underneath: it shows only while the art loads and when there is none.
  */
 @Composable
@@ -410,7 +410,7 @@ private fun XmbSteamTabs(
                             color = if (on) Color.White else XMB_STEAM_TAB_INK,
                             fontSize = ss.sp(11f),
                             letterSpacing = 1.5.sp,
-                            fontWeight = FontWeight.Bold,
+                            fontWeight = FontWeight.Black,
                             maxLines = 1,
                             style = XMB_STEAM_TEXT,
                             modifier = Modifier
