@@ -918,6 +918,10 @@ private fun DeckShellContent(
                             bottom = hintSs.dp(12f) + cutout.calculateBottomPadding(),
                         ),
                 ) {
+                    // The XMB home's tabs page, Stores tab: "Start Add Game" (the Start button runs it too), first of the hints.
+                    deckActions.xmbAddGameHint.value?.let { addGame ->
+                        DeckFloatingHint("≡", GlyphKind.Y, stringResource(R.string.xmb_hint_add_game), addGame)
+                    }
                     // Tools > Files only: "X Options" (the page's options callback, the same one X runs), first of the three.
                     if (deckActions.xmbOptionsHint.value && deckActions.options.value != null) {
                         DeckFloatingHint("X", GlyphKind.Y, "Options", { deckActions.options.value?.invoke() })

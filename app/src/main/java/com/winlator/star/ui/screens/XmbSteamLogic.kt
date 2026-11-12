@@ -45,7 +45,7 @@ private const val XMB_STEAM_LIFT = 120f
 /** The text tabs under the focused game's title. */
 internal enum class XmbSteamTab { STORES, DOWNLOADS, FRIENDS, COMMUNITY }
 
-/** The tabs in the order they are shown: Friends only while signed in to Steam. */
+/** The tabs with Friends only while signed in to Steam. The Home's peek and its tabs page list all four now (see [XMB_PAGE_TABS]). */
 internal fun xmbSteamTabs(steamSignedIn: Boolean): List<XmbSteamTab> =
     XmbSteamTab.entries.filter { it != XmbSteamTab.FRIENDS || steamSignedIn }
 

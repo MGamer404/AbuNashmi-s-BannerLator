@@ -2775,6 +2775,50 @@ trying for speed, <b>notemplates</b> if you get driver crashes.
     <string name="xmb_tab_downloads">Downloads</string>
     <string name="xmb_tab_friends">Friends</string>
     <string name="xmb_tab_community">Community configs</string>
+    <!-- XMB Home, Community configs page -->
+    <string name="xmb_cc_search_hint">Search games</string>
+    <string name="xmb_cc_clear_search">Clear search</string>
+    <string name="xmb_cc_filter_fits">Fits my device</string>
+    <string name="xmb_cc_filter_library">My library</string>
+    <string name="xmb_cc_sort">Sort: %1$s</string>
+    <string name="xmb_cc_sort_popular">Most configs</string>
+    <string name="xmb_cc_sort_name">A to Z</string>
+    <string name="xmb_cc_refresh">Refresh the list</string>
+    <plurals name="xmb_cc_games">
+        <item quantity="one">%d game</item>
+        <item quantity="other">%d games</item>
+    </plurals>
+    <plurals name="xmb_cc_configs">
+        <item quantity="one">%d config</item>
+        <item quantity="other">%d configs</item>
+    </plurals>
+    <plurals name="xmb_cc_devices">
+        <item quantity="one">%d device</item>
+        <item quantity="other">%d devices</item>
+    </plurals>
+    <string name="xmb_cc_counts">%1$s · %2$s</string>
+    <plurals name="xmb_cc_refreshed">
+        <item quantity="one">Refreshed · %d game</item>
+        <item quantity="other">Refreshed · %d games</item>
+    </plurals>
+    <string name="xmb_cc_refresh_failed">Couldn\'t refresh · saved list</string>
+    <string name="xmb_cc_tag_fits">FITS</string>
+    <string name="xmb_cc_tag_library">IN LIBRARY</string>
+    <string name="xmb_cc_tag_own_repo">BANNERLATOR</string>
+    <string name="xmb_cc_loading">Loading the community configs…</string>
+    <string name="xmb_cc_offline_title">No community configs yet</string>
+    <string name="xmb_cc_offline_body">You are offline, or the list has not been downloaded yet.</string>
+    <string name="xmb_cc_retry">Try again</string>
+    <string name="xmb_cc_no_results">No games match</string>
+    <string name="xmb_cc_no_results_hint">Try another search, or switch a filter off.</string>
+    <string name="xmb_cc_back">Back</string>
+    <string name="xmb_cc_your_device">Your device: %1$s</string>
+    <string name="xmb_cc_configs_loading">Loading configs…</string>
+    <string name="xmb_cc_configs_none">No configs listed.</string>
+    <string name="xmb_cc_configs_offline">Showing each device\'s config. Votes and downloads need a connection.</string>
+    <string name="xmb_cc_unknown_device">Unknown device</string>
+    <string name="xmb_cc_apply">Apply</string>
+    <string name="xmb_cc_details">Details</string>
     <string name="xmb_store_signed_in">Signed in · %1$s</string>
     <string name="xmb_store_signed_out">Not signed in · A to sign in</string>
     <string name="xmb_store_no_games">no games yet</string>
@@ -2783,6 +2827,8 @@ trying for speed, <b>notemplates</b> if you get driver crashes.
         <item quantity="other">%d games</item>
     </plurals>
     <string name="xmb_stores_add_game">Add game</string>
+    <string name="xmb_hint_add_game">Add Game</string>
+    <string name="xmb_store_card_signed_out">Sign in</string>
     <string name="xmb_stores_close">Close</string>
     <string name="xmb_all_games_open">Open</string>
     <string name="xmb_all_games_more">+%1$d more</string>

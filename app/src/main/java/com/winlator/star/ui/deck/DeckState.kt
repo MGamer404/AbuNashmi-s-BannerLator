@@ -65,6 +65,11 @@ internal class DeckActions {
      */
     val xmbAllGamesOpen: MutableState<Boolean> = mutableStateOf(false)
     /**
+     * XMB home: set while the tabs page shows its Stores tab to what the Start button (and a tap on the hint) runs: the shell then draws a
+     * "Start Add Game" hint first among the floating Back / Search hints. The page sets it and clears only its own value.
+     */
+    val xmbAddGameHint: MutableState<(() -> Unit)?> = mutableStateOf(null)
+    /**
      * XMB: uptime (ms) until which [DeckEntryFocus] leaves focus alone. A page rail that has just switched the page by D-pad
      * keeps the focus on its own tab, so the page it opened must not pull it into the content.
      */

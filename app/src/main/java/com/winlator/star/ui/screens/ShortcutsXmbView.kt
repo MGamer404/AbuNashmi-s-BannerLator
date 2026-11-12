@@ -217,11 +217,14 @@ internal fun ShortcutsXmbView(
     /**
      * [centeredHome] only: the Steam Deck library look (XmbSteamHome.kt) in place of the centred row and its [upperRow]. The focused game's
      * own art fills the backdrop, one row of covers sits low with the first game as a wide card, and [homeTabs] are the plain text tabs
-     * under its title: Down from the covers moves onto them, Left/Right pick one, A runs it, Up goes back to the covers. The row holds the
+     * under its title, the peek of the host's tabs page: Down from the covers runs the action of tab [homeTabSel] (the last one used, the
+     * first until there is one), and a tap on a tab runs its own, which open the page there. The row holds the
      * whole [shortcuts] list (recent first) and has no All Games card, so it applies only while [allShortcuts] is null.
      */
     steamHome: Boolean = false,
     homeTabs: List<XmbAction> = emptyList(),
+    /** The index in [homeTabs] of the tab the host's tabs page last showed (highlighted under the games), or -1 when it has not been used yet. */
+    homeTabSel: Int = -1,
     /** Asked before the view takes D-pad focus (entry, resume): false leaves focus where it is. */
     takeFocus: () -> Boolean = { true },
     /** Changes when the host wants the view to take focus again (the Deck shell, when a page should take its first focus). */
@@ -382,14 +385,10 @@ internal fun ShortcutsXmbView(
     fun closeUpper() { upOpen = false; act = 0 }
     LaunchedEffect(nested) { if (nested) upOpen = false }
     BackHandler(enabled = upperOpen) { closeUpper() }
-    // Steam home: whether the text tabs under the title hold the cursor, and which one (by its label, so a tab list that changes keeps
-    // the same tab chosen). Saved like the upper row's, so coming back from a tab's own screen finds the cursor where it was left.
-    var tabsOn by rememberSaveable { mutableStateOf(false) }
-    var tabLabel by rememberSaveable { mutableStateOf<String?>(null) }
-    val tabIdx = homeTabs.indexOfFirst { it.label == tabLabel }.coerceAtLeast(0)
-    val tabsActive = steam && homeTabs.isNotEmpty() && tabsOn && !nested && !optsOpen
-    fun tabSet(i: Int) { tabLabel = homeTabs.getOrNull(i.coerceIn(0, (homeTabs.size - 1).coerceAtLeast(0)))?.label }
-    BackHandler(enabled = tabsActive) { tabsOn = false }
+    // Steam home: the text tabs under the title are the host's tabs page peeking. The one it last showed is highlighted (none until it
+    // has been used) and is the one Down opens it on; the page itself, and the keys while it is up, are the host's.
+    val tabIdx = homeTabSel.coerceIn(0, (homeTabs.size - 1).coerceAtLeast(0))
+    val tabsActive = steam && homeTabs.isNotEmpty() && homeTabSel >= 0 && !nested && !optsOpen
     fun closeOpts() { optsOpen = false; act = 0 }
     fun openOpts() { liftIdx = target; optsOpen = true; act = 0 }
     BackHandler(enabled = centeredHome && optsOpen && !nested && !upperOpen) { closeOpts() }
@@ -523,7 +522,6 @@ internal fun ShortcutsXmbView(
                 return@rememberDraggableState
             }
             settleJob?.cancel()
-            tabsOn = false
             // One cover's step on screen, so the row follows the finger at the larger size too.
             val p = (pos.floatValue - delta / (pitchPx * rowScale())).coerceIn(-0.45f, slots - 1 + 0.45f)
             pos.floatValue = p
@@ -562,13 +560,13 @@ internal fun ShortcutsXmbView(
                     swipeDone = true
                     when {
                         optsOpen -> closeOpts()
-                        steam -> if (homeTabs.isNotEmpty() && !selectionMode) tabsOn = true
+                        steam -> if (homeTabs.isNotEmpty() && !selectionMode) runAction(homeTabs[tabIdx])
                         !upperOpen && upperRow.isNotEmpty() && !selectionMode -> openUpper()
                     }
                 }
                 swipeAcc <= -swipePx -> {
                     swipeDone = true
-                    if (upperOpen) closeUpper() else if (tabsOn) tabsOn = false
+                    if (upperOpen) closeUpper()
                 }
             }
         }
@@ -612,27 +610,15 @@ internal fun ShortcutsXmbView(
                             else -> false
                         }
                     }
-                    // Steam home, the text tabs hold the cursor: Left/Right pick one, A runs it, Up (or B) goes back to the covers.
-                    if (tabsActive) {
-                        return@onPreviewKeyEvent when (e.key) {
-                            Key.DirectionLeft -> { tabSet(tabIdx - 1); true }
-                            Key.DirectionRight -> { tabSet(tabIdx + 1); true }
-                            Key.DirectionUp, Key.ButtonB, Key.Escape -> { tabsOn = false; true }
-                            Key.DirectionDown -> true
-                            // Running a tab leaves the cursor on it, so coming back from its screen finds the same tab.
-                            Key.ButtonA, Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> { runAction(homeTabs[tabIdx]); true }
-                            else -> false
-                        }
-                    }
                     // Centred home, no options showing: A shows them, Up lifts the cards (the Steam home has none to lift), Down
-                    // moves onto the Steam home's tabs.
+                    // opens the Steam home's tabs page on its last used tab.
                     if (centered) {
                         return@onPreviewKeyEvent when (e.key) {
                             Key.DirectionLeft -> { settleTo(target - 1); true }
                             Key.DirectionRight -> { settleTo(target + 1); true }
                             Key.ButtonL1 -> if (inDeckShell) false else { settleTo(target - 5); true }
                             Key.ButtonR1 -> if (inDeckShell) false else { settleTo(target + 5); true }
-                            Key.DirectionDown -> { if (steam && homeTabs.isNotEmpty() && !selectionMode) tabsOn = true; true }
+                            Key.DirectionDown -> { if (steam && homeTabs.isNotEmpty() && !selectionMode) runAction(homeTabs[tabIdx]); true }
                             Key.DirectionUp -> if (upperRow.isNotEmpty() && !selectionMode) { openUpper(); true } else steam
                             // The All Games card has no options to show: A opens its page.
                             Key.ButtonA, Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> { if (onAll) allOpen = true else openOpts(); true }
@@ -748,7 +734,6 @@ internal fun ShortcutsXmbView(
                         focused = focused, sdBadge = sdBadge,
                         lift = { 1f - cT }, tabs = homeTabs, tabSel = tabIdx, tabsActive = tabsActive, tabsEnabled = centered,
                         onCard = { i ->
-                            tabsOn = false
                             if (nav.depth == 0) {
                                 val s = shortcuts[i]
                                 when {
@@ -759,7 +744,8 @@ internal fun ShortcutsXmbView(
                                 }
                             }
                         },
-                        onTab = { i -> if (nav.depth == 0) { tabSet(i); tabsOn = true; runAction(homeTabs[i]) } },
+                        // A tap opens the tabs page on that tab (its action sets the tab, so the peek highlights it).
+                        onTab = { i -> if (nav.depth == 0) runAction(homeTabs[i]) },
                     )
                 }
                 if (!steam) {

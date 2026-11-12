@@ -174,8 +174,9 @@ internal fun XmbSteamBackdrop(game: Shortcut?, picture: Any?, fadeFrom: Float) {
  * The row of covers (the whole library, recent first), the focused game's title and the text tabs. [lift] is 0 normally and 1 while
  * the options are open: the card [liftIdx] (the focused one when they opened) glides to the left margin, lifted and larger, with the
  * column opening under it and the other covers continuing in a row to its right (dimmed with an opaque overlay), and the title and
- * tabs fade out. Going back, the row glides to where it rested. [tabsActive] = the tabs hold the cursor, on tab [tabSel]; [tabsEnabled]
- * = they can be tapped. [onCard] / [onTab] are taps.
+ * tabs fade out. Going back, the row glides to where it rested. [tabsActive] = tab [tabSel], the one the host's tabs page last showed, is
+ * highlighted (the tabs are the peek of that page; they never hold the cursor); [tabsEnabled] = they can be tapped. [onCard] / [onTab]
+ * are taps.
  */
 @Composable
 internal fun XmbSteamHome(

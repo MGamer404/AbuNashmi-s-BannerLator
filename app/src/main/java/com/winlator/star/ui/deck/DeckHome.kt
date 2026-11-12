@@ -1,7 +1,6 @@
 package com.winlator.star.ui.deck
 
 import android.content.Context
-import android.content.Intent
 import android.graphics.Bitmap
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animateFloatAsState
@@ -116,9 +115,7 @@ import androidx.preference.PreferenceManager
 import com.winlator.star.R
 import com.winlator.star.androidgames.AndroidGames
 import com.winlator.star.container.Shortcut
-import com.winlator.star.store.DownloadManagerActivity
 import com.winlator.star.store.SteamFriendsAction
-import com.winlator.star.store.SteamFriendsActivity
 import com.winlator.star.ui.DeckDialogBars
 import com.winlator.star.ui.Screen
 import com.winlator.star.ui.DeckDialogScaled
@@ -135,9 +132,9 @@ import com.winlator.star.ui.screens.WrapperManagerDialog
 import com.winlator.star.ui.screens.XmbAction
 import com.winlator.star.ui.screens.XmbGameHost
 import com.winlator.star.ui.screens.XmbSdBadge
+import com.winlator.star.ui.screens.XMB_PAGE_TABS
 import com.winlator.star.ui.screens.XmbSteamTab
 import com.winlator.star.ui.screens.XmbStoreBadges
-import com.winlator.star.ui.screens.xmbSteamTabs
 import com.winlator.star.ui.screens.xmbGameActions
 import com.winlator.star.ui.screens.rememberShortcutLauncher
 import kotlinx.coroutines.flow.first
@@ -387,25 +384,25 @@ internal fun DeckHome(
         // Steam (Linux) entry, whose settings aren't XMB rows, opens the Deck editor.
         xmbGameActions(context, s, xmbHost, openSettings = { actions.perform(GameMenuAction.SETTINGS, it) }, settingsAsColumns = true)
     }
-    // XMB home: the plain text tabs under the focused game's title (Down from the covers moves onto them). Stores opens a small picker
-    // of the five stores and Add game; Downloads, Friends (only while signed in to Steam) and Community configs open their screens.
-    // Built once per change of what it shows, not on every recomposition; the callbacks it calls are tracked separately so the
-    // remembered tabs never hold a stale one.
+    // XMB home: the plain text tabs under the focused game's title are the peek of the tabs page (XmbTabsPage.kt): Down from the covers, or a
+    // tap on a tab, pushes Home up and brings the page up on the last used tab (or the tapped one). Stores, Downloads, Friends and Community
+    // configs are its tabs; the tabs here only say which one to open. The callbacks the page calls are tracked separately so the remembered
+    // tabs never hold a stale one.
     val launchStore by rememberUpdatedState(onLaunchStore)
     val addGame by rememberUpdatedState(onAddGame)
-    var storesOpen by remember { mutableStateOf(false) }
-    val steamSignedIn = signedIn[DeckStore.STEAM] == true
-    val xmbTabs: List<XmbAction> = remember(xmbHome, steamSignedIn) {
-        if (!xmbHome) emptyList() else xmbSteamTabs(steamSignedIn).map { tab ->
+    var tabsPageOpen by rememberSaveable { mutableStateOf(false) }
+    // The tab the page last showed (-1 until it has been opened): the peek highlights it and the page reopens on it.
+    var tabsPageTab by rememberSaveable { mutableStateOf(-1) }
+    // Counts the page's closings, which hand the keys back to the games row.
+    var tabsPageClosed by remember { mutableIntStateOf(0) }
+    val xmbTabs: List<XmbAction> = remember(xmbHome) {
+        if (!xmbHome) emptyList() else XMB_PAGE_TABS.map { tab ->
+            val open = { tabsPageTab = tab.ordinal; tabsPageOpen = true }
             when (tab) {
-                XmbSteamTab.STORES -> XmbAction(context.getString(R.string.xmb_tab_stores), Icons.Filled.Storefront) { storesOpen = true }
-                XmbSteamTab.DOWNLOADS -> XmbAction(context.getString(R.string.xmb_tab_downloads), Icons.Filled.Download) {
-                    runCatching { context.startActivity(Intent(context, DownloadManagerActivity::class.java)) }
-                }
-                XmbSteamTab.FRIENDS -> XmbAction(context.getString(R.string.xmb_tab_friends), Icons.Filled.People) {
-                    runCatching { context.startActivity(Intent(context, SteamFriendsActivity::class.java)) }
-                }
-                XmbSteamTab.COMMUNITY -> XmbAction(context.getString(R.string.xmb_tab_community), Icons.Filled.Public) { actions.showCommunityBrowser = true }
+                XmbSteamTab.STORES -> XmbAction(context.getString(R.string.xmb_tab_stores), Icons.Filled.Storefront, onClick = open)
+                XmbSteamTab.DOWNLOADS -> XmbAction(context.getString(R.string.xmb_tab_downloads), Icons.Filled.Download, onClick = open)
+                XmbSteamTab.FRIENDS -> XmbAction(context.getString(R.string.xmb_tab_friends), Icons.Filled.People, onClick = open)
+                XmbSteamTab.COMMUNITY -> XmbAction(context.getString(R.string.xmb_tab_community), Icons.Filled.Public, onClick = open)
             }
         }
     }
@@ -540,7 +537,17 @@ internal fun DeckHome(
             toolbar()
             emptyFiltered()
         } else {
-            Box(modifier = Modifier.fillMaxSize()) {
+            // The tabs page slides over the XMB home (XmbTabsPage.kt); the XMB stays composed under it, on the same game.
+            XmbTabsPageHost(
+                open = xmbHome && tabsPageOpen,
+                tab = tabsPageTab.coerceAtLeast(0),
+                onTab = { tabsPageTab = it },
+                onClose = { tabsPageOpen = false; tabsPageClosed++ },
+                signedIn = signedIn,
+                games = shortcuts,
+                onStore = { store -> launchStore(store.screen) },
+                onAddGame = { addGame() },
+            ) {
                 ShortcutsXmbView(
                     // The XMB home runs the whole library, recent first, in one row with no All Games card.
                     shortcuts = if (xmbHome) visible else xmbRow,
@@ -566,22 +573,15 @@ internal fun DeckHome(
                     steamHome = xmbHome,
                     homeTabs = xmbTabs,
                     centeredHome = xmbHome,
-                    takeFocus = { !xmbHome || !deckActions.navHold.value },
-                    focusTick = if (xmbHome) deckActions.enterTick.intValue else 0,
+                    takeFocus = { !xmbHome || (!deckActions.navHold.value && !tabsPageOpen) },
+                    focusTick = if (xmbHome) deckActions.enterTick.intValue + tabsPageClosed else 0,
+                    // The peek tabs highlight the one the page last showed; Down and a tap on one open the page (the tabs' own actions).
+                    homeTabSel = tabsPageTab,
                 )
             }
         }
     }
     if (showWrapperManager) WrapperManagerDialog(onDismiss = { showWrapperManager = false })
-    if (storesOpen) {
-        XmbStoresDialog(
-            signedIn = signedIn,
-            games = shortcuts,
-            onStore = { store -> storesOpen = false; launchStore(store.screen) },
-            onAddGame = { storesOpen = false; addGame() },
-            onDismiss = { storesOpen = false },
-        )
-    }
 
     if (filterOpen) {
         LibraryFilterDialog(
