@@ -5,10 +5,6 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -49,9 +45,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -68,6 +66,8 @@ import androidx.compose.ui.zIndex
 import com.winlator.star.androidgames.AndroidGames
 import com.winlator.star.container.Shortcut
 import com.winlator.star.ui.deck.ScreenScale
+import com.winlator.star.ui.deck.XMB_FOCUS_OUTLINE
+import com.winlator.star.ui.deck.XmbTabBadge
 import com.winlator.star.ui.deck.XmbStoreMark
 import com.winlator.star.ui.deck.storeMarkOf
 import com.winlator.star.ui.deck.xmbInkColor
@@ -83,12 +83,9 @@ import kotlin.math.floor
 // centred plain text tabs near the bottom. The geometry is in XmbSteamLogic.kt; ShortcutsXmbView keeps the focus model, the keys and
 // the options column and draws this in place of the centred row.
 
-/** The thin light outline of the focused card. */
-private val XMB_STEAM_OUTLINE = Color.White.copy(alpha = 0.92f)
-
 /** The backdrop's gradient ends in this very dark navy, at [XMB_STEAM_FADE_MAX] of full strength at the bottom edge. */
 private val XMB_STEAM_NAVY = Color(0xFF060B16)
-private const val XMB_STEAM_FADE_MAX = 0.78f
+private const val XMB_STEAM_FADE_MAX = 0.88f
 
 /** The covers that are not the focused one are dimmed this much (an opaque black overlay, so the backdrop never shows through) while the options are open. */
 private const val XMB_STEAM_DIM = 0.45f
@@ -149,8 +146,8 @@ private fun XmbSteamPicture(
  * The Home backdrop: [game]'s own landscape art (its own pick, Steam's, SteamGridDB's, found by LabArt off the main thread and kept on
  * the device) crossfading as the cursor moves, cropped to fill the whole screen (a landscape hero is scaled to the screen's height, a
  * portrait or low-res one to its width, so no band of anything else shows under it and there is no seam). A dark scrim over the top
- * fifth keeps the shell's header readable, and a soft gradient to dark navy starts at [fadeFrom] (a share of the screen's height: the
- * top edge of the text tabs) and is darkest, about four fifths opaque, at the bottom edge. [picture] (the cover) is the usual
+ * fifth keeps the shell's header readable, and a soft gradient to dark navy starts at [fadeFrom] (a share of the screen's height: a little
+ * above the text tabs, see [XMB_STEAM_FADE_LEAD]) and is darkest, a little under nine tenths opaque, at the bottom edge. [picture] (the cover) is the usual
  * blurred backdrop, which stays underneath: it shows only while the art loads and when there is none. [lift] (0 at rest, 1 with a game's
  * options open, glided over the options' own 300 ms) blurs the art layers by up to [XMB_STEAM_BACKDROP_BLUR] dp and dims them (API 31+;
  * below that, only a stronger dim), so the options' text reads; going back, the backdrop sharpens again.
@@ -177,8 +174,8 @@ internal fun XmbSteamBackdrop(game: Shortcut?, picture: Any?, fadeFrom: Float, l
         Box(Modifier.fillMaxSize().graphicsLayer { alpha = xmbSteamBackdropDim(lift(), blurs) }.background(Color.Black))
         Box(
             Modifier.fillMaxSize().background(
-                // Top: a dark scrim for the shell's header. Bottom: from the tabs' top edge (clear) to the bottom edge, the navy's
-                // strength eases in and out over several stops (0, .05, .18, .42, .66, .78 of full), so there is no visible start,
+                // Top: a dark scrim for the shell's header. Bottom: from [from] (clear) to the bottom edge, the navy's
+                // strength eases in and out over several stops (0, .06, .23, .54, .85, 1 of full), so there is no visible start,
                 // band or edge. This box is drawn over the hero art and under the content box (covers, title, tabs), and the shell's
                 // hints are drawn over all of it.
                 Brush.verticalGradient(
@@ -196,11 +193,20 @@ internal fun XmbSteamBackdrop(game: Shortcut?, picture: Any?, fadeFrom: Float, l
     }
 }
 
-/** [content] blurred by up to [XMB_STEAM_BACKDROP_BLUR] dp as [lift] (0..1) goes to 1; with no blur layer at all at rest (and where blurring is not supported). */
+/**
+ * [content] blurred by up to [XMB_STEAM_BACKDROP_BLUR] dp as [lift] (0..1) goes to 1 (and not at all where blurring is not supported).
+ * [lift] is read in the graphics layer, not here, so the 300 ms glide re-draws the layer without recomposing the content each frame.
+ */
 @Composable
 private fun XmbSteamBlurred(lift: () -> Float, blurs: Boolean, content: @Composable () -> Unit) {
-    val radius = if (blurs) xmbSteamBackdropBlur(lift(), XMB_STEAM_BACKDROP_BLUR) else 0f
-    Box(Modifier.fillMaxSize().then(if (radius > 0.5f) Modifier.blur(radius.dp) else Modifier)) { content() }
+    Box(
+        Modifier.fillMaxSize().graphicsLayer {
+            val radius = if (blurs) xmbSteamBackdropBlur(lift(), XMB_STEAM_BACKDROP_BLUR).dp.toPx() else 0f
+            // Like Modifier.blur: the blurred edge is clamped and cut to the box.
+            clip = radius > 0.5f
+            renderEffect = if (radius > 0.5f) BlurEffect(radius, radius, TileMode.Clamp) else null
+        },
+    ) { content() }
 }
 
 /**
@@ -208,8 +214,8 @@ private fun XmbSteamBlurred(lift: () -> Float, blurs: Boolean, content: @Composa
  * the options are open: the card [liftIdx] (the focused one when they opened) glides to the left margin, lifted and larger, with the
  * column opening under it and the other covers continuing in a row to its right (dimmed with an opaque overlay), and the title and
  * tabs fade out. Going back, the row glides to where it rested. [tabsActive] = tab [tabSel], the one the host's tabs page last showed, is
- * highlighted (the tabs are the peek of that page; they never hold the cursor); [tabsEnabled] = they can be tapped. [onCard] / [onTab]
- * are taps.
+ * highlighted (the tabs are the peek of that page; they never hold the cursor); [tabsEnabled] = they can be tapped; [badges] are the counts shown
+ * after the tabs. [onCard] / [onTab] are taps.
  */
 @Composable
 internal fun XmbSteamHome(
@@ -227,6 +233,7 @@ internal fun XmbSteamHome(
     tabSel: Int,
     tabsActive: Boolean,
     tabsEnabled: Boolean,
+    badges: Map<XmbSteamTab, Int>,
     onCard: (Int) -> Unit,
     onTab: (Int) -> Unit,
 ) {
@@ -242,7 +249,7 @@ internal fun XmbSteamHome(
             }
         }
         XmbSteamTitle(focused, sdBadge, sl, row, target, pos, accent, ss, lift)
-        if (tabs.isNotEmpty()) XmbSteamTabs(tabs, tabSel, tabsActive, tabsEnabled, sl, accent, ss, lift, onTab)
+        if (tabs.isNotEmpty()) XmbSteamTabs(tabs, tabSel, tabsActive, tabsEnabled, badges, sl, accent, ss, lift, onTab)
     }
 }
 
@@ -291,7 +298,7 @@ private fun XmbSteamCover(
             .xmbSteamSlot(index, pos, sl, row, focused, lifted, liftIdx, lift)
             .clip(shape)
             .background(Color(0xFF111111))
-            .then(if (focused) Modifier.border(1.5.dp, XMB_STEAM_OUTLINE, shape) else Modifier)
+            .then(if (focused) Modifier.border(1.5.dp, XMB_FOCUS_OUTLINE, shape) else Modifier)
             .xmbClick(src, onClick),
     ) {
         if (index == 0) {
@@ -340,7 +347,7 @@ private fun XmbSteamWideArt(s: Shortcut, accent: Color) {
     val tick = LabArt.tick
     val models = remember(path, tick) { xmbSteamWideOrder(LabArt.models(s, "wide"), LabArt.models(s, "bg")) }
     val pics = remember(models) { models.map { LabArt.Pic(it) } }
-    var loaded by remember(path) { mutableStateOf(false) }
+    var loaded by remember(path, models) { mutableStateOf(false) }
     var failed by remember(path, models) { mutableStateOf(false) }
     var coverDecided by remember(path) { mutableStateOf(false) }
     val cover = xmbWideCoverShows(failed, resolved, coverDecided)
@@ -399,7 +406,7 @@ private fun XmbSteamTitle(
     AnimatedContent(
         targetState = focused,
         contentKey = { it?.file?.path },
-        transitionSpec = { (fadeIn(tween(220)) + slideInVertically(tween(220)) { it / 6 }) togetherWith fadeOut(tween(90)) },
+        transitionSpec = { xmbTitleTransition() },
         label = "xmbSteamTitle",
         modifier = Modifier
             .offset(0.dp, sl.titleY.dp)
@@ -435,14 +442,16 @@ private fun XmbSteamTitle(
     }
 }
 
-// The plain text tabs: small, upper case, letter-spaced, evenly spaced and centred on the screen. The one under the cursor (while the
-// tabs hold it) is pure white in a thin white outline pill on a faint accent fill; the rest are bold light grey.
+// The plain text tabs, the peek of the tabs page: small, upper case, letter-spaced, evenly spaced and centred on the screen. The one the
+// page last showed is pure white in a thin white outline pill on a faint accent fill; the rest are bold light grey. A tab's count
+// (active downloads, online friends) shows as a small badge after its name.
 @Composable
 private fun XmbSteamTabs(
     tabs: List<XmbAction>,
     sel: Int,
     active: Boolean,
     enabled: Boolean,
+    badges: Map<XmbSteamTab, Int>,
     sl: XmbSteamLayout,
     accent: Color,
     ss: ScreenScale,
@@ -450,6 +459,7 @@ private fun XmbSteamTabs(
     onTap: (Int) -> Unit,
 ) {
     val shape = RoundedCornerShape(50)
+    val tabScroll = rememberScrollState()
     Box(
         Modifier
             .offset(0.dp, sl.tabsTop.dp)
@@ -458,8 +468,13 @@ private fun XmbSteamTabs(
             .graphicsLayer { alpha = 1f - lift() },
         contentAlignment = Alignment.Center,
     ) {
-        // Wider than the screen (a narrow one), the row scrolls.
-        Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Wider than the screen (a narrow one), the row scrolls. It takes the horizontal drag only then: a scroll modifier that has
+        // nothing to scroll would still swallow a swipe that starts on the tabs, and the games row above could not be swiped from here.
+        Row(
+            Modifier.horizontalScroll(tabScroll, enabled = tabScroll.maxValue > 0),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             tabs.forEachIndexed { i, tab ->
                 key(tab.label) {
                     val on = active && i == sel
@@ -471,20 +486,27 @@ private fun XmbSteamTabs(
                             .then(if (enabled) Modifier.xmbClick(src) { onTap(i) } else Modifier),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text(
-                            tab.label.uppercase(),
-                            color = if (on) Color.White else XMB_STEAM_TAB_INK,
-                            fontSize = ss.sp(11f),
-                            letterSpacing = 1.5.sp,
-                            fontWeight = FontWeight.Black,
-                            maxLines = 1,
-                            style = XMB_STEAM_TEXT,
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
                             modifier = Modifier
                                 .clip(shape)
                                 .background(if (on) accent.copy(alpha = 0.22f) else Color.Transparent)
                                 .then(if (on) Modifier.border(1.5.dp, Color.White, shape) else Modifier)
                                 .padding(horizontal = XMB_STEAM_TAB_PAD.dp, vertical = 6.dp),
-                        )
+                        ) {
+                            Text(
+                                tab.label.uppercase(),
+                                color = if (on) Color.White else XMB_STEAM_TAB_INK,
+                                fontSize = ss.sp(11f),
+                                letterSpacing = 1.5.sp,
+                                fontWeight = FontWeight.Black,
+                                maxLines = 1,
+                                style = XMB_STEAM_TEXT,
+                            )
+                            // The tabs are those of XMB_PAGE_TABS, in its order.
+                            XMB_PAGE_TABS.getOrNull(i)?.let { kind -> XmbTabBadge(kind, badges[kind] ?: 0, ss) }
+                        }
                     }
                 }
             }

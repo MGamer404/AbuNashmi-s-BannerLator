@@ -758,7 +758,7 @@ private fun ComponentRow(vm: ContentsHubViewModel, item: ContentsHubViewModel.Ca
             val label = when (state.phase) {
                 ContentDownloadPhase.DOWNLOADING -> "Downloading ${(state.fraction * 100).toInt()}%"
                 ContentDownloadPhase.INSTALLING -> if (state.saveOnly) "Saving to My Files" else "Installing"
-                ContentDownloadPhase.DONE -> if (state.saveOnly) "Saved" else "Installed"
+                ContentDownloadPhase.DONE -> if (state.saveOnly) "Saved" else state.note ?: "Installed"
                 ContentDownloadPhase.ERROR -> state.error ?: "Failed"
             }
             if (!state.terminal) {
@@ -775,15 +775,17 @@ private fun ComponentRow(vm: ContentsHubViewModel, item: ContentsHubViewModel.Ca
         // button's height (IntrinsicSize.Min), so the pair never wraps in portrait or landscape.
         Row(horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
-            if (installed) {
+            // A driver with the same name is installed: the same download again overwrites it.
+            val replace = state != null && state.phase == ContentDownloadPhase.ERROR && state.replaceable
+            if (installed && !replace) {
                 PrimaryButton("Installed", Icons.Filled.CheckCircle, enabled = false,
                     container = InstalledGreen.copy(alpha = 0.16f), content = InstalledGreen, modifier = Modifier.weight(1f)) {}
             } else {
-                PrimaryButton(if (busy) "Working…" else "Download & Install", Icons.Filled.Download,
+                PrimaryButton(if (busy) "Working…" else if (replace) "Replace" else "Download & Install", Icons.Filled.Download,
                     enabled = !busy, container = cs.primary, content = Color.Black, modifier = Modifier.weight(1f), first = true) {
                     ContentsInstaller.install(
                         context.applicationContext, item.type, item.sourceName, item.versionName,
-                        item.downloadUrl, vm.keepRaw.value,
+                        item.downloadUrl, vm.keepRaw.value, replace = replace,
                     ) { vm.refreshStatus(); vm.refreshFolders() }
                 }
             }
@@ -992,7 +994,7 @@ private fun FolderCard(
     }
 }
 
-private fun shareArchive(context: Context, f: ComponentLibrary.SavedFile) {
+internal fun shareArchive(context: Context, f: ComponentLibrary.SavedFile) {
     runCatching {
         val shareUri = if (f.uri.scheme == "content") f.uri else {
             val file = java.io.File(f.uri.path!!)

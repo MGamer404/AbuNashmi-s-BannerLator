@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- XMB Home, tabs page, Friends tab (ui/deck/XmbFriendsPage.kt, XmbFriendsDialogs.kt) -->
-    <string name="xmb_fr_summary">%1$d online · %2$d friends</string>
+    <plurals name="xmb_fr_summary">
+        <item quantity="one">%1$d online · %2$d friend</item>
+        <item quantity="other">%1$d online · %2$d friends</item>
+    </plurals>
     <string name="xmb_fr_add">Add friend</string>
     <string name="xmb_fr_settings">Settings</string>
 

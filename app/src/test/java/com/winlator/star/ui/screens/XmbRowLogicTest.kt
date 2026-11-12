@@ -29,28 +29,6 @@ class XmbRowLogicTest {
         assertEquals(0, xmbSlotOf(emptyList(), XMB_ALL_PATH, hasAll = true))
     }
 
-    @Test fun rowAnchor_activeRow_isOnItsChosenCard() {
-        assertEquals(8f, xmbRowAnchor(8f, 1f), 0.0001f)
-        assertEquals(2.4f, xmbRowAnchor(2.4f, 1f), 0.0001f)
-    }
-
-    @Test fun rowAnchor_inactiveRow_restsOnTheFirstCardWhereverItWasLeft() {
-        assertEquals(0f, xmbRowAnchor(8f, 0f), 0.0001f)
-        assertEquals(0f, xmbRowAnchor(0f, 0f), 0.0001f)
-        assertEquals(0f, xmbRowAnchor(-0.3f, 0f), 0.0001f)
-    }
-
-    @Test fun rowAnchor_glidesBetweenRestAndChosen() {
-        assertEquals(4f, xmbRowAnchor(8f, 0.5f), 0.0001f)
-        assertEquals(2f, xmbRowAnchor(8f, 0.25f), 0.0001f)
-        assertEquals(5f, xmbRowAnchor(8f, 0.5f, rest = 2f), 0.0001f)
-    }
-
-    @Test fun rowAnchor_activeAmountIsClamped() {
-        assertEquals(8f, xmbRowAnchor(8f, 1.4f), 0.0001f)
-        assertEquals(0f, xmbRowAnchor(8f, -0.2f), 0.0001f)
-    }
-
     @Test fun gridColumns_wideScreen_isSix() {
         assertEquals(6, xmbGridColumns(avail = 740f, gap = 12f, minCell = 80f))
         assertEquals(6, xmbGridColumns(avail = 1400f, gap = 12f, minCell = 80f))

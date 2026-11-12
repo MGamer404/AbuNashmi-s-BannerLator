@@ -4,7 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** The Steam look of the XMB Home: its tab list, the art order of the wide card, the row's scrolling and windowing, and the layout. */
+/** The Steam look of the XMB Home: the art order of the wide card, the row's scrolling and windowing, and the layout. */
 class XmbSteamLogicTest {
 
     private val delta = 0.001f
@@ -12,14 +12,6 @@ class XmbSteamLogicTest {
     // A screen 800 wide with a 20 margin; a wide first card (200) and portrait cards (100), 10 apart, no focus growth unless asked.
     private fun row(count: Int, focus: Float = 1f, viewW: Float = 800f) =
         XmbSteamRow(count, firstW = 200f, otherW = 100f, gap = 10f, viewW = viewW, edge = 20f, focus = focus)
-
-    @Test fun tabs_friendsOnlyWhileSignedInToSteam() {
-        assertEquals(listOf(XmbSteamTab.STORES, XmbSteamTab.DOWNLOADS, XmbSteamTab.COMMUNITY), xmbSteamTabs(false))
-        assertEquals(
-            listOf(XmbSteamTab.STORES, XmbSteamTab.DOWNLOADS, XmbSteamTab.FRIENDS, XmbSteamTab.COMMUNITY),
-            xmbSteamTabs(true),
-        )
-    }
 
     @Test fun wideOrder_landscapeArtFirstThenBackground_eachOnce() {
         assertEquals(listOf("pick", "header", "hero2x", "hero"), xmbSteamWideOrder(listOf("pick", "header"), listOf("pick", "hero2x", "hero")))
@@ -120,8 +112,9 @@ class XmbSteamLogicTest {
 
     @Test fun layout_coversKeepTheirTopsAndReachDownToTheTitle() {
         val l = XmbSteamLayout(w = 851f, h = 393f, clipTop = 50f, bottomClear = 46f, k = 1f, rowH = 40f, extra = 6f)
-        // The top edge is where it was before the title block was tightened (a third of the screen tall, 125.76 dp, ending 298.595).
-        assertEquals(298.595f - 393f * 0.32f, l.cardTop, 0.01f)
+        // The tops sit in the middle of the screen's height (a short screen puts them above half of it), below the floating tab bar.
+        assertTrue(l.cardTop in 393f * 0.35f..393f * 0.50f)
+        assertTrue(l.cardTop >= 50f + 8f)
         // Their bottom edge now reaches down to just above the title, so they are taller than that third.
         assertTrue(l.fH > 393f * 0.32f + 4f)
         assertEquals(l.cardTop + l.fH, l.cardBottom, delta)
@@ -161,9 +154,9 @@ class XmbSteamLogicTest {
         assertTrue(l.titleY + XMB_STEAM_TITLE_H <= l.tabsCentre - XMB_STEAM_TAB_TEXT_H / 2f - XMB_STEAM_TABS_GAP + delta)
     }
 
-    @Test fun layout_rowMarginIsAbout40DpOnAPhoneInLandscape() {
+    @Test fun layout_rowMarginIsAbout56DpOnAPhoneInLandscape() {
         val l = XmbSteamLayout(w = 700f, h = 360f, clipTop = 50f, bottomClear = 46f, k = 1f, rowH = 40f, extra = 6f)
-        assertTrue(l.edge in 38f..44f)
+        assertTrue(l.edge in 56f..60f)
         // The row starts at it and its last card ends at the same margin from the right.
         val r = l.row(30)
         assertEquals(l.edge, r.x(0, 0f), delta)
@@ -174,6 +167,10 @@ class XmbSteamLogicTest {
         val l = XmbSteamLayout(w = 851f, h = 393f, clipTop = 50f, bottomClear = 46f, k = 1f, rowH = 40f, extra = 6f)
         assertEquals(l.cardBottom - l.lift + 12f, l.colTop, delta)
         assertTrue(l.nVis in 2..8)
+        // The gaps scale with the screen like every other dp of the layout.
+        val big = XmbSteamLayout(w = 851f, h = 393f, clipTop = 50f, bottomClear = 46f, k = 1.5f, rowH = 40f, extra = 6f)
+        assertEquals(9f, big.gap, delta)
+        assertEquals(big.cardBottom - big.lift + 18f, big.colTop, delta)
         // The column and the card above it start at the same left margin.
         assertEquals(l.edge, l.row(30).xOpts(5, 5f, 5, XMB_STEAM_OPTS_SCALE, 1f), delta)
         assertTrue(XMB_STEAM_OPTS_SCALE > XMB_STEAM_FOCUS_SCALE)
@@ -275,9 +272,142 @@ class XmbSteamLogicTest {
 
     @Test fun layout_portraitScreenKeepsTheWideCardOnScreen() {
         val l = XmbSteamLayout(w = 393f, h = 851f, clipTop = 50f, bottomClear = 46f, k = 0.95f, rowH = 46f, extra = 6f)
-        assertTrue(l.port)
         assertTrue(l.wideW + 2 * l.edge <= 393f)
         // Lifted and larger at the left margin, it still fits.
         assertTrue(l.wideW * XMB_STEAM_OPTS_SCALE + l.edge <= 393f)
+    }
+
+    // ── Touch ──
+
+    @Test fun vSwipe_needsTheThresholdEitherWay() {
+        assertEquals(XmbVSwipe.NONE, xmbVSwipe(0f, 28f))
+        assertEquals(XmbVSwipe.NONE, xmbVSwipe(27f, 28f))
+        assertEquals(XmbVSwipe.NONE, xmbVSwipe(-27f, 28f))
+        assertEquals(XmbVSwipe.DOWN, xmbVSwipe(28f, 28f))
+        assertEquals(XmbVSwipe.UP, xmbVSwipe(-28f, 28f))
+        assertEquals(XmbVSwipe.UP, xmbVSwipe(-90f, 28f))
+    }
+
+    @Test fun homeSwipe_upOpensTheTabsPageFromTheGamesOnly() {
+        assertEquals(XmbSwipeAction.OPEN_TABS, xmbHomeSwipeAction(XmbVSwipe.UP, optsOpen = false, tabsAvailable = true))
+        assertEquals(XmbSwipeAction.NONE, xmbHomeSwipeAction(XmbVSwipe.UP, optsOpen = false, tabsAvailable = false))
+        // With the options open an upward swipe does nothing (it never opens the page over them).
+        assertEquals(XmbSwipeAction.NONE, xmbHomeSwipeAction(XmbVSwipe.UP, optsOpen = true, tabsAvailable = true))
+    }
+
+    @Test fun homeSwipe_downClosesTheOptionsAndDoesNothingOnTheGames() {
+        assertEquals(XmbSwipeAction.CLOSE_OPTIONS, xmbHomeSwipeAction(XmbVSwipe.DOWN, optsOpen = true, tabsAvailable = true))
+        assertEquals(XmbSwipeAction.CLOSE_OPTIONS, xmbHomeSwipeAction(XmbVSwipe.DOWN, optsOpen = true, tabsAvailable = false))
+        assertEquals(XmbSwipeAction.NONE, xmbHomeSwipeAction(XmbVSwipe.DOWN, optsOpen = false, tabsAvailable = true))
+        assertEquals(XmbSwipeAction.NONE, xmbHomeSwipeAction(XmbVSwipe.NONE, optsOpen = true, tabsAvailable = true))
+    }
+
+    @Test fun tapWithOptionsOpen_closesThemOnlyAboveTheColumnsTopEdge() {
+        assertTrue(xmbTapClosesOptions(tapY = 120f, optionsTop = 300f))
+        assertTrue(xmbTapClosesOptions(tapY = 299.5f, optionsTop = 300f))
+        // At the column's height or lower: left alone.
+        assertTrue(!xmbTapClosesOptions(tapY = 300f, optionsTop = 300f))
+        assertTrue(!xmbTapClosesOptions(tapY = 640f, optionsTop = 300f))
+    }
+
+    @Test fun tapGate_dropsABounceAndAcceptsTheNextRealTap() {
+        assertTrue(!xmbTapGateOpen(lastMs = 1000L, nowMs = 1100L))
+        assertTrue(xmbTapGateOpen(lastMs = 1000L, nowMs = 1000L + XMB_TAP_GAP_MS))
+        assertTrue(xmbTapGateOpen(lastMs = 0L, nowMs = 50_000L))
+        // A clock that went backwards does not lock taps out.
+        assertTrue(xmbTapGateOpen(lastMs = 5000L, nowMs = 4000L))
+    }
+
+    @Test fun layout_aTouchSizedRowStillLeavesRoomForTheOptions() {
+        val l = XmbSteamLayout(w = 800f, h = 360f, clipTop = 50f, bottomClear = 46f, k = 0.95f, rowH = XMB_STEAM_MIN_ROW, extra = 6f)
+        assertTrue(l.nVis >= 2)
+        assertTrue(XMB_STEAM_MIN_ROW >= 48f)
+    }
+
+    // ── The details panel ──
+
+    // The heights xmbInfoPlan charges at the default font scale: facts 6 + 17, header 19, dots 5 + 14, description 5 + 15 a line.
+    private fun used(p: XmbInfoPlan, headerLines: Int = 1, dotsLines: Int = 1, factsLines: Int = 1): Float {
+        var h = 0f
+        if (p.facts) h += 6f + 17f * factsLines + 4f * (factsLines - 1)
+        if (p.header) h += 19f * headerLines + 4f * (headerLines - 1)
+        if (p.dots) h += 5f + 14f * dotsLines + 4f * (dotsLines - 1)
+        if (p.descLines > 0) h += 5f + 15f * p.descLines
+        return h
+    }
+
+    @Test fun infoPlan_roomyShowsEverythingWithTheWantedDescription() {
+        val p = xmbInfoPlan(availH = 200f, fontScale = 1f, headerLines = 1, dotsLines = 1, factsLines = 1, descWanted = 3)
+        assertTrue(p.header && p.dots && p.facts)
+        assertEquals(3, p.descLines)
+    }
+
+    @Test fun infoPlan_theDescriptionShrinksFirst() {
+        // Header, dots and facts take 61; 96 leaves 35 for the description: 5 for its gap and two lines.
+        val p = xmbInfoPlan(availH = 96f, fontScale = 1f, headerLines = 1, dotsLines = 1, factsLines = 1, descWanted = 5)
+        assertTrue(p.header && p.dots && p.facts)
+        assertEquals(2, p.descLines)
+    }
+
+    @Test fun infoPlan_thenTheDotsLine_thenThePillsLine_theFactsRowLast() {
+        val noDesc = xmbInfoPlan(availH = 61f, fontScale = 1f, headerLines = 1, dotsLines = 1, factsLines = 1, descWanted = 3)
+        assertTrue(noDesc.header && noDesc.dots && noDesc.facts)
+        assertEquals(0, noDesc.descLines)
+        val noDots = xmbInfoPlan(availH = 50f, fontScale = 1f, headerLines = 1, dotsLines = 1, factsLines = 1, descWanted = 3)
+        assertTrue(noDots.header && noDots.facts && !noDots.dots)
+        assertEquals(0, noDots.descLines)
+        val factsOnly = xmbInfoPlan(availH = 30f, fontScale = 1f, headerLines = 1, dotsLines = 1, factsLines = 1, descWanted = 3)
+        assertTrue(factsOnly.facts && !factsOnly.header && !factsOnly.dots)
+        assertEquals(0, factsOnly.descLines)
+        val nothing = xmbInfoPlan(availH = 20f, fontScale = 1f, headerLines = 1, dotsLines = 1, factsLines = 1, descWanted = 3)
+        assertTrue(!nothing.facts && !nothing.header && !nothing.dots)
+    }
+
+    @Test fun infoPlan_neverUsesMoreThanTheRoom_andMoreRoomNeverHidesABlock() {
+        var prev: XmbInfoPlan? = null
+        for (hh in 0..260) {
+            val h = hh.toFloat()
+            val p = xmbInfoPlan(h, 1f, headerLines = 1, dotsLines = 1, factsLines = 1, descWanted = 4)
+            assertTrue("$h used ${used(p)}", used(p) <= h + 0.001f)
+            val q = prev
+            if (q != null) {
+                assertTrue(!q.facts || p.facts)
+                assertTrue(!q.header || p.header)
+                assertTrue(!q.dots || p.dots)
+                assertTrue(p.descLines >= q.descLines)
+            }
+            prev = p
+        }
+    }
+
+    @Test fun infoPlan_wrappedBlocksCostTheirLines() {
+        // Two header lines (19 + 4 + 19) and two facts lines (6 + 17 + 4 + 17): 42 + 44 = 86, no dots wanted.
+        val tight = xmbInfoPlan(availH = 85f, fontScale = 1f, headerLines = 2, dotsLines = 0, factsLines = 2, descWanted = 2)
+        assertTrue(tight.facts && !tight.header)
+        val fits = xmbInfoPlan(availH = 86f, fontScale = 1f, headerLines = 2, dotsLines = 0, factsLines = 2, descWanted = 2)
+        assertTrue(fits.facts && fits.header)
+        assertEquals(0, fits.descLines)
+    }
+
+    @Test fun infoPlan_aBiggerFontNeedsMoreRoom() {
+        val normal = xmbInfoPlan(availH = 61f, fontScale = 1f, headerLines = 1, dotsLines = 1, factsLines = 1, descWanted = 0)
+        assertTrue(normal.header && normal.dots && normal.facts)
+        val big = xmbInfoPlan(availH = 61f, fontScale = 1.5f, headerLines = 1, dotsLines = 1, factsLines = 1, descWanted = 0)
+        assertTrue(big.facts && big.header && !big.dots)
+    }
+
+    @Test fun infoPlan_noDescriptionOrNoSpecsLeavesJustTheRest() {
+        // An Android entry: no pills and no dots beyond its store tag; a game with no description.
+        val p = xmbInfoPlan(availH = 120f, fontScale = 1f, headerLines = 1, dotsLines = 0, factsLines = 1, descWanted = 0)
+        assertTrue(p.header && p.facts && !p.dots)
+        assertEquals(0, p.descLines)
+    }
+
+    @Test fun flowLines_wrapWhenAnItemDoesNotFit() {
+        assertEquals(0, xmbFlowLines(emptyList(), 10f, 100f))
+        assertEquals(1, xmbFlowLines(listOf(50f, 50f), 10f, 110f))
+        assertEquals(2, xmbFlowLines(listOf(50f, 50f, 50f), 10f, 120f))
+        assertEquals(1, xmbFlowLines(listOf(300f), 10f, 100f))
+        assertEquals(2, xmbFlowLines(listOf(300f, 20f), 10f, 100f))
     }
 }

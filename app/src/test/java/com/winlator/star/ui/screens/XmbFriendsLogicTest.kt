@@ -164,14 +164,14 @@ class XmbFriendsLogicTest {
         val lines = xmbFriendsLines(rows, 2)
         assertEquals(2, xmbFriendsVertical(rows, lines, 0, down = true, wantCol = 0))
         assertEquals(0, xmbFriendsVertical(rows, lines, 2, down = false, wantCol = 0))
-        assertEquals(XMB_FRIENDS_TO_BAR, xmbFriendsVertical(rows, lines, 0, down = false, wantCol = 0))
+        assertEquals(XMB_TWO_COL_TO_BAR, xmbFriendsVertical(rows, lines, 0, down = false, wantCol = 0))
         assertEquals(4, xmbFriendsVertical(rows, lines, 4, down = true, wantCol = 0))
     }
 
     @Test fun move_aStrayIndexIsSafe() {
         val rows = xmbFriendsRows(none, none, none, emptySet())
         val lines = xmbFriendsLines(rows, 2)
-        assertEquals(XMB_FRIENDS_TO_BAR, xmbFriendsVertical(rows, lines, 7, down = false, wantCol = 0))
+        assertEquals(XMB_TWO_COL_TO_BAR, xmbFriendsVertical(rows, lines, 7, down = false, wantCol = 0))
         assertEquals(0, xmbFriendsVertical(emptyList(), emptyList(), 0, down = true, wantCol = 0))
     }
 
@@ -232,5 +232,52 @@ class XmbFriendsLogicTest {
         )
         assertEquals(3, friendsOnlineCount(friends))
         assertEquals(0, friendsOnlineCount(emptyList()))
+    }
+
+    // --- the cursor after the roster changed under it ---
+
+    @Test fun normalise_aRowThatWentStartsTheCursorAfreshOnTheRowItFellTo() {
+        // The last friend was removed with Remove armed: only the toolbar is left, and the button must not stay on 2 (Settings is 1).
+        val rows = xmbFriendsRows(none, none, none, emptySet())
+        val stale = XmbFriendsCursor(key = "f:4", sub = 2, openKey = "f:4", confirmRemove = true)
+        val index = xmbFriendsResolve(rows, stale.key, 3)
+        assertEquals(XmbFriendsCursor(XmbFriendsRow.Toolbar.key, 0, null, false), xmbFriendsNormalise(rows, stale, index))
+    }
+
+    @Test fun normalise_aRequestAnsweredMovesToTheNextRowWithoutItsButtons() {
+        val rows = xmbFriendsRows(
+            friends = listOf(friend(9, "z", Presence.ONLINE)),
+            incoming = emptyList(), outgoing = none, collapsed = emptySet(),
+        )
+        val stale = XmbFriendsCursor(key = "in:1", sub = 1, openKey = "in:1", confirmRemove = false)
+        val index = xmbFriendsResolve(rows, stale.key, 2)
+        assertEquals(XmbFriendsCursor(rows[index].key, 0, null, false), xmbFriendsNormalise(rows, stale, index))
+    }
+
+    @Test fun normalise_aCursorOnItsRowIsLeftAlone() {
+        val rows = roster()
+        val toolbar = XmbFriendsCursor(XmbFriendsRow.Toolbar.key, 1, null, false)
+        assertEquals(toolbar, xmbFriendsNormalise(rows, toolbar, 0))
+        val open = XmbFriendsCursor("f:2", 2, "f:2", true)
+        assertEquals(open, xmbFriendsNormalise(rows, open, 3))
+    }
+
+    @Test fun normalise_aFriendWithFewerActionsClampsTheButtonAndDropsTheWaitingRemove() {
+        // Four buttons in a game (the cursor on Remove), three once the friend is out of it.
+        val rows = xmbFriendsRows(listOf(friend(5, "a", Presence.ONLINE)), none, none, emptySet())
+        val at = rows.indexOfFirst { it.key == "f:5" }
+        val cursor = XmbFriendsCursor("f:5", 3, "f:5", true)
+        assertEquals(XmbFriendsCursor("f:5", 2, "f:5", false), xmbFriendsNormalise(rows, cursor, at))
+    }
+
+    @Test fun normalise_aButtonOnAClosedCardOrAStaleOpenKeyIsReset() {
+        val rows = roster()
+        assertEquals(XmbFriendsCursor("f:2", 0, null, false), xmbFriendsNormalise(rows, XmbFriendsCursor("f:2", 3, null, false), 3))
+        assertEquals(XmbFriendsCursor("f:2", 0, null, false), xmbFriendsNormalise(rows, XmbFriendsCursor("f:2", 0, "f:3", false), 3))
+    }
+
+    @Test fun normalise_anIndexOffTheListChangesNothing() {
+        val cursor = XmbFriendsCursor("f:2", 1, "f:2", false)
+        assertEquals(cursor, xmbFriendsNormalise(emptyList(), cursor, 0))
     }
 }

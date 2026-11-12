@@ -148,6 +148,7 @@ import com.winlator.star.xenvironment.components.GuestProgramLauncherComponent;
 import com.winlator.star.xenvironment.components.PulseAudioComponent;
 import com.winlator.star.xenvironment.components.SysVSharedMemoryComponent;
 import com.winlator.star.xenvironment.components.XServerComponent;
+import com.winlator.star.xenvironment.components.YServerComponent;
 import com.winlator.star.xserver.Pointer;
 import com.winlator.star.xserver.Atom;
 import com.winlator.star.xserver.Property;
@@ -447,7 +448,12 @@ public class XServerDisplayActivity extends AppCompatActivity {
     private volatile boolean reshadePulseInProgress = false;
     private static final int RESHADE_PULSE_TARGET_PRESENTS = 2;   // real presents to reveal a change
     private static final long RESHADE_PULSE_FALLBACK_MS = 80L;    // re-freeze if the game isn't presenting
-    private boolean isRelativeMouseMovement = false;
+    private boolean isRelativeMouseMovement = false;   // Aim mode On (the old Relative Mouse)
+    // This session's Touch and Aim mode (TouchAimSettings), resolved at launch, changed from the in-game menu.
+    private String touchMode = com.winlator.star.core.TouchAimSettings.TOUCHPAD;
+    private String aimMode = com.winlator.star.core.TouchAimSettings.AUTO;
+    // Aim Auto: the game is doing mouse-look by moving the pointer back (XServer.aimTracker). Main thread.
+    private volatile boolean autoAimActive = false;
     private boolean isMouseDisabled = false;
     private boolean pointerCaptureRequested = false;
 
@@ -1732,6 +1738,28 @@ public class XServerDisplayActivity extends AppCompatActivity {
     // our embedded compositor instead of the X11 server. All branches are guarded by this flag,
     // so the X11 path is unchanged when it's false. See WAYLAND_RUNTIME.md.
     private boolean waylandMode = false;
+    // Test (feat/yserver-spike): BANNER_YSERVER runs yserver instead of the Java X server. Hosted: the
+    // guest stays on winex11 and yserver shows its windows through the Wayland compositor, so the
+    // display side is Wayland mode (waylandMode true) while the guest side is X11 (guestWayland()).
+    private boolean yserverMode = false;
+    private boolean yserverHosted = false;
+    private String yserverModeName = null;
+    // The last Wine window yserver mode brought to the front (YSERVER-MAP).
+    private volatile String yserverRaisedClass = null;
+    private volatile YServerComponent yserverComponent = null;
+    private volatile long yserverRaisedHwnd = 0;
+    // yserver mode: when the game's own frame rate last came in (YSERVER-FPS). While it is fresh, the
+    // HUD shows it instead of counting the compositor's frames, which stop at the display's refresh.
+    private volatile long yserverFpsAtMs = 0;
+
+    private boolean yserverFpsLive() {
+        return yserverHosted && android.os.SystemClock.elapsedRealtime() - yserverFpsAtMs < 2500;
+    }
+
+    /** The guest runs winewayland (Wayland mode without yserver). */
+    private boolean guestWayland() {
+        return waylandMode && !yserverHosted;
+    }
     // The session runs gamescope in the Linux runtime instead of Wine; the compositor is its display.
     private boolean gamescopeMode = false;
     // Bumped per compositor bring-to-front request, so a delayed repeat never re-raises an older window.
@@ -1842,7 +1870,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
         // The guest asking for no pointer is authoritative - it is what X11 always had and Wayland
         // never did. The idle/controller rules below are only a fallback for when it wants one.
         boolean guestHides = waylandGuestHidesCursor && cursorAutoHide;
-        if (guestHides || padDriving || waylandPointerLocked) {
+        if (guestHides || padDriving || waylandPointerLocked || autoAimActive) {
             if (waylandCursorView.getVisibility() != View.GONE)
                 waylandCursorView.setVisibility(View.GONE);
             return;
@@ -1873,7 +1901,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
         if (xServerView == null) return;
         HostRenderer renderer = xServerView.getRenderer();
         if (renderer == null) return;
-        boolean visible = x11CursorWanted && !x11CursorAutoHidden;
+        boolean visible = x11CursorWanted && !x11CursorAutoHidden && !autoAimActive;
         if (renderer.isCursorVisible() != visible) renderer.setCursorVisible(visible);
     }
 
@@ -1920,6 +1948,61 @@ public class XServerDisplayActivity extends AppCompatActivity {
         waylandCursorIdle.post(x11CursorHideRunnable);
     }
     private volatile boolean waylandPointerLocked; // a program holds a pointer lock in the compositor
+    private static final long WAYLAND_WARP_MAX_MS = 120L;
+    private boolean waylandLockPending;              // a lock that may still turn out to be a warp
+    private final Runnable waylandLockApply = () -> {
+        if (!waylandLockPending) return;
+        waylandLockPending = false;
+        applyWaylandPointerLock(true, 0, 0);
+    };
+
+    /** The compositor's lock state changed at uptime {@code at} (compositor thread time). Main thread. */
+    private void onWaylandPointerLock(boolean locked, int x, int y, long at) {
+        if (xServer == null) return;
+        if (locked) {
+            waylandLockPending = true;
+            waylandCursorIdle.removeCallbacks(waylandLockApply);
+            waylandCursorIdle.postDelayed(waylandLockApply, WAYLAND_WARP_MAX_MS);
+            return;
+        }
+        if (waylandLockPending) {
+            waylandLockPending = false;
+            waylandCursorIdle.removeCallbacks(waylandLockApply);
+            xServer.syncPointerPosition(x, y);
+            waylandMoveCursorView(x, y);
+            xServer.aimTracker.onWarp(at);
+            return;
+        }
+        applyWaylandPointerLock(false, x, y);
+    }
+
+    private void applyWaylandPointerLock(boolean locked, int x, int y) {
+        waylandPointerLocked = locked;
+        xServer.setExternalRelativeMode(locked || autoAimActive);
+        if (locked) {
+            if (waylandCursorView != null) waylandCursorView.setVisibility(View.GONE);
+            ensurePointerCapture("wayland-pointer-lock");
+        } else {
+            xServer.injectPointerMove(x, y);
+            if (!isRelativeMouseMovement && !cursorLock && touchpadView != null && pointerCaptureRequested) {
+                touchpadView.releasePointerCapture();
+                touchpadView.setOnCapturedPointerListener(null);
+                pointerCaptureRequested = false;
+            }
+        }
+    }
+
+    /** The overlay arrow to scene x,y without showing it (the game moved the pointer, not the player). */
+    private void waylandMoveCursorView(int x, int y) {
+        if (waylandSurfaceView == null || waylandCursorView == null) return;
+        int vw = waylandSurfaceView.getWidth(), vh = waylandSurfaceView.getHeight();
+        if (vw <= 0 || vh <= 0) return;
+        float[] pos = waylandSceneToView(x, y, vw, vh);
+        waylandCursorX = pos[0];
+        waylandCursorY = pos[1];
+        waylandCursorView.setX(waylandCursorX - waylandCursorHotX);
+        waylandCursorView.setY(waylandCursorY - waylandCursorHotY);
+    }
     private EnvVars overrideEnvVars;
 
     private void createNotifcationChannel() {
@@ -2248,9 +2331,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
         state.setShowLogs(enableLogs);
         state.setShowMagnifier(allowMagnifier);
         state.setIsPaused(isPaused);
-        state.setIsRelativeMouseMovement(isRelativeMouseMovement);
         state.setIsMouseDisabled(isMouseDisabled);
-        state.setMoveCursorToTouchpoint(preferences.getBoolean("move_cursor_to_touchpoint", false));
         state.onClose                  = () -> runOnUiThread(this::closeInGameMenu);
         state.onKeyboard               = this::showGuestKeyboard;
         state.onInputControls          = () -> showInputControlsDialog();
@@ -2402,6 +2483,16 @@ public class XServerDisplayActivity extends AppCompatActivity {
                 }
                 container.saveData();
                 // The limiter guard still has to see the >=2 threshold crossing.
+                reapplyFpsLimit();
+                return;
+            }
+            if (wfgNativeSession()) {
+                // WFG: same shape as the other two native engines - a level change is a call.
+                Log.i("XServerDisplayActivity", "wfg native toggle: fgOn=" + fgOn + " mult=" + mult
+                    + " renderer=" + (vulkanRendererOrNull() != null ? "vulkan" : "NULL"));
+                applyWfgNative(mult, flow);
+                if (fgOn) container.setFrameGenMultiplier(mult);
+                container.saveData();
                 reapplyFpsLimit();
                 return;
             }
@@ -2609,10 +2700,9 @@ public class XServerDisplayActivity extends AppCompatActivity {
         state.onMagnifier              = () -> showMagnifierOverlay();
         state.onLogs                   = () -> XServerDialogState.INSTANCE.show(XServerDialogState.ActiveDialog.DEBUG);
         state.onExit                   = () -> exit();
-        // Seed the drawer chip from the persisted preference so it reflects reality on open
-        // (state.reset() above zeroes it, so this has to come after).
-        state.setMoveCursorToTouchpoint(preferences.getBoolean("move_cursor_to_touchpoint", false));
-        state.onMoveCursorToTouchpoint = () -> MoveCursorToTouchpoint();
+        // Touch and Aim mode: seeded once the game is known (the launch resolve below).
+        state.onTouchMode = mode -> runOnUiThread(() -> setSessionTouchMode(mode));
+        state.onAimMode = mode -> runOnUiThread(() -> setSessionAimMode(mode));
         state.setCursorAutoHide(preferences.getBoolean("cursor_autohide", true));
         state.setCursorAutoHideMs(Math.max(500, Math.min(10000,
                 preferences.getInt("cursor_autohide_ms", (int) WAYLAND_CURSOR_IDLE_MS))));
@@ -2625,22 +2715,6 @@ public class XServerDisplayActivity extends AppCompatActivity {
         state.setGestureLongPressMs(preferences.getInt("gesture_long_press_ms",
             TouchpadView.DEFAULT_LONG_PRESS_MILLISECONDS));
         state.onGestureConfigChange = this::applyGestureConfig;
-        state.onRelativeMouseMovement  = () -> {
-            isRelativeMouseMovement = !isRelativeMouseMovement;
-            state.setIsRelativeMouseMovement(isRelativeMouseMovement);
-            xServer.setRelativeMouseMovement(isRelativeMouseMovement);
-            // Persist per game (issue #431): titles like ETS2 need Relative Mouse every launch, and this
-            // toggle used to live only in memory so it reset to off each session while the neighbouring
-            // Cursor to Touch survived. Same owner rule as Present Mode / the FPS limiter: write to the
-            // shortcut when launched from one (that is what the launch seed reads back), else the container.
-            if (shortcut != null) {
-                shortcut.putExtra("relativeMouse", isRelativeMouseMovement ? "1" : "0");
-                shortcut.saveData();
-            } else {
-                container.putExtra("relativeMouse", isRelativeMouseMovement ? "1" : "0");
-                container.saveData();
-            }
-        };
         state.onDisableMouse           = () -> {
             isMouseDisabled = !isMouseDisabled;
             state.setIsMouseDisabled(isMouseDisabled);
@@ -2879,6 +2953,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
                 return;
             }
             shortcut = new Shortcut(container, new File(shortcutPath));
+            stampLastPlayed(shortcut);
         }
         // Fix the Goldberg cloud-sync decision now, for the whole session (see skipCloudForGoldberg()).
         skipCloudForGoldberg();
@@ -2902,6 +2977,35 @@ public class XServerDisplayActivity extends AppCompatActivity {
             Log.i("XServerDisplayActivity", "runtime: gamescope (Linux), display server: Wayland");
         }
 
+        // Valve's Windows Steam client (a shortcut whose target is steam.exe). Its Chromium pages are drawn by
+        // one process into another's window, which the Wayland driver cannot show yet, so it starts on X11
+        // unless the game has a display system of its own set. See WindowsSteamClient.
+        windowsSteamSession = !gamescopeMode && shortcut != null
+                && com.winlator.star.store.WindowsSteamClient.isSteamExe(shortcut.path);
+        if (windowsSteamSession && waylandMode && shortcut.getExtra("displayBackend", "").isEmpty()) {
+            waylandMode = false;
+            windowsSteamDisplayNote = "steam.exe starts on X11 (its pages do not draw on Wayland yet)";
+            Log.i("XServerDisplayActivity", "Windows Steam: " + windowsSteamDisplayNote);
+        }
+
+        // yserver (test): the game's or the container's BANNER_YSERVER.
+        if (!gamescopeMode) {
+            yserverModeName = YServerComponent.requestedMode(container.getEnvVars(),
+                    shortcut != null ? shortcut.getExtra("envVars") : null);
+            if (yserverModeName != null && YServerComponent.binary(this) == null) {
+                Log.w("XServerDisplayActivity", "yserver: BANNER_YSERVER set but no yserver binary; Java X server");
+                yserverModeName = null;
+            }
+            if (YServerComponent.MODE_HOSTED.equals(yserverModeName)) {
+                yserverHosted = true;
+                waylandMode = true;
+                Log.i("XServerDisplayActivity", "yserver: hosted - guest on X11 (winex11), windows shown by the Wayland compositor");
+            } else if (YServerComponent.MODE_RECORD.equals(yserverModeName)) {
+                waylandMode = false;
+                Log.i("XServerDisplayActivity", "yserver: record - headless, no picture");
+            }
+        }
+
         // In-game Friends tab (drawer): read the friends/chat opt-in once for this launch and start
         // watching for a live source. The RealSteam hint keeps the app-session source from flashing up
         // before maybeStageRealSteam() arms the plan (which confirms or withdraws it); disarmed in onDestroy.
@@ -2923,12 +3027,13 @@ public class XServerDisplayActivity extends AppCompatActivity {
         // generator runs differs (in-container layer vs our own compositor).
         boolean lsfgOn = fgEngine.equals("lsfg") || fgEngine.equals("lsfg-native");
         boolean fpsLimOn = resolvedFpsLimiterEnabled();
-        boolean bionicFgActive = fgEnabled || lsfgOn;
+        boolean wfgOn = wfgNativeSession();
+        boolean bionicFgActive = fgEnabled || lsfgOn || wfgOn;
         XServerDrawerState.INSTANCE.setBionicFgActive(bionicFgActive);
         // Wayland: the compositor's frame-generation bridge (LSFG Native + Win-FG Native,
         // waylandcomp/src/framegen_bridge.c) is compiled in, so the drawer's FG rows are live there.
         XServerDrawerState.INSTANCE.setWaylandFrameGenAvailable(waylandMode);
-        XServerDrawerState.INSTANCE.setFrameGenEnabled(fgEnabled || lsfgOn);
+        XServerDrawerState.INSTANCE.setFrameGenEnabled(fgEnabled || lsfgOn || wfgOn);
         // Frame gen normally starts OFF in-game (multiplier 0) regardless of the container setting. The
         // layer is still loaded at launch (below), so the user can opt in per session from the FG drawer
         // (live hot-reload). EXCEPTION: an lsfg container that opted into auto-enable seeds its saved
@@ -3050,7 +3155,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
         // selected layer must ship winewayland.so AND its bundled Wayland Turnip, else the compositor
         // start, the registry driver write and the winex11.drv hide below would all run against a
         // layer that can't drive them. Fall back to X11 and say so.
-        if (waylandMode && !gamescopeMode
+        if (waylandMode && !gamescopeMode && !yserverHosted
                 && !com.winlator.star.core.WineWaylandSupport.isWaylandCapable(wineInfo)) {
             Log.w("XServerDisplayActivity", "wayland: layer " + wineVersion + " (" + wineInfo.path
                     + ") lacks winewayland.so and/or lib/libvulkan_freedreno_wayland.so; launching on X11");
@@ -3298,20 +3403,35 @@ public class XServerDisplayActivity extends AppCompatActivity {
         inputControlsManager = new InputControlsManager(this);
         xServer = new XServer(new ScreenInfo(screenSize));
         xServer.setWinHandler(winHandler);
+        // Windows Steam: Wine's offscreen surfaces sit in a fully transparent window; drawn, they cover Steam's menus.
+        if (windowsSteamSession) xServer.hideTransparentWindows = true;
+        // Windows Steam: Wine copies the fullscreen page over Big Picture's menus every frame; lay them back on top.
+        xServer.keepOverlayCopies = windowsSteamSession;
+        // "Start in Big Picture": Steam starts on its desktop window and is then asked to open Big Picture (see
+        // windowsSteamBigPictureWatch), so leaving Big Picture has the desktop window to go back to.
+        windowsSteamBigPicturePending = windowsSteamSession && shortcut != null
+                && "1".equals(shortcut.getExtra(com.winlator.star.store.WindowsSteamClient.EXTRA_BIG_PICTURE));
+        if (windowsSteamBigPicturePending) windowsSteamMenuHandler.postDelayed(windowsSteamBigPictureWatch, 2000);
         advertisePanelRefreshRates();
 
-        // Restore the saved Relative Mouse state for this game (issue #431). Read from the same owner
-        // the drawer toggle writes to: shortcut extra first (per-game), container extra as the fallback.
-        // The drawer state was seeded with the in-memory default before the shortcut existed, so echo
-        // the restored value back to it here; pointer capture itself is (re)requested on window focus.
+        // Touch and Aim mode for this game: the shortcut's own, else the container's (a session without
+        // a shortcut saves there), else the app's (Settings › Mouse & keyboard). An old Relative Mouse
+        // "1" reads as Aim On (issue #431: ETS2 and others need it every launch); see TouchAimSettings.
+        // Pointer capture for Aim On is (re)requested on window focus.
         {
-            String savedRelMouse = container.getExtra("relativeMouse", "0");
-            if (shortcut != null) savedRelMouse = shortcut.getExtra("relativeMouse", savedRelMouse);
-            if ("1".equals(savedRelMouse)) {
-                isRelativeMouseMovement = true;
-                xServer.setRelativeMouseMovement(true);
-                XServerDrawerState.INSTANCE.setIsRelativeMouseMovement(true);
-            }
+            final com.winlator.star.container.Shortcut sc = shortcut;
+            final Container ct = container;
+            java.util.function.Function<String, String> game = sc != null ? sc::getExtra : null;
+            java.util.function.Function<String, String> cont = ct != null ? ct::getExtra : null;
+            aimMode = com.winlator.star.core.TouchAimSettings.resolveAim(game, cont,
+                    com.winlator.star.core.TouchAimSettings.appAim(preferences));
+            touchMode = com.winlator.star.core.TouchAimSettings.resolveTouch(game, cont,
+                    com.winlator.star.core.TouchAimSettings.appTouch(preferences));
+            xServer.aimTracker.setListener(active -> runOnUiThread(() -> onAutoAimChanged(active)));
+            applyAimMode();
+            XServerDrawerState.INSTANCE.setTouchMode(touchMode);
+            XServerDrawerState.INSTANCE.setAimMode(aimMode);
+            Log.i("XServerDisplayActivity", "input: touch " + touchMode + ", aim " + aimMode);
         }
 
         // Add the OnWindowModificationListener for dynamic workarounds
@@ -3636,6 +3756,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
         // to a process that was never stopped, a GL thread told to resume when it never paused, a perf
         // profile re-applied), which is what keeps the two sides symmetric without a second flag.
         tvSuspendDeferred = false;
+        pipSuspendDeferred = false;
 
         if (environment != null) {
             xServerView.onResume();
@@ -3709,8 +3830,9 @@ public class XServerDisplayActivity extends AppCompatActivity {
         // onStop, the callback that really does mean this session has left the screen. Nothing at all
         // happens here — not even releasing held inputs, because the pad is still playing the game over
         // on the TV. If a build genuinely stops us, everything below still runs, one callback later.
-        // PiP is untouched (it has always frozen the guest) and a session on its way out tears down
-        // here as before — there is no onStop worth waiting for.
+        // PiP keeps the game running in its window (suspendSessionForBackground leaves the guest alone and
+        // onStop freezes it if the window is closed), and a session on its way out tears down here as
+        // before — there is no onStop worth waiting for.
         if (!isInPictureInPictureMode() && onTvLaunchDisplay() && !isFinishing() && !isDestroyed()) {
             tvSuspendDeferred = true;
             Log.i("XServerDisplayActivity", "TV: paused but still on display " + sessionDisplayId
@@ -3728,6 +3850,13 @@ public class XServerDisplayActivity extends AppCompatActivity {
     private boolean tvSuspendDeferred = false;
 
     /**
+     * Set when the session went into Picture-in-Picture: the guest keeps running in the PiP window. Closing
+     * the window (onStop without a return to full screen) freezes it as any background does; expanding it
+     * back (onResume) clears this.
+     */
+    private boolean pipSuspendDeferred = false;
+
+    /**
      * Freeze the guest and drop everything that must not keep running while this session is off screen:
      * exactly what {@link #onPause} used to do inline, unchanged, so the two callers cannot drift.
      *
@@ -3737,6 +3866,12 @@ public class XServerDisplayActivity extends AppCompatActivity {
      * re-applied — and PiP relies on it running after a pause this method never saw.
      */
     private void suspendSessionForBackground() {
+        suspendSessionForBackground(false);
+    }
+
+    /** [leftPip]: the PiP window was closed, so the session is off screen even though PiP may still be reported. */
+    private void suspendSessionForBackground(boolean leftPip) {
+        boolean inPip = !leftPip && isInPictureInPictureMode();
         // Nothing may stay held while the guest is frozen: a button still down when the game stops
         // answering comes back pressed. (Deliberately NOT done for a TV session that is only paused —
         // the game is still on screen and the controller is still playing it.)
@@ -3752,7 +3887,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
         controllerTestActive = false;
 
         // Check if we are entering Picture-in-Picture mode
-        if (!isInPictureInPictureMode()) {
+        if (!inPip) {
             // Only pause environment and xServerView if not in PiP mode
             if (environment != null) {
                 environment.onPause();
@@ -3772,7 +3907,10 @@ public class XServerDisplayActivity extends AppCompatActivity {
 
         savePlaytimeData();
         handler.removeCallbacks(savePlaytimeRunnable);
-        ProcessHelper.pauseAllWineProcesses();
+        // In PiP the game is still on screen, in its small window: it keeps running (installs and
+        // downloads inside it go on). onStop freezes it if the window is closed.
+        if (inPip) pipSuspendDeferred = true;
+        else ProcessHelper.pauseAllWineProcesses();
         unregisterGyroSensor();
     }
 
@@ -4093,6 +4231,12 @@ public class XServerDisplayActivity extends AppCompatActivity {
         refreshNativeFgAvailability(true, NATIVE_FG_CHECK_TRIES);
     }
 
+    /** WFG at launch: select the engine and arm it OFF, like the other native engines. */
+    private void prepareWfgNative() {
+        applyWfgNative(0, container.getFrameGenFlowScale());
+        refreshNativeFgAvailability(true, NATIVE_FG_CHECK_TRIES);
+    }
+
     // ── Native frame gen that cannot run: say so instead of failing silently ──
     // A community report (Adreno 710): LSFG Native did nothing because the Renderer
     // Driver was the stock "System" driver (Vulkan 1.1); it needs 1.3. The chain ran
@@ -4117,8 +4261,9 @@ public class XServerDisplayActivity extends AppCompatActivity {
         final String engine = resolvedFrameGenEngine();
         final boolean lsfg = "lsfg-native".equals(engine);
         final boolean winfg = "bionic".equals(engine) && winFgNativeSession;
-        if (!lsfg && !winfg) return "";
-        final String name = lsfg ? "LSFG Native" : "Win-FG Native";
+        final boolean wfg = "wfg".equals(engine);
+        if (!lsfg && !winfg && !wfg) return "";
+        final String name = lsfg ? "LSFG Native" : wfg ? "WFG" : "Win-FG Native";
         if (lsfg && lsfgNativeStatus > com.winlator.star.core.LsfgNative.STATUS_OK)
             return "LSFG Native can't start: "
                 + com.winlator.star.core.LsfgNative.explain(lsfgNativeStatus) + ".";
@@ -4221,7 +4366,37 @@ public class XServerDisplayActivity extends AppCompatActivity {
         s.setFrameGenMultiplier(0);
         float flow = s.getFrameGenFlowScale().getValue();
         if ("lsfg-native".equals(resolvedFrameGenEngine())) applyLsfgNative(0, flow);
+        else if ("wfg".equals(resolvedFrameGenEngine())) applyWfgNative(0, flow);
         else applyWinFgNative(0, flow, resolvedFrameGenModel(), resolvedFrameGenPerfPreset());
+    }
+
+    /** WFG flow resolution: 1 = Balance (252 px on the short side), 2 = Fast (180 px). */
+    private static final int WFG_PERF_PRESET = 1;
+
+    /**
+     * Select WFG (WinNative's frame generator) in the renderer and arm it at {@code multiplier}
+     * (0 = off). WFG paces itself up to the display rate; the multiplier caps how many frames it
+     * may add per game frame.
+     */
+    private void applyWfgNative(int multiplier, float flowScale) {
+        if (waylandMode) {
+            applyWaylandFrameGen(multiplier, flowScale, 0, WFG_PERF_PRESET);
+            return;
+        }
+        com.winlator.star.renderer.vulkan.VulkanRenderer vkr = vulkanRendererOrNull();
+        if (vkr == null) {
+            Log.w("XServerDisplayActivity", "applyWfgNative(" + multiplier + ") ignored - no Vulkan renderer");
+            return;
+        }
+        Log.i("XServerDisplayActivity", "applyWfgNative: multiplier=" + multiplier
+            + " preset=" + WFG_PERF_PRESET + " refresh=" + currentDisplayRefreshHz());
+        vkr.setFrameGenEngine(com.winlator.star.renderer.vulkan.VulkanRenderer.FG_ENGINE_WFG);
+        vkr.setWinFgTuning(4, WFG_PERF_PRESET);
+        vkr.setFrameGenTuning(flowScale, currentDisplayRefreshHz(), 0);
+        vkr.setFrameGenArmed(multiplier >= 2, multiplier);
+        applyEffectivePresentMode();
+        applyNativeFgLocks(multiplier >= 2);
+        if (multiplier >= 2) startLsfgStatsReadout(); else stopLsfgStatsReadout();
     }
 
     /** Win-FG Native is Performance-only; see applyWinFgNative. 2 = Performance. */
@@ -4274,16 +4449,21 @@ public class XServerDisplayActivity extends AppCompatActivity {
      */
     private void applyWaylandFrameGen(int multiplier, float flowScale, int model, int perfPreset) {
         final boolean lsfg = "lsfg-native".equals(resolvedFrameGenEngine());
-        Log.i("XServerDisplayActivity", "applyWaylandFrameGen: engine=" + (lsfg ? "lsfg-native" : "winfg-native")
+        final boolean wfg = "wfg".equals(resolvedFrameGenEngine());
+        Log.i("XServerDisplayActivity", "applyWaylandFrameGen: engine=" + (lsfg ? "lsfg-native" : wfg ? "wfg-native" : "winfg-native")
             + " multiplier=" + multiplier + " flow=" + flowScale
-            + (lsfg ? "" : " model=" + model + " preset=" + WINFG_PERF_PRESET + " (pinned; requested " + perfPreset + ")")
+            + (lsfg || wfg ? "" : " model=" + model + " preset=" + WINFG_PERF_PRESET + " (pinned; requested " + perfPreset + ")")
             + " refresh=" + currentDisplayRefreshHz());
         com.winlator.star.wayland.WaylandCompositor.nativeSetFrameGenEngine(lsfg
             ? com.winlator.star.wayland.WaylandCompositor.FG_ENGINE_LSFG
+            : wfg ? com.winlator.star.wayland.WaylandCompositor.FG_ENGINE_WFG
             : com.winlator.star.wayland.WaylandCompositor.FG_ENGINE_WINFG);
         if (lsfg) {
             com.winlator.star.wayland.WaylandCompositor.nativeSetLsfgCachePath(
                 com.winlator.star.core.LsfgNative.cacheFile(this).getAbsolutePath());
+        } else if (wfg) {
+            // The preset picks WFG's flow resolution (applyWfgNative).
+            com.winlator.star.wayland.WaylandCompositor.nativeSetWinFgTuning(4, WFG_PERF_PRESET);
         } else {
             // Performance preset pinned exactly as applyWinFgNative does (user decision, 2026-09-09).
             com.winlator.star.wayland.WaylandCompositor.nativeSetWinFgTuning(model, WINFG_PERF_PRESET);
@@ -6488,6 +6668,23 @@ public class XServerDisplayActivity extends AppCompatActivity {
     private com.winlator.star.store.SteamAgentChannel steamAgentChannel = null;
     private volatile boolean agentConnected = false;
     private volatile boolean agentLoginResolved = false;
+    /**
+     * "Last played" (the shortcut extra lastPlayed, read by the Home "Continue" tile and the recent order) for
+     * every way a game starts: the in-app Play buttons stamp it before launching (recordLastPlayed in
+     * ShortcutsScreen.kt), but a pinned home-screen icon or another app's intent comes straight here.
+     * Same stamp; the file's modified time is put back, since the "Recently added" order sorts on it.
+     */
+    private static void stampLastPlayed(Shortcut s) {
+        try {
+            long modified = s.file.lastModified();
+            s.putExtra("lastPlayed", String.valueOf(System.currentTimeMillis()));
+            s.saveData();
+            if (modified > 0L) s.file.setLastModified(modified);
+        } catch (Throwable t) {
+            Log.w("XServerDisplayActivity", "last played not saved: " + t.getMessage());
+        }
+    }
+
     /** WN_STEAM_VAC policy the agent echoed on insecure_fallback (absent/older agent = VAC). Picks the
      *  game_spawned wording: a non-VAC title's direct start is not an "insecure" outcome. */
     private volatile boolean agentFallbackVac = true;
@@ -7679,6 +7876,12 @@ public class XServerDisplayActivity extends AppCompatActivity {
                     + " — freezing the game after all");
             suspendSessionForBackground();
         }
+        // The PiP window was closed rather than expanded: the session has left the screen, freeze it now.
+        if (pipSuspendDeferred) {
+            pipSuspendDeferred = false;
+            Log.i("XServerDisplayActivity", "PiP: window closed — freezing the game");
+            suspendSessionForBackground(true);
+        }
         // Belt-and-suspenders: also drop controller-test isolation on stop (see onPause).
         controllerTestActive = false;
         savePlaytimeData();
@@ -7910,7 +8113,9 @@ public class XServerDisplayActivity extends AppCompatActivity {
      */
     private void pressLinuxSteamButton(boolean qam) {
         final WinHandler buttons = winHandler;
-        if (buttons == null || !isLinuxSteamSession()) return;
+        // Windows Steam reads the same player-one pad (Guide through BANNERIN's XInputGetStateEx).
+        if (buttons == null || !(isLinuxSteamSession() || windowsSteamSession)) return;
+        final String client = windowsSteamSession ? "Steam (Windows)" : "Steam (Linux)";
         // Whichever in-game menu is up (the drawer or the Deck panel) closes first.
         boolean menuWasOpen = drawerLayout != null && isInGameMenuOpen();
         if (menuWasOpen) closeInGameMenu();
@@ -7926,13 +8131,13 @@ public class XServerDisplayActivity extends AppCompatActivity {
                 h.postDelayed(() -> buttons.setSystemButtons(true, true), lead);
                 h.postDelayed(() -> buttons.setSystemButtons(true, false), lead + LINUX_QAM_A_HOLD_MS);
                 h.postDelayed(() -> buttons.setSystemButtons(false, false), lead + LINUX_QAM_A_HOLD_MS + LINUX_QAM_GUIDE_TAIL_MS);
-                Log.i("XServerDisplayActivity", "Steam (Linux): Quick Access Menu chord with a " + lead + " ms Guide lead");
+                Log.i("XServerDisplayActivity", client + ": Quick Access Menu chord with a " + lead + " ms Guide lead");
             }, t);
         } else {
             h.postDelayed(() -> buttons.setSystemButtons(true, false), t);
             h.postDelayed(() -> buttons.setSystemButtons(false, false), t + LINUX_STEAM_BUTTON_HOLD_MS);
         }
-        Log.i("XServerDisplayActivity", "Steam (Linux): " + (qam ? "Quick Access Menu" : "Steam button") + " pressed for the client");
+        Log.i("XServerDisplayActivity", client + ": " + (qam ? "Quick Access Menu" : "Steam button") + " pressed for the client");
     }
 
     /** The switches the drawer's Steam client section mirrors from the entry's Steam (Linux) settings. */
@@ -8112,6 +8317,168 @@ public class XServerDisplayActivity extends AppCompatActivity {
     private int menuButtonKeyCode;
     private boolean menuButtonHeld;
 
+    // Windows Steam session (shortcut target steam.exe): a Menu button press is Shift+Tab (Steam's overlay key), or over
+    // Big Picture the Steam button (a double press: the Quick Access Menu); holding it opens the side menu. Set in onCreate.
+    private boolean windowsSteamSession;
+    private String windowsSteamDisplayNote;
+    private static final long WINDOWS_STEAM_MENU_HOLD_MS = 500;
+    private final Handler windowsSteamMenuHandler = new Handler(Looper.getMainLooper());
+    private boolean windowsSteamMenuHoldFired;
+    private final Runnable windowsSteamMenuHold = () -> {
+        windowsSteamMenuHoldFired = true;
+        toggleInGameMenu();
+    };
+    // Big Picture: a second press within this time of the first opens the Quick Access Menu instead.
+    private static final long WINDOWS_STEAM_DOUBLE_PRESS_MS = 300;
+    private boolean windowsSteamPressPending;
+    private final Runnable windowsSteamSinglePress = () -> {
+        windowsSteamPressPending = false;
+        pressLinuxSteamButton(false);
+    };
+
+    /**
+     * Windows Steam session, a Menu button press (released before the hold). Over Big Picture: the Steam button, which
+     * opens its side menu, or with a second press within WINDOWS_STEAM_DOUBLE_PRESS_MS the Quick Access Menu (Steam held,
+     * A tapped). Anywhere else: Shift+Tab, the overlay key (in normal Steam the Steam button would start Big Picture).
+     */
+    private void onWindowsSteamMenuPress() {
+        if (windowsSteamPressPending) {
+            windowsSteamPressPending = false;
+            windowsSteamMenuHandler.removeCallbacks(windowsSteamSinglePress);
+            pressLinuxSteamButton(true);
+            return;
+        }
+        if (!windowsSteamBigPictureFocused()) {
+            pressWindowsSteamOverlayKeys();
+            return;
+        }
+        windowsSteamPressPending = true;
+        windowsSteamMenuHandler.postDelayed(windowsSteamSinglePress, WINDOWS_STEAM_DOUBLE_PRESS_MS);
+    }
+
+    private Boolean windowsSteamGpuDrawing;
+
+    /**
+     * Windows Steam draws its pages on the GPU: X11 with the GL renderer outside native mode, where a presented frame
+     * lands in the window's own picture so Wine's other-process copies (WINE_DISABLE_VULKAN_OPWR=0) and OverlayCopies
+     * work. Elsewhere it keeps -cef-disable-gpu (CPU drawing). WINE_DISABLE_VULKAN_OPWR set to anything but 0 in the
+     * shortcut's or the container's environment keeps CPU drawing too. Decided once per session.
+     */
+    private boolean windowsSteamGpuDrawing() {
+        if (windowsSteamGpuDrawing != null) return windowsSteamGpuDrawing;
+        boolean on = false;
+        try {
+            HostRenderer r = xServerView != null ? xServerView.getRenderer() : null;
+            if (windowsSteamSession && !waylandMode && r instanceof GLRenderer && !((GLRenderer) r).isNativeMode()) {
+                EnvVars user = new EnvVars(container != null ? container.getEnvVars() : "");
+                if (shortcut != null) user.putAll(shortcut.getExtra("envVars"));
+                String opwr = user.get(com.winlator.star.store.WindowsSteamClient.ENV_OTHER_PROCESS_RENDERING);
+                on = opwr == null || opwr.trim().isEmpty() || opwr.trim().equals("0");
+            }
+        } catch (Exception e) {
+            Log.w("XServerDisplayActivity", "Windows Steam: GPU drawing check", e);
+        }
+        windowsSteamGpuDrawing = on;
+        return on;
+    }
+
+    /** A window's title: WM_NAME, else _NET_WM_NAME (Wine sets both), "" when it has none. */
+    private static String windowTitle(Window w) {
+        String name = w.getName();
+        if (name == null || name.isEmpty()) {
+            Property utf8 = w.getProperty(Atom.getId("_NET_WM_NAME"));
+            name = utf8 != null ? utf8.toString() : "";
+        }
+        return name != null ? name : "";
+    }
+
+    // Windows Steam, "Start in Big Picture": waiting for Steam's desktop window (title "Steam") to ask it to open
+    // Big Picture. Started with -gamepadui instead, Steam never makes its desktop window, so leaving Big Picture
+    // showed nothing.
+    private boolean windowsSteamBigPicturePending;
+    private int windowsSteamBigPictureTries;
+    private final Runnable windowsSteamBigPictureWatch = new Runnable() {
+        @Override
+        public void run() {
+            if (!windowsSteamBigPicturePending || isFinishing() || isDestroyed()) return;
+            if (++windowsSteamBigPictureTries > 300) {
+                windowsSteamBigPicturePending = false;
+                Log.i("XServerDisplayActivity", "Steam (Windows): no desktop window in 5 min, Big Picture not opened");
+                return;
+            }
+            boolean shown = false;
+            if (xServer != null) {
+                try (XLock lock = xServer.lock(XServer.Lockable.WINDOW_MANAGER)) {
+                    shown = hasMappedWindowTitled(xServer.windowManager.rootWindow, "Steam", 0);
+                } catch (Exception e) {
+                    Log.w("XServerDisplayActivity", "Steam (Windows): desktop window check", e);
+                }
+            }
+            if (!shown) {
+                windowsSteamMenuHandler.postDelayed(this, 1000);
+                return;
+            }
+            windowsSteamBigPicturePending = false;
+            windowsSteamMenuHandler.postDelayed(() -> {
+                if (winHandler == null || shortcut == null || isFinishing()) return;
+                winHandler.exec("\"" + shortcut.path + "\" steam://open/bigpicture");
+                Log.i("XServerDisplayActivity", "Steam (Windows): desktop window up, asked Steam to open Big Picture");
+            }, 1500);
+        }
+    };
+
+    /** A mapped window of Steam's web helper, at least 640x360, titled [title] (the desktop window is titled "Steam"). */
+    private static boolean hasMappedWindowTitled(Window w, String title, int depth) {
+        if (w == null || depth > 6) return false;
+        if (depth > 0 && w.attributes.isMapped() && w.getWidth() >= 640 && w.getHeight() >= 360
+                && title.equals(windowTitle(w)) && w.getClassName().toLowerCase(java.util.Locale.ROOT).contains("steamwebhelper")) return true;
+        for (Window child : w.getChildren()) if (hasMappedWindowTitled(child, title, depth + 1)) return true;
+        return false;
+    }
+
+    /**
+     * True when the focused window (or the nearest named window above it) is Steam's Big Picture, whose title is
+     * "Steam Big Picture Mode". Logs the title it went by.
+     */
+    private boolean windowsSteamBigPictureFocused() {
+        String name = "";
+        try {
+            Window w = xServer != null ? xServer.windowManager.getFocusedWindow() : null;
+            for (int i = 0; w != null && i < 8 && name.isEmpty(); i++, w = w.getParent()) name = windowTitle(w);
+        } catch (Exception e) {
+            Log.w("XServerDisplayActivity", "Steam (Windows): focused window", e);
+        }
+        boolean bigPicture = name.toLowerCase(java.util.Locale.ROOT).contains("big picture");
+        Log.i("XServerDisplayActivity", "Steam (Windows): focused window '" + name + "'" + (bigPicture ? " = Big Picture" : ""));
+        return bigPicture;
+    }
+
+    /**
+     * Windows Steam session, Menu button press: Shift+Tab, Steam's overlay key. Over a running game it opens Steam's overlay;
+     * in the client's own window it only moves the focus. (Steam's Guide button, sent before, started Big Picture there.)
+     * A press, then the release 150 ms later.
+     */
+    private void pressWindowsSteamOverlayKeys() {
+        if (xServer == null) return;
+        try {
+            xServer.injectKeyPress(XKeycode.KEY_SHIFT_L);
+            xServer.injectKeyPress(XKeycode.KEY_TAB);
+        } catch (Throwable t) {
+            Log.w("XServerDisplayActivity", "Steam (Windows): Shift+Tab", t);
+            return;
+        }
+        windowsSteamMenuHandler.postDelayed(() -> {
+            try {
+                if (xServer == null) return;
+                xServer.injectKeyRelease(XKeycode.KEY_TAB);
+                xServer.injectKeyRelease(XKeycode.KEY_SHIFT_L);
+            } catch (Throwable t) {
+                Log.w("XServerDisplayActivity", "Steam (Windows): Shift+Tab release", t);
+            }
+        }, 150);
+        Log.i("XServerDisplayActivity", "Steam (Windows): Menu button press sent Shift+Tab (Steam overlay)");
+    }
+
     private boolean menuButtonEvent(KeyEvent event) {
         int kc = event.getKeyCode();
         if (menuButtonKeyCode <= 0 || kc != menuButtonKeyCode || kc == KeyEvent.KEYCODE_BUTTON_B) return false;
@@ -8127,12 +8494,27 @@ public class XServerDisplayActivity extends AppCompatActivity {
             // A controller-profile binding for the same button wins.
             if (inputControlsView != null && inputControlsView.onKeyEvent(event)) return true;
             menuButtonHeld = true;
+            // Windows Steam: a press is Shift+Tab and a hold opens the side menu. A menu that is already up still
+            // closes on the press, as everywhere else.
+            if (windowsSteamSession && winHandler != null && drawerLayout != null && !isInGameMenuOpen()) {
+                windowsSteamMenuHoldFired = false;
+                // The second press of a double press: the single press waiting for it is dropped.
+                if (windowsSteamPressPending) windowsSteamMenuHandler.removeCallbacks(windowsSteamSinglePress);
+                windowsSteamMenuHandler.postDelayed(windowsSteamMenuHold, WINDOWS_STEAM_MENU_HOLD_MS);
+                return true;
+            }
+            windowsSteamMenuHoldFired = true;
             toggleInGameMenu();
             return true;
         }
         if (event.getAction() == KeyEvent.ACTION_UP && menuButtonHeld) {
             // The release of a press that toggled the menu belongs to nobody else.
             menuButtonHeld = false;
+            if (windowsSteamSession) {
+                windowsSteamMenuHandler.removeCallbacks(windowsSteamMenuHold);
+                if (!windowsSteamMenuHoldFired) onWindowsSteamMenuPress();
+                else windowsSteamPressPending = false;
+            }
             return true;
         }
         return false;
@@ -9926,16 +10308,19 @@ public class XServerDisplayActivity extends AppCompatActivity {
                 // temperature/GPU-load reads and BatteryManager binder calls, every 500 ms) runs on the
                 // sampler thread; one job is queued at a time, so a fast game can't pile them up.
                 if (padFeedWaylandGame) com.winlator.star.inputcontrols.BannerinWriter.onGameFrame();
-                if (sessionFpsOn) sessionFps.tick();   // the saved session stats, HUD or not (only the game surface reports frames)
+                // yserver mode: the counters take yserver's rate of the game's presents instead.
+                boolean ysFps = yserverFpsLive();
+                if (sessionFpsOn && !ysFps) sessionFps.tick();   // the saved session stats, HUD or not (only the game surface reports frames)
                 if (frameRatingWindowId == -1 || !hudCounterEnabled) return;
-                fpsCounter.tick();
+                if (!ysFps) fpsCounter.tick();
                 android.os.Handler h = waylandHudSampler;
                 if (h != null && waylandHudSampleQueued.compareAndSet(false, true)) h.post(waylandHudSample);
             }
             @Override public void onGameProgram(int pid, String program) {
                 // X11 arms the launch-time CPU affinity from window events (onMapWindow / _NET_WM_PID);
                 // a Wayland session has none, so the game's first presented frame arms it instead.
-                runOnUiThread(() -> assignWaylandTaskAffinity(pid, program));
+                // yserver mode: the compositor's client is yserver, not the game (YSERVER-MAP applies it).
+                if (!yserverHosted) runOnUiThread(() -> assignWaylandTaskAffinity(pid, program));
             }
         });
         if (waylandHudThread == null) {
@@ -9966,22 +10351,15 @@ public class XServerDisplayActivity extends AppCompatActivity {
                 if (w != null && seq == waylandBringToFrontSeq) w.bringToFront(exe, hwnd);
             }, 1000L);
         });
-        com.winlator.star.wayland.WaylandCompositor.setPointerLockListener((locked, x, y) -> runOnUiThread(() -> {
-            if (xServer == null) return;
-            waylandPointerLocked = locked;
-            xServer.setExternalRelativeMode(locked);
-            if (locked) {
-                if (waylandCursorView != null) waylandCursorView.setVisibility(View.GONE);
-                ensurePointerCapture("wayland-pointer-lock");
-            } else {
-                xServer.injectPointerMove(x, y);
-                if (!isRelativeMouseMovement && !cursorLock && touchpadView != null && pointerCaptureRequested) {
-                    touchpadView.releasePointerCapture();
-                    touchpadView.setOnCapturedPointerListener(null);
-                    pointerCaptureRequested = false;
-                }
-            }
-        }));
+        // A lock that ends within WAYLAND_WARP_MAX_MS is winewayland's SetCursorPos (lock, position
+        // hint, commit, unlock): the game moved the pointer, nothing was locked for the player. Those
+        // are counted for Aim Auto and only re-sync the pointer; a lock still held after that is a real
+        // one (mouse-look with a hidden cursor) and switches the input path to deltas. Before, every
+        // warp also asked for pointer capture, released it and showed the arrow again.
+        com.winlator.star.wayland.WaylandCompositor.setPointerLockListener((locked, x, y) -> {
+            final long at = android.os.SystemClock.uptimeMillis();
+            runOnUiThread(() -> onWaylandPointerLock(locked, x, y, at));
+        });
         // On-screen controls, a mouse and keys mapped to controller buttons all inject into the X
         // server, which has no client in wayland mode: hand that input to the compositor too.
         if (xServer != null) xServer.setInputSink(new com.winlator.star.xserver.XServer.InputSink() {
@@ -10048,7 +10426,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
         waylandSurfaceView.setOnTouchListener((v, ev) -> {
             int vw = v.getWidth(), vh = v.getHeight();
             if (vw <= 0 || vh <= 0) return true;
-            // Touchscreen mode (the same "touchscreen_toggle" X11 uses): every finger goes to the
+            // Touchscreen mode (waylandTouchscreenMode): every finger goes to the
             // guest as a real wl_touch sequence with its own id, so a game gets multi-touch instead
             // of one synthesised mouse. The touchpad cursor is not used in this mode.
             if (waylandTouchscreenMode()) {
@@ -10089,11 +10467,9 @@ public class XServerDisplayActivity extends AppCompatActivity {
                 return true;
             }
             if (waylandCursorX < 0) { waylandCursorX = vw / 2f; waylandCursorY = vh / 2f; }
-            // The drawer's Cursor to Touch (Controls > Touch): the pointer sits under the finger
-            // instead of moving by the drag, so a tap lands where it is made. The same switch the
-            // X11 touchpad honours; here it was read by nothing, so the chip flipped and changed
-            // nothing in a Steam (Linux) session.
-            boolean cursorToTouch = preferences != null && preferences.getBoolean("move_cursor_to_touchpoint", false);
+            // Touch: Direct (Controls > Mouse): the pointer sits under the finger instead of moving
+            // by the drag, so a tap lands where it is made. The same setting the X11 touchpad honours.
+            boolean cursorToTouch = com.winlator.star.core.TouchAimSettings.DIRECT.equals(touchMode);
             switch (ev.getActionMasked()) {
                 case android.view.MotionEvent.ACTION_DOWN:
                     last[0] = ev.getX(); last[1] = ev.getY(); moved[0] = 0f;
@@ -10368,8 +10744,9 @@ public class XServerDisplayActivity extends AppCompatActivity {
     }
 
     /**
-     * Touchscreen mode: fingers go to the guest as wl_touch. Shared with X11's setting, unless a
-     * Linux entry chose for itself (its Steam (Linux) settings, or the drawer's Steam client section).
+     * Touchscreen mode: fingers go to the guest as wl_touch. The app's old Touchscreen mode
+     * ("touchscreen_toggle", no longer used by Wine games, which have Touch), unless a Linux entry
+     * chose for itself (its Steam (Linux) settings, or the drawer's Steam client section).
      */
     private boolean waylandTouchscreenMode() {
         SharedPreferences sp = preferences != null ? preferences
@@ -11515,6 +11892,8 @@ public class XServerDisplayActivity extends AppCompatActivity {
                 if (shortcut != null) {
                     wineDebugWriter.println("Shortcut file: " + shortcut.file.getPath());
                     wineDebugWriter.println("Shortcut path (resolved): " + shortcut.path);
+                    if (windowsSteamDisplayNote != null)
+                        wineDebugWriter.println("Windows Steam: " + windowsSteamDisplayNote);
                 } else {
                     wineDebugWriter.println("Shortcut: null (launching Wine File Manager)");
                 }
@@ -11584,7 +11963,8 @@ public class XServerDisplayActivity extends AppCompatActivity {
             }
             guestProgramLauncherComponent.setContainer(this.container);
             guestProgramLauncherComponent.setWineInfo(this.wineInfo);
-            guestProgramLauncherComponent.setWaylandMode(waylandMode);
+            guestProgramLauncherComponent.setWaylandMode(guestWayland());
+            guestProgramLauncherComponent.setSessionLog(this::logSessionLine);
 
             // Real-Steam (VAC) launch (feature M3) — STAGE + build the plan BEFORE getWineStartCommand()
             // below reads realSteamPlan to rewrite the launch target. ONLY for a genuine-Steam shortcut
@@ -11636,6 +12016,10 @@ public class XServerDisplayActivity extends AppCompatActivity {
                 // Lossless.dll (slow on a first run: the DXBC chain is translated on device, which
                 // is why it is off the main thread) and arming the renderer.
                 prepareLsfgNative();
+            } else if (resolvedFrameGenEngine().equals("wfg")) {
+                // WFG runs inside our compositor like the other native engines; its shaders are
+                // in the APK and nothing goes into the container.
+                prepareWfgNative();
             } else if (resolvedFrameGenEngine().equals("lsfg")) {
                 // lsfg-vk engine (mutually exclusive with bionic-fg). Opt-in via ENABLE_LSFG so the
                 // staged layer stays inert elsewhere. Driven by conf.toml (NOT the LSFG_LEGACY env):
@@ -11729,7 +12113,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
             // read — written AFTER both user env merges and skipping every var the user typed, so an
             // explicit env var always wins. MESA_VK_WSI_PRESENT_MODE from the stored X11 presentMode key
             // (extractGraphicsDriverFiles) is replaced only when a Wayland present mode was decided.
-            if (waylandMode) {
+            if (guestWayland()) {
                 com.winlator.star.core.WaylandAdapterSettings.Effective adapterCfg = waylandAdapterEffective();
                 if (adapterCfg != null) com.winlator.star.core.WaylandAdapterSettings.applyToGuestEnv(envVars, adapterCfg);
             }
@@ -11739,8 +12123,8 @@ public class XServerDisplayActivity extends AppCompatActivity {
             // allocate the game's swapchain images as gralloc buffers and hand them to the compositor
             // (banner_ahb_v1), so the layer shows the game's own buffer without a copy.
             // The HDR opt-in (startWaylandCompositor, which runs first) can turn zero-copy on too.
-            if (waylandMode && (isWaylandZeroCopyRequested() || waylandHdrZeroCopyForced)) envVars.put("BANNER_WSI_AHB", "1");
-            if (waylandMode) applyWaylandHdrEnv(envVars);
+            if (guestWayland() && (isWaylandZeroCopyRequested() || waylandHdrZeroCopyForced)) envVars.put("BANNER_WSI_AHB", "1");
+            if (guestWayland()) applyWaylandHdrEnv(envVars);
             // Unreal Engine HDR (both backends) and, on Wayland, the GPU name spoof: after both user env
             // merges and the HDR env above, so a DXVK_ENABLE_NVAPI / WINEDLLOVERRIDES / DXVK_CONFIG entry
             // of the user's wins and the log line can say whether DXVK_HDR is on.
@@ -11748,7 +12132,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
             applyBannerinXInputEnv(envVars);
             applyControllerLogEnv(envVars);
             applyGameModsEnv(envVars);
-            if (waylandMode) applyWaylandGpuSpoofEnv(envVars);
+            if (guestWayland()) applyWaylandGpuSpoofEnv(envVars);
 
             // OpenGL safe mode (Wayland only, default ON): GALLIUM_THREAD=0 removes Mesa's
             // u_threaded_context helper thread. That thread is a plain pthread with no Wine TEB, so a
@@ -11759,7 +12143,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
             // goes straight to Turnip's Vulkan driver and never loads one, so this is inert for it.
             // Both user env strings (container, then shortcut) are already merged above, so an
             // explicit GALLIUM_THREAD the user typed themselves still wins.
-            if (waylandMode) {
+            if (guestWayland()) {
                 if (!resolvedWaylandGlSafeMode()) {
                     Log.i("XServerDisplayActivity", "wayland: OpenGL safe mode is OFF for this launch"
                             + " - Mesa's threaded context stays on");
@@ -11780,7 +12164,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
             // before the X server's socket opens below (the GLX route turns server GLX on); never on
             // Wayland (winewayland always uses its own EGL) or in the Linux session. The same helper
             // writes "Show OpenGL FPS" / "OpenGL vsync off", which apply on both backends.
-            if (!gamescopeMode) applyFastOpenGLEnv(waylandMode);
+            if (!gamescopeMode) applyFastOpenGLEnv(guestWayland());
 
             // Full-colour game cursors on X11: register the cursor subset of RENDER so libXcursor
             // stops falling back to two-colour core cursors. Same placement rule as Fast OpenGL
@@ -11809,10 +12193,11 @@ public class XServerDisplayActivity extends AppCompatActivity {
             }
 
             // Epic per-game launch fixes (Feature #7). Runs on the background launch setup thread.
-            //  • applyEnv: merge required WINEDLLOVERRIDES (Kingdom Hearts III) into the launch env,
-            //    after the shortcut env so a user override still wins.
-            //  • applyPreLaunch: write the Bethesda "Installed Path" registry value + wipe the
-            //    Hogwarts Legacy ProgramData cache folder before the guest process starts.
+            //  • applyEnv: merge required WINEDLLOVERRIDES (Kingdom Hearts III) and set default
+            //    variables (Trover) after the shortcut env, so a user value still wins.
+            //  • applyPreLaunch: write the Bethesda "Installed Path" registry value, wipe the
+            //    Hogwarts Legacy ProgramData cache folder and merge Trover's Engine.ini lines
+            //    before the guest process starts.
             // Both no-op for non-Epic shortcuts and Epic games without a registered fix.
             if (shortcut != null) {
                 com.winlator.star.store.EpicGameFixes.applyEnv(this, shortcut, envVars);
@@ -11840,6 +12225,16 @@ public class XServerDisplayActivity extends AppCompatActivity {
             // switches (PROTON_DISABLE_LSTEAMCLIENT must be UNSET so ntdll redirects steamclient64.dll
             // to lsteamclient.dll) and adds WINESTEAMCLIENTPATH64 / Steam3Master / SteamAppId… so the
             // game's genuine steam_api reaches the app's session host. No-op unless a plan is armed.
+            // Windows Steam client (shortcut target steam.exe): the 64-bit client's environment switch and a
+            // Steam library on every mapped storage. Before the plan merges below, so the app's own Steam modes
+            // keep the last word; after the container and shortcut env, so a value the user set is seen.
+            if (windowsSteamSession && appSteamPlan == null && realSteamPlan == null) {
+                for (String note : com.winlator.star.store.WindowsSteamClient.prepareLaunch(
+                        this, container, shortcut.path, envVars, windowsSteamGpuDrawing())) {
+                    Log.i("XServerDisplayActivity", "Windows Steam: " + note);
+                    if (wineDebugWriter != null) wineDebugWriter.println("Windows Steam: " + note);
+                }
+            }
             if (appSteamPlan != null) {
                 for (String k : appSteamPlan.envRemove) envVars.remove(k);
                 for (Map.Entry<String, String> e : appSteamPlan.env.entrySet())
@@ -11955,7 +12350,68 @@ public class XServerDisplayActivity extends AppCompatActivity {
                 )
         );
         // In wayland mode the embedded compositor is the display server, so don't run the X server.
-        if (!waylandMode) {
+        if (yserverModeName != null) {
+            // As DesktopHelper does on every X11 map (and the Wayland path on the compositor's request):
+            // bring a newly mapped Wine application window to the front inside Wine, and once more a
+            // second later unless a newer window asked meanwhile. Without it a windowed game stays
+            // inactive (some throttle and mute themselves, e.g. DiRT Showdown at 16 fps).
+            YServerComponent ysc = new YServerComponent(this, yserverModeName, new File(rootPath, "usr/tmp"),
+                    new File(getFilesDir(), ".wayland-rt"), envVars, (cls, hwnd, pid, wow64) -> {
+                        WinHandler wh = winHandler;
+                        if (wh == null) return;
+                        android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
+                        // The virtual desktop itself, or a console window flashing up (a console program
+                        // started by the game or a helper): Wine activates it by itself, so give the
+                        // last raised window its activation back instead.
+                        if (cls.equalsIgnoreCase("explorer.exe") || cls.equalsIgnoreCase("conhost.exe")) {
+                            final String lastCls = yserverRaisedClass;
+                            final long lastHwnd = yserverRaisedHwnd;
+                            if (lastCls == null) return;
+                            final int seq = ++waylandBringToFrontSeq;
+                            for (long delay : new long[]{300L, 1300L}) {
+                                ui.postDelayed(() -> {
+                                    WinHandler w = winHandler;
+                                    if (w != null && seq == waylandBringToFrontSeq) w.bringToFront(lastCls, lastHwnd);
+                                }, delay);
+                            }
+                            Log.i("XServerDisplayActivity", "yserver: " + cls + " mapped; " + lastCls + " raised again");
+                            return;
+                        }
+                        yserverRaisedClass = cls;
+                        yserverRaisedHwnd = hwnd;
+                        // The launch CPU mask, as assignTaskAffinity does on every X11 map. It also undoes a
+                        // game's own pin of its main thread (GTA IV puts it on CPU 0: 40 instead of 66 fps).
+                        final String fcls = cls;
+                        final int fpid = pid;
+                        final boolean fwow64 = wow64;
+                        runOnUiThread(() -> assignYserverTaskAffinity(fcls, fpid, fwow64));
+                        final int seq = ++waylandBringToFrontSeq;
+                        wh.bringToFront(cls, hwnd);
+                        ui.postDelayed(() -> {
+                            WinHandler w = winHandler;
+                            if (w != null && seq == waylandBringToFrontSeq) w.bringToFront(cls, hwnd);
+                        }, 1000L);
+                    });
+            // Wine's desktop (explorer.exe) stays black for a game shortcut, as the X11 renderer
+            // (setUnviewableWMClasses) and the compositor (nativeSetHideShell) leave it out.
+            if (shortcut != null) ysc.setHideClass("explorer.exe");
+            // The HUD shows the game's own frame rate: the compositor's frames stop at the refresh.
+            ysc.setFpsListener(fps -> {
+                yserverFpsAtMs = android.os.SystemClock.elapsedRealtime();
+                if (sessionFpsOn) sessionFps.reportRate(fps);
+                if (frameRatingWindowId == -1 || !hudCounterEnabled) return;
+                fpsCounter.reportRate(fps);
+                android.os.Handler h = waylandHudSampler;
+                if (h != null && waylandHudSampleQueued.compareAndSet(false, true)) h.post(waylandHudSample);
+            });
+            environment.addComponent(ysc);
+            yserverComponent = ysc;
+            if (resolvedFpsLimiterEnabled() && resolvedFpsLimiterValue() > 0) {
+                ysc.setFrameCap(resolvedFpsLimiterValue());
+                Log.i("XServerDisplayActivity", "yserver: frame cap " + resolvedFpsLimiterValue() + " fps (FPS limiter at launch)");
+            }
+            yserverMode = true;
+        } else if (!waylandMode) {
             environment.addComponent(
                     new XServerComponent(
                             xServer,
@@ -12147,7 +12603,8 @@ public class XServerDisplayActivity extends AppCompatActivity {
         // Wayland: the launch overlay must ALWAYS clear so the guest is visible — the compositor
         // present path (first-frame hook) may not fire for a shm-only desktop, and the guest must
         // never be hidden behind a stuck spinner. Force-close it 2s after guest boot, unconditionally.
-        if (waylandMode) {
+        // yserver test mode: the Java X server sees no windows either, so the same rule applies.
+        if (waylandMode || yserverMode) {
             new android.os.Handler(getMainLooper()).postDelayed(() -> {
                 if (!winStarted) { winStarted = true; cancelLaunchTimers(); }
                 preloaderDialog.closeOnUiThread();
@@ -12673,9 +13130,10 @@ public class XServerDisplayActivity extends AppCompatActivity {
         touchpadView.setFourFingersTapCallback(() -> {
             if (!isInGameMenuOpen()) openInGameMenu();
         });
-        // The preference persists across launches but was never restored onto the view, so
-        // Cursor to Touch silently reverted to off every session until it was toggled again.
-        touchpadView.setMoveCursorToTouchpoint(preferences.getBoolean("move_cursor_to_touchpoint", false));
+        // Touch for this game (resolved at launch): Direct puts the pointer under the finger,
+        // Touchscreen presses where the finger lands.
+        touchpadView.setSimTouchScreen(com.winlator.star.core.TouchAimSettings.TOUCHSCREEN.equals(touchMode));
+        touchpadView.setMoveCursorToTouchpoint(com.winlator.star.core.TouchAimSettings.DIRECT.equals(touchMode));
         applyGestureConfig(); // wiring ran before this view existed; push the seeded set now
         // A Steam (Linux) session set to Touchscreen: fingers go past this view to the compositor's
         // surface, which hands them to gamescope as real touches (Big Picture scrolls under one).
@@ -12807,8 +13265,6 @@ public class XServerDisplayActivity extends AppCompatActivity {
                 if (physical != null) setPhysicalProfile(physical);
             }
 
-            String simTouchScreen = shortcut.getExtra("simTouchScreen");
-            touchpadView.setSimTouchScreen(simTouchScreen.equals("1"));
         }
 
         AppUtils.observeSoftKeyboardVisibility(drawerLayout, renderer::setScreenOffsetYRelativeToCursor);
@@ -13715,6 +14171,73 @@ public class XServerDisplayActivity extends AppCompatActivity {
 
 
 
+    /**
+     * "Run a program": the in-game browser popup (RunProgramDialog) over the device's storage, then the container's C:
+     * drive and the game's folder. The game keeps running. With [fillNewTask] the picked file's path goes into the New
+     * Task box instead of starting.
+     */
+    private void openRunProgramPicker(boolean fillNewTask) {
+        if (container == null) return;
+        XServerDialogState ds = XServerDialogState.INSTANCE;
+        ds.runBrowserDriveC = new File(container.getRootDir(), ".wine/drive_c").getAbsolutePath();
+        String gameDir = null;
+        try {
+            if (shortcut != null && shortcut.path != null) {
+                File exe = com.winlator.star.core.WinePath.INSTANCE.resolveAndroidPath(container, shortcut.path);
+                if (exe != null && exe.getParentFile() != null) gameDir = exe.getParentFile().getAbsolutePath();
+            }
+        } catch (Exception e) {
+            Log.w("XServerDisplayActivity", "Run a program: game folder", e);
+        }
+        ds.runBrowserGameDir = gameDir;
+        ds.onRunBrowserPick = path -> runPickedProgram(path, fillNewTask);
+        ds.show(XServerDialogState.ActiveDialog.RUN_PROGRAM);
+    }
+
+    /**
+     * A program picked for "Run a program", by its Android path: its Windows path in this session (a drive the container
+     * has, or a new letter for its storage, linked into the running prefix at once), then started from its own folder,
+     * or with [fillNewTask] put into the New Task box instead.
+     */
+    private void runPickedProgram(String path, boolean fillNewTask) {
+        final Container c = container;
+        if (c == null) return;
+        new Thread(() -> {
+            String win;
+            try {
+                win = com.winlator.star.core.WinePath.INSTANCE.resolveWindowsPath(c, path);
+                linkMissingDrives(c);
+            } catch (Exception e) {
+                Log.w("XServerDisplayActivity", "Run a program: no Windows path for " + path, e);
+                runOnUiThread(() -> Toast.makeText(this, "Can't reach " + new File(path).getName() + " from this container", Toast.LENGTH_LONG).show());
+                return;
+            }
+            final String windowsPath = win;
+            Log.i("XServerDisplayActivity", "Run a program: " + path + " -> " + windowsPath + (fillNewTask ? " (into New Task)" : ""));
+            if (fillNewTask) {
+                runOnUiThread(() -> {
+                    XServerDialogState.INSTANCE.newTaskPrefill = "\"" + windowsPath + "\"";
+                    XServerDialogState.INSTANCE.show(XServerDialogState.ActiveDialog.NEW_TASK);
+                });
+                return;
+            }
+            boolean sent = winHandler != null && winHandler.execInFolder(windowsPath, "");
+            runOnUiThread(() -> Toast.makeText(this,
+                    (sent ? "Starting " : "Couldn't start ") + new File(path).getName(), Toast.LENGTH_SHORT).show());
+        }, "RunProgram").start();
+    }
+
+    /** Links every drive of [c] that has no dosdevices entry yet, so a letter added during the session works at once. */
+    private static void linkMissingDrives(Container c) {
+        File dosdevices = new File(c.getRootDir(), ".wine/dosdevices");
+        for (String[] drive : c.drivesIterator()) {
+            File link = new File(dosdevices, drive[0].toLowerCase(java.util.Locale.ENGLISH) + ":");
+            if (link.exists() || FileUtils.isSymlink(link)) continue;
+            FileUtils.symlink(new File(drive[1]).getAbsolutePath(), link.getPath());
+            Log.i("XServerDisplayActivity", "Run a program: linked drive " + drive[0] + ": -> " + drive[1]);
+        }
+    }
+
     private final ActivityResultLauncher<String> inGameIconPickerLauncher = registerForActivityResult(
             new ActivityResultContracts.GetContent(),
             uri -> {
@@ -13911,6 +14434,13 @@ public class XServerDisplayActivity extends AppCompatActivity {
         }
 
         Log.d("XServerDisplayActivity", "Input controls simulated confirmation executed.");
+
+        // The in-game Controls menu (Classic, Deck and Lab) was filled in setupUI, before the layout above
+        // was picked, so it said "-- Disabled --" over a shown Virtual Gamepad. Show what is really loaded;
+        // picking Disabled there then hides it and keeps it off (smart_default_touch_optout).
+        pushInputProfileNames();
+        XServerDialogState.INSTANCE.setShowTouchscreen(inputControlsView.isShowTouchscreenControls());
+        seedControlsColorState();
 
         // #333: apply auto-hide at launch — a pad connected before/at launch should already have the
         // overlay hidden, and the pad seated on the on-screen slot (YIELD pushed above).
@@ -14270,7 +14800,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
     // adrenotools driver exported just above (so that one pick feeds compositor AND game; System / a
     // Qualcomm blob → Auto, logged), Auto maps the device GPU to a bundled variant, imported: hands over
     // an imported Linux ICD (missing import → Auto, logged). No-op on X11; waylandMode is final by here.
-    com.winlator.star.core.WaylandGameDriver.applyToLaunchEnv(this, envVars, container, shortcut, waylandMode,
+    com.winlator.star.core.WaylandGameDriver.applyToLaunchEnv(this, envVars, container, shortcut, guestWayland(),
             adrenoToolsDriverId);
     // The Task Manager's CONTAINER block was built before this ran (setupUI); now Auto's variant is known.
     if (waylandMode) XServerDialogState.INSTANCE.setTmContainerInfo(buildTmContainerInfo());
@@ -15462,6 +15992,11 @@ return true;
         }
         String detail = null;
         String glxLine = null;
+        if (yserverHosted && decision != null && decision.getOn()
+                && decision.route != com.winlator.star.core.FastOpenGL.Route.EGL) {
+            decision = new com.winlator.star.core.FastOpenGL.X11Decision(null,
+                    "unsupported: yserver has no server-side GLX on Android (EGL route only)");
+        }
         if (decision != null && decision.getOn()) {
             boolean egl = decision.route == com.winlator.star.core.FastOpenGL.Route.EGL;
             detail = com.winlator.star.core.X11Egl.apply(this, envVars, imageFs.getRootDir().getPath() + "/usr/lib", egl);
@@ -15806,6 +16341,9 @@ return true;
 
         if (shortcut != null) {
             String execArgs = shortcut.getExtra("execArgs");
+            // Windows Steam with GPU drawing: Steam's -cef-disable-gpu is left out (see windowsSteamGpuDrawing).
+            if (windowsSteamSession && windowsSteamGpuDrawing())
+                execArgs = com.winlator.star.store.WindowsSteamClient.withoutCefDisableGpu(execArgs);
             execArgs = !execArgs.isEmpty() ? " " + execArgs : "";
 
             if (xboxLaunch != null) {
@@ -15859,6 +16397,16 @@ return true;
                 && !"0".equals(shortcut.getExtra("epicEos"))) {
             String epicArgs = com.winlator.star.store.EpicLaunchArgs.buildArgString(this, shortcut);
             if (epicArgs != null && !epicArgs.isEmpty()) args += " " + epicArgs;
+        }
+        // The launch command from the Epic game's manifest (e.g. -PCStore=EGS), for every Epic launch.
+        if (shortcut != null) {
+            String manifestCommand = com.winlator.star.store.EpicLaunchArgs.manifestLaunchCommand(this, shortcut, args);
+            if (!manifestCommand.isEmpty()) args += " " + manifestCommand;
+        }
+        // Epic per-game launch arguments (EpicGameFixes) the command does not carry yet.
+        if (shortcut != null) {
+            String fixArgs = com.winlator.star.store.EpicGameFixes.launchArgs(shortcut, args);
+            if (!fixArgs.isEmpty()) args += " " + fixArgs;
         }
 
         // Construct the final command
@@ -16027,7 +16575,15 @@ return true;
     // the engine name.
     private boolean nativeFrameGenEngine() {
         final String engine = resolvedFrameGenEngine();
-        return "lsfg-native".equals(engine) || ("bionic".equals(engine) && winFgNativeSession);
+        return "lsfg-native".equals(engine) || ("bionic".equals(engine) && winFgNativeSession)
+            || wfgNativeSession();
+    }
+
+    // WFG has no guest-side form: it generates only in our Vulkan compositor (X11 Vulkan
+    // renderer or Wayland). With another renderer the engine choice does nothing.
+    private boolean wfgNativeSession() {
+        return "wfg".equals(resolvedFrameGenEngine())
+            && (waylandMode || "vulkan".equalsIgnoreCase(resolvedRenderer()));
     }
 
     // Any frame-gen engine (lsfg-vk OR bionic-fg) actively multiplying (mult >= 2) inserts extra
@@ -16871,8 +17427,14 @@ return true;
             HostRenderer r = xServerView.getRenderer();
             if (r != null) r.setFpsLimit(fps);
         }
-        // Wayland: the compositor paces buffer returns instead of the Present extension.
-        if (waylandMode) com.winlator.star.wayland.WaylandCompositor.nativeSetFpsLimit(Math.round(paced));
+        // Wayland: the compositor paces buffer returns instead of the Present extension. yserver: its
+        // own Present clock paces the guest (live, through its fps file), not the compositor.
+        if (yserverHosted) {
+            YServerComponent ysc = yserverComponent;
+            if (ysc != null) ysc.setFrameCapLive(Math.round(paced));
+        } else if (waylandMode) {
+            com.winlator.star.wayland.WaylandCompositor.nativeSetFpsLimit(Math.round(paced));
+        }
         // VRR / refresh-rate matching: vote the panel cadence to match the displayed FPS.
         applyVrr(vrrCap);
     }
@@ -17432,7 +17994,7 @@ return true;
     private void setWineDisplayDriver() {
         File userRegFile = new File(imageFs.getRootDir(), ImageFs.WINEPREFIX + "/user.reg");
         try (WineRegistryEditor reg = new WineRegistryEditor(userRegFile)) {
-            if (waylandMode) {
+            if (guestWayland()) {
                 reg.setStringValue("Software\\Wine\\Drivers", "Graphics", "wayland");
                 // Every process of the session is born on the "shell" desktop - explorer's own threads
                 // included. Without this explorer starts on "Default" and SetThreadDesktop moves only
@@ -17476,7 +18038,7 @@ return true;
                 for (String arch : new String[]{"aarch64-windows", "i386-windows"}) {
                     File drv = new File(libDir, "wine/" + arch + "/winex11.drv");
                     File bak = new File(libDir, "wine/" + arch + "/winex11.drv.bak");
-                    if (waylandMode) {
+                    if (guestWayland()) {
                         if (drv.exists() && !bak.exists()) drv.renameTo(bak);
                     } else {
                         if (bak.exists() && !drv.exists()) bak.renameTo(drv);
@@ -17567,6 +18129,28 @@ return true;
                 int slash = Math.max(exe.lastIndexOf('/'), exe.lastIndexOf('\\'));
                 if (slash >= 0) exe = exe.substring(slash + 1);
                 if (!exe.equals(affinityTargetExe)) affinityLinuxPid = -1; // new target -> re-resolve
+                affinityTargetExe = exe;
+                affinityTargetMask = processAffinity & 0xff;
+                startAffinityReapply();
+            }
+        }
+    }
+
+    /** yserver counterpart of {@link #assignTaskAffinity(Window)}, from a YSERVER-MAP line. UI thread. */
+    private void assignYserverTaskAffinity(String className, int processId, boolean wow64) {
+        if (taskAffinityMask == 0 || taskAffinityMaskWoW64 == 0 || winHandler == null) return;
+        int processAffinity = wow64 ? taskAffinityMaskWoW64 : taskAffinityMask;
+        if (processId > 0) winHandler.setProcessAffinity(processId, processAffinity);
+        else if (!className.isEmpty()) winHandler.setProcessAffinity(className, processAffinity);
+        Log.i("XServerDisplayActivity", "yserver: CPU mask 0x" + Integer.toHexString(processAffinity & 0xffff)
+                + " for " + className + " (pid " + processId + (wow64 ? ", WoW64" : "") + ")");
+        if (!className.isEmpty()) {
+            boolean restrict = Integer.bitCount(processAffinity & 0xff) < Runtime.getRuntime().availableProcessors();
+            if (restrict) {
+                String exe = className.toLowerCase();
+                int slash = Math.max(exe.lastIndexOf('/'), exe.lastIndexOf('\\'));
+                if (slash >= 0) exe = exe.substring(slash + 1);
+                if (!exe.equals(affinityTargetExe)) affinityLinuxPid = -1;
                 affinityTargetExe = exe;
                 affinityTargetMask = processAffinity & 0xff;
                 startAffinityReapply();
@@ -18051,23 +18635,77 @@ return true;
         this.screenEffectProfile = screenEffectProfile;
     }
 
-    private void MoveCursorToTouchpoint() {
-        // Toggle the preference value
-        boolean currentValue = preferences.getBoolean("move_cursor_to_touchpoint", false);
-        boolean newValue = !currentValue;
-        
-        preferences.edit().putBoolean("move_cursor_to_touchpoint", newValue).apply();
-        XServerDrawerState.INSTANCE.setMoveCursorToTouchpoint(newValue);
-
-        // Update the touchpadView state
+    /** The in-game menu's Touch choice: applied now and saved for this game (else its container). Main thread. */
+    private void setSessionTouchMode(String mode) {
+        if (!com.winlator.star.core.TouchAimSettings.isTouch(mode)) return;
+        touchMode = mode;
+        boolean screen = com.winlator.star.core.TouchAimSettings.TOUCHSCREEN.equals(mode);
         if (touchpadView != null) {
-            touchpadView.setMoveCursorToTouchpoint(newValue);
+            touchpadView.setSimTouchScreen(screen);
+            touchpadView.setMoveCursorToTouchpoint(com.winlator.star.core.TouchAimSettings.DIRECT.equals(mode));
         }
+        XServerDrawerState.INSTANCE.setTouchMode(mode);
+        if (shortcut != null) {
+            shortcut.putExtra(com.winlator.star.core.TouchAimSettings.EXTRA_SIM_TOUCH, screen ? "1" : null);
+            shortcut.putExtra(com.winlator.star.core.TouchAimSettings.EXTRA_TOUCH, screen ? null : mode);
+            shortcut.saveData();
+        } else if (container != null) {
+            container.putExtra(com.winlator.star.core.TouchAimSettings.EXTRA_SIM_TOUCH, screen ? "1" : null);
+            container.putExtra(com.winlator.star.core.TouchAimSettings.EXTRA_TOUCH, screen ? null : mode);
+            container.saveData();
+        }
+        Log.i("XServerDisplayActivity", "input: touch " + mode);
+    }
 
-        // Push back into the drawer so the chip renders its on/off state (matches the
-        // Relative Mouse / Disable Mouse toggles in setupUI).
-        XServerDrawerState.INSTANCE.setMoveCursorToTouchpoint(newValue);
-    } // Closes MoveCursorToTouchpoint
+    /** The in-game menu's Aim mode choice: applied now and saved for this game (else its container). Main thread. */
+    private void setSessionAimMode(String mode) {
+        if (!com.winlator.star.core.TouchAimSettings.isAim(mode)) return;
+        aimMode = mode;
+        applyAimMode();
+        XServerDrawerState.INSTANCE.setAimMode(mode);
+        // relativeMouse stays in step so a build from before Aim mode reads the same choice.
+        String relative = com.winlator.star.core.TouchAimSettings.ON.equals(mode) ? "1" : "0";
+        if (shortcut != null) {
+            shortcut.putExtra(com.winlator.star.core.TouchAimSettings.EXTRA_AIM, mode);
+            shortcut.putExtra(com.winlator.star.core.TouchAimSettings.EXTRA_RELATIVE_MOUSE, relative);
+            shortcut.saveData();
+        } else if (container != null) {
+            container.putExtra(com.winlator.star.core.TouchAimSettings.EXTRA_AIM, mode);
+            container.putExtra(com.winlator.star.core.TouchAimSettings.EXTRA_RELATIVE_MOUSE, relative);
+            container.saveData();
+        }
+        Log.i("XServerDisplayActivity", "input: aim " + mode);
+    }
+
+    /** On = relative (delta) mouse all the time, as the old Relative Mouse; Auto arms the detector; Off neither. */
+    private void applyAimMode() {
+        boolean on = com.winlator.star.core.TouchAimSettings.ON.equals(aimMode);
+        isRelativeMouseMovement = on;
+        if (xServer != null) {
+            xServer.setRelativeMouseMovement(on);
+            xServer.aimTracker.setMode(com.winlator.star.core.TouchAimSettings.trackerMode(aimMode));
+        }
+    }
+
+    /**
+     * Aim Auto started or ended (the game keeps moving the pointer back, or stopped). While on, the
+     * pointer is hidden and, on Wayland, input goes to the compositor as deltas exactly as under a
+     * pointer lock (on X11 the touch path sends deltas itself and the game's warps keep working).
+     * Main thread.
+     */
+    private void onAutoAimChanged(boolean active) {
+        if (autoAimActive == active) return;
+        autoAimActive = active;
+        Log.i("XServerDisplayActivity", "input: aim auto " + (active ? "on (the game moves the pointer back)" : "off"));
+        if (xServer == null) return;
+        if (waylandMode) {
+            xServer.setExternalRelativeMode(waylandPointerLocked || active);
+            if (active && waylandCursorView != null && waylandCursorView.getVisibility() != View.GONE)
+                waylandCursorView.setVisibility(View.GONE);
+        } else {
+            applyX11CursorVisibility();
+        }
+    }
 
     /** Persist the drawer's gesture settings and apply them to the live touchpad. */
     private void applyGestureConfig() {
@@ -18384,7 +19022,8 @@ return true;
 
     private void stopTmPolling() {
         tmPollHandler.removeCallbacks(tmPollRunnable);
-        if (winHandler != null) winHandler.setOnGetProcessInfoListener(null);
+        // Only the Task Manager's own listener goes: the owner slot belongs to the exit / installer watchers.
+        if (winHandler != null && tmProcessInfoListener != null) winHandler.removeProcessInfoListener(tmProcessInfoListener);
         XServerDialogState.INSTANCE.setTmProcesses(new ArrayList<>());
     }
 
@@ -18473,6 +19112,7 @@ return true;
         XServerDialogState ds = XServerDialogState.INSTANCE;
 
         ds.onTmRefresh = () -> {
+            registerTmProcessInfoListener();
             if (winHandler != null) winHandler.listProcesses();
             updateTmCpuMemory(ds);
         };
@@ -18484,6 +19124,8 @@ return true;
         // killed the old Task Manager confirm). The submit path is unchanged: OK runs winHandler.exec.
         ds.onTmNewTask = () -> ds.show(XServerDialogState.ActiveDialog.NEW_TASK);
         ds.onTmNewTaskSubmit = command -> { if (winHandler != null) winHandler.exec(command); };
+        ds.onRunProgramPicker = () -> openRunProgramPicker(false);
+        ds.onNewTaskBrowse = () -> openRunProgramPicker(true);
 
         // Bring to Front: drive it host-side (renderer-agnostic). Look up the real X window for the
         // target Windows pid, set X-server input focus on it, and send bringToFront with the REAL
@@ -18548,7 +19190,7 @@ return true;
             return m != null ? m : -1;
         };
 
-        registerTmProcessInfoListener();
+        // The process-list listener is added when the Task Manager opens (startTmPolling / onTmRefresh).
 
         ds.setTmContainerInfo(buildTmContainerInfo());
         updateTmCpuMemory(ds);
@@ -18648,15 +19290,25 @@ return true;
         }
     }
 
+    /**
+     * The Task Manager's process-list listener. It is a side listener (WinHandler.addProcessInfoListener),
+     * not the single owner slot: the game-exit and installer watchers re-take that slot every 2 s, which
+     * left the Task Manager on its first list (memory never changed). Added while the Task Manager is
+     * open (startTmPolling / onTmRefresh), removed when it closes (stopTmPolling).
+     */
+    private OnGetProcessInfoListener tmProcessInfoListener;
+
     private void registerTmProcessInfoListener() {
         XServerDialogState ds = XServerDialogState.INSTANCE;
-        if (winHandler != null) {
-            winHandler.setOnGetProcessInfoListener(new OnGetProcessInfoListener() {
+        if (winHandler == null) return;
+        if (tmProcessInfoListener == null) {
+            tmProcessInfoListener = new OnGetProcessInfoListener() {
                 private final ArrayList<XServerDialogState.TmProcess> buffer = new ArrayList<>();
                 private final java.util.HashSet<Integer> livePids = new java.util.HashSet<>();
 
                 @Override
                 public void onGetProcessInfo(int index, int numProcesses, ProcessInfo info) {
+                    if (info == null) return;
                     android.graphics.Bitmap icon = null;
                     try (XLock lock = xServer.lock(XServer.Lockable.WINDOW_MANAGER)) {
                         com.winlator.star.xserver.Window w = xServer.windowManager.findWindowWithProcessId(info.pid);
@@ -18693,8 +19345,9 @@ return true;
                         }
                     });
                 }
-            });
+            };
         }
+        winHandler.addProcessInfoListener(tmProcessInfoListener);
     }
 
     private void updateTmCpuMemory(XServerDialogState ds) {

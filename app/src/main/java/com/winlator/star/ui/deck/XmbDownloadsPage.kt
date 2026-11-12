@@ -61,9 +61,10 @@ import com.winlator.star.store.download.DownloadState
 import com.winlator.star.store.download.Store
 import com.winlator.star.store.download.StoreStyle
 import com.winlator.star.ui.findActivity
-import com.winlator.star.ui.screens.XMB_DL_TO_BAR
+import com.winlator.star.ui.screens.XMB_ARMED_MS
 import com.winlator.star.ui.screens.XMB_TWO_COL_GAP_DP
 import com.winlator.star.ui.screens.XMB_TWO_COL_MAX_WIDTH_DP
+import com.winlator.star.ui.screens.XMB_TWO_COL_TO_BAR
 import com.winlator.star.ui.screens.XmbDlAction
 import com.winlator.star.ui.screens.XmbDlSection
 import com.winlator.star.ui.screens.xmbClick
@@ -71,6 +72,7 @@ import com.winlator.star.ui.screens.xmbDlActions
 import com.winlator.star.ui.screens.xmbDlCards
 import com.winlator.star.ui.screens.xmbDlCursor
 import com.winlator.star.ui.screens.xmbDlGroups
+import com.winlator.star.ui.screens.xmbDlInnerClamp
 import com.winlator.star.ui.screens.xmbDlLines
 import com.winlator.star.ui.screens.xmbDlNeedsConfirm
 import com.winlator.star.ui.screens.xmbDlProgress
@@ -100,9 +102,6 @@ private val XMB_DL_GREEN = Color(0xFF3DDC84)
 private val XMB_DL_AMBER = Color(0xFFFFAA00)
 private val XMB_DL_RED = Color(0xFFFF8A80)
 
-/** How long a button that asks for a second press to confirm waits for it, in ms. */
-private const val XMB_DL_ARMED_MS = 4000L
-
 /** The number of downloads under way or waiting (queued, downloading, paused), for a badge on the tab. */
 internal fun xmbDownloadsActiveCount(): Int = DownloadRegistry.activeCount.value
 
@@ -125,8 +124,9 @@ internal fun xmbDownloadsActiveFlow(): StateFlow<Int> = DownloadRegistry.activeC
 internal fun XmbDownloadsPage(focus: XmbTabsPageFocus) {
     val context = LocalContext.current
     val actions = remember(context) { context.findActivity()?.let { DownloadActions(it, inlineAddResult = true) } }
-    // Seeds the durable library and the store libraries (once per process: the calls are idempotent).
-    LaunchedEffect(context) { DownloadActions.prepare(context) }
+    // Seeds the durable library and the store libraries before the first frame reads the registry (as the Activity does in onCreate), so the
+    // page does not flash its empty state; the calls are idempotent, so once per process or once per composition is the same.
+    remember(context) { runCatching { DownloadActions.prepare(context) } }
 
     val entries by DownloadRegistry.entries.collectAsStateWithLifecycle()
     val groups = remember(entries) { xmbDlGroups(entries) }
@@ -144,6 +144,13 @@ internal fun XmbDownloadsPage(focus: XmbTabsPageFocus) {
     var wantCol by remember { mutableIntStateOf(0) }
     var armed by remember { mutableStateOf<XmbDlAction?>(null) }
     val cursor = xmbDlCursor(keys, selKey, selIdx)
+    // The buttons of the card under the cursor: when a card changes state under it (downloading, then failed) they can be fewer than the one
+    // the cursor was on, or lose the one waiting for its second press.
+    val selButtons = cards.getOrNull(cursor)?.let { xmbDlActions(it, queueKeys.indexOf(it.key) > 0) } ?: emptyList()
+    LaunchedEffect(selButtons) {
+        inner = xmbDlInnerClamp(inner, selButtons.size)
+        if (armed != null && armed !in selButtons) armed = null
+    }
 
     // The list changed: keep the cursor on its card, or the nearest one when that has gone (a game uninstalled, a failure dismissed).
     LaunchedEffect(keys) {
@@ -160,7 +167,7 @@ internal fun XmbDownloadsPage(focus: XmbTabsPageFocus) {
     // A button that asked for a second press gives up waiting.
     LaunchedEffect(armed) {
         if (armed != null) {
-            delay(XMB_DL_ARMED_MS)
+            delay(XMB_ARMED_MS)
             armed = null
         }
     }
@@ -224,7 +231,7 @@ internal fun XmbDownloadsPage(focus: XmbTabsPageFocus) {
                         if (up) focus.toBar()
                     } else {
                         val to = xmbTwoColVertical(lines, at, down = !up, wantCol = wantCol)
-                        if (to == XMB_DL_TO_BAR) focus.toBar() else select(to)
+                        if (to == XMB_TWO_COL_TO_BAR) focus.toBar() else select(to)
                     }
                     true
                 }

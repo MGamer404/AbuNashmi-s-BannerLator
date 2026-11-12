@@ -81,6 +81,14 @@ public class XServer {
 
     private volatile boolean externalRelativeMode;
 
+    /** Aim mode Auto's detector: fed with the game's warps (WarpPointer, Wayland warps) and the player's motion. */
+    public final AimTracker aimTracker = new AimTracker();
+
+    /** Touch should act as camera movement: Relative Mouse / Aim On, a Wayland lock, or Auto detected mouse-look. */
+    public boolean isAiming() {
+        return isRelativeMouseMovement() || aimTracker.isActive();
+    }
+
     /** Wayland mode: a program locked the pointer (zwp_pointer_constraints_v1), so the input path
      *  must deliver deltas while it holds. Leaves the X11 cursor locker alone (no X clients here). */
     public void setExternalRelativeMode(boolean on) {
@@ -229,10 +237,14 @@ public class XServer {
     }
 
     public void injectPointerMove(int x, int y) {
+        int dx, dy;
         try (XLock lock = lock(Lockable.WINDOW_MANAGER, Lockable.INPUT_DEVICE)) {
+            dx = x - pointer.getX();
+            dy = y - pointer.getY();
             pointer.setPosition(x, y);
             emitRawFromAbsolute(x, y);
         }
+        aimTracker.onMotion(dx, dy, android.os.SystemClock.uptimeMillis());
         sinkPointerMove();
     }
 
@@ -242,7 +254,16 @@ public class XServer {
             XInput2Extension xi = xInput2;
             if (xi != null) xi.emitRawMotion(dx, dy);
         }
+        aimTracker.onMotion(dx, dy, android.os.SystemClock.uptimeMillis());
         sinkPointerMove();
+    }
+
+    /** Wayland: the game moved the pointer (a warp). Follow it without counting it as the player's motion. */
+    public void syncPointerPosition(int x, int y) {
+        try (XLock lock = lock(Lockable.WINDOW_MANAGER, Lockable.INPUT_DEVICE)) {
+            pointer.setPosition(x, y);
+            rawAnchorValid = false;
+        }
     }
 
     // XInput 2 raw motion for absolute moves (touchscreen mode, a hovering mouse or stylus): the
@@ -331,6 +352,20 @@ public class XServer {
         extensions.put(SyncExtension.MAJOR_OPCODE, new SyncExtension());
         extensions.put(RandrExtension.MAJOR_OPCODE, new RandrExtension(screenInfo));
     }
+
+    /**
+     * Renderers leave out windows that are fully transparent (_NET_WM_WINDOW_OPACITY 0) together with the windows
+     * inside them, as a compositing X server does. Set for Windows Steam sessions, where Wine's offscreen surfaces
+     * (children of its transparent dummy parent) would otherwise cover Steam's own windows at the screen origin.
+     */
+    public volatile boolean hideTransparentWindows = false;
+
+    /**
+     * Lays overlay pictures (Chromium's side menu / Quick Access in the Windows Steam client) back over a window after
+     * Wine copies a fullscreen page frame over all of it; see OverlayCopies. Set for Windows Steam sessions.
+     */
+    public volatile boolean keepOverlayCopies = false;
+    public final OverlayCopies overlayCopies = new OverlayCopies();
 
     private volatile boolean serverGlx = false;
 

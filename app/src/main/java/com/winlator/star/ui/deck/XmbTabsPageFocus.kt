@@ -8,11 +8,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.unit.dp
 
+/** The thin light outline of the card, tab or cover under the cursor on the XMB Home and its tabs page (the Steam Deck's focus ring). */
+internal val XMB_FOCUS_OUTLINE = Color.White.copy(alpha = 0.92f)
+
 /**
- * What a page of the XMB Home's tabs page (Stores, Downloads, Friends, Community configs: XmbTabsPage.kt) gets from its host.
+ * What a page of the XMB Home's tabs page (Stores, Downloads, Friends: XmbTabsPage.kt) gets from its host.
  *
  * The tabs page has two focus areas: the pill bar of tabs along the top, and the page's content under it. One focus target at the
  * host holds the keys (the pages take no Android focus of their own), so a page draws its own cursor and moves it from the keys the
@@ -29,7 +33,8 @@ import androidx.compose.ui.unit.dp
  *  - [toBar]: moves the cursor up to the pill bar (what an unhandled Up does).
  *  - [contentPadding]: the room to keep clear: the side margins (the camera hole in landscape), a small gap under the pill bar and,
  *    at the bottom, the shell's floating Back / Search hints (LocalXmbHintInset). The page's own box fills the whole area under the
- *    pill bar and the host adds no padding, so a scrolling list can run under the hints; apply this to the content.
+ *    pill bar and the host adds no padding, so a page can run under the hints (a scrolling list may; a page of fixed cards keeps clear
+ *    of them); apply this to the content.
  *
  * Only the host changes these (the setters are internal for it).
  */

@@ -15,9 +15,6 @@ internal val XMB_FRIENDS_SECTIONS: List<SteamFriendsStore.Presence> = listOf(
     SteamFriendsStore.Presence.UNKNOWN,
 )
 
-/** [xmbTwoColVertical]'s answer for Up from the top line: the cursor goes to the pill bar. */
-internal const val XMB_FRIENDS_TO_BAR = XMB_TWO_COL_TO_BAR
-
 /** The toolbar's buttons, left to right: Add friend, Settings. */
 internal const val XMB_FRIENDS_TOOLBAR_BUTTONS = 2
 
@@ -109,6 +106,27 @@ internal fun xmbFriendsResolve(rows: List<XmbFriendsRow>, key: String, lastIndex
     return 0
 }
 
+/**
+ * The cursor's state on a row that the page keeps beside the row's key: [sub] the button of the row it is on, [openKey] the row whose
+ * buttons hold the cursor (null: none) and [confirmRemove] Remove waiting for its second press.
+ */
+internal data class XmbFriendsCursor(val key: String, val sub: Int, val openKey: String?, val confirmRemove: Boolean)
+
+/**
+ * [cursor] made to agree with [rows] after they changed under it. [index] is where the cursor is now ([xmbFriendsResolve]'s answer): when the
+ * row there is not the one [XmbFriendsCursor.key] names (that friend went: removed, a request answered) the cursor takes that row's key and
+ * starts afresh on it (first button, nothing open, no Remove waiting); else it would keep the old button number (the toolbar's Settings, say)
+ * on a row with others. On the same row the button is only clamped into the row's buttons (a friend leaving their game has one action
+ * fewer) and a Remove that was waiting is dropped when the button moved.
+ */
+internal fun xmbFriendsNormalise(rows: List<XmbFriendsRow>, cursor: XmbFriendsCursor, index: Int): XmbFriendsCursor {
+    val row = rows.getOrNull(index) ?: return cursor
+    if (row.key != cursor.key) return XmbFriendsCursor(row.key, 0, null, false)
+    val open = cursor.openKey == row.key
+    val sub = cursor.sub.coerceIn(0, xmbFriendsButtonCount(row, open) - 1)
+    return XmbFriendsCursor(row.key, sub, if (open) row.key else null, cursor.confirmRemove && sub == cursor.sub)
+}
+
 /** True for the rows drawn as a card, two to a line: a friend and the two kinds of request. The toolbar and the headings span the full width. */
 internal fun xmbFriendsIsCard(row: XmbFriendsRow): Boolean =
     row is XmbFriendsRow.Friend || row is XmbFriendsRow.Incoming || row is XmbFriendsRow.Outgoing
@@ -123,7 +141,7 @@ internal fun xmbFriendsLines(rows: List<XmbFriendsRow>, columns: Int): List<List
 /**
  * Where Up ([down] false) or Down from row [from] goes: the nearest line above or below that holds a selectable row (the requests' heading
  * only labels, so it is skipped), on the column [wantCol] or the last card of a shorter line. Up from the first line is
- * [XMB_FRIENDS_TO_BAR]; Down from the last stays.
+ * [XMB_TWO_COL_TO_BAR]; Down from the last stays.
  */
 internal fun xmbFriendsVertical(rows: List<XmbFriendsRow>, lines: List<List<Int>>, from: Int, down: Boolean, wantCol: Int): Int =
     xmbTwoColVertical(lines, from, down, wantCol) { i -> rows.getOrNull(i)?.selectable == true }

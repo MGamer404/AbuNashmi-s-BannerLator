@@ -4,12 +4,8 @@ import com.winlator.star.ui.simple.T
 import android.content.Context
 import androidx.preference.PreferenceManager
 import com.winlator.star.core.AppOrientation
-import com.winlator.star.core.ControllerLog
-import com.winlator.star.core.ExitReasonReporter
-import com.winlator.star.core.LogLocation
 import com.winlator.star.store.SteamRegion
 import com.winlator.star.store.StoreDownloadTier
-import com.winlator.star.store.UbisoftDiag
 import com.winlator.star.store.blsteam.BlSteamEngineFlag
 import com.winlator.star.store.blsteam.BlStoreEngineFlag
 import com.winlator.star.ui.deck.settings.SettingLevel.ADVANCED
@@ -20,8 +16,8 @@ import com.winlator.star.ui.theme.themePresets
 import java.util.Locale
 import kotlin.math.roundToInt
 
-// The app-settings rows that only the XMB / Deck Settings tab has (the Classic Settings screen keeps its own controls for the
-// same preferences, Lab never sees these rows). They sit in category ids that are NOT in AppSettingsRegistry.categories
+// The app-settings rows that only the XMB Settings tab has (the Classic Settings screen keeps its own controls for the
+// same preferences; the plain Deck and Lab never see these rows). They sit in category ids that are NOT in AppSettingsRegistry.categories
 // ("app.x.*"), so SimpleOneMenuSettings, which walks that list, ignores them; AppSettingsLayout files them into the tabs.
 // Each reads and writes the same preference the classic screen that owns it uses and applies the moment it changes.
 
@@ -30,7 +26,6 @@ internal object AppSettingsRows {
     const val CAT_APPEARANCE = "app.x.appearance"
     const val CAT_STEAM = "app.x.steam"
     const val CAT_DOWNLOADS = "app.x.downloads"
-    const val CAT_LOGS = "app.x.logs"
 
     // The values of the interface-style row, in the order of the segmented control.
     const val STYLE_CLASSIC = "classic"
@@ -206,68 +201,6 @@ internal object AppSettingsRows {
             binding = AppBinding(
                 get = { c -> StoreDownloadTier.get(c).toString() },
                 set = { c, v -> v.toIntOrNull()?.let { StoreDownloadTier.set(c, it) } },
-            ),
-        ),
-
-        // ── Logs: what is recorded, where it goes, how long it is kept (the viewer stays in Tools > Logs) ──
-        row(
-            "app.logs.location", CAT_LOGS, T("Where logs go"), T("Log location"), ADVANCED,
-            hint = T("Download, Documents, or a folder you choose (Folders, above)."), tech = LogLocation.PREF_MODE,
-            control = { env ->
-                val custom = prefs(env.context).getString(LogLocation.PREF_CUSTOM_PATH, "") ?: ""
-                Control.Select(listOf(
-                    Opt(LogLocation.MODE_DOWNLOAD, T("Download")),
-                    Opt(LogLocation.MODE_DOCUMENTS, T("Documents")),
-                    Opt(LogLocation.MODE_CUSTOM, T("Custom folder"), if (custom.isEmpty()) T("Choose a folder first: Folders > Log folder, above.") else null),
-                ))
-            },
-            binding = AppBinding(
-                // The retired "app data" mode resolves to Documents, as the Log Manager shows it.
-                get = { c ->
-                    val m = prefs(c).getString(LogLocation.PREF_MODE, LogLocation.MODE_DOCUMENTS)
-                    if (m == LogLocation.MODE_DOWNLOAD) LogLocation.MODE_DOWNLOAD
-                    else if (m == LogLocation.MODE_CUSTOM) LogLocation.MODE_CUSTOM
-                    else LogLocation.MODE_DOCUMENTS
-                },
-                set = { c, v -> prefs(c).edit().putString(LogLocation.PREF_MODE, v).apply() },
-            ),
-        ),
-        switch("app.logs.perGame", CAT_LOGS, T("Where logs go"), T("Folder for each game"), ADVANCED, LogLocation.PREF_PER_GAME, true,
-            hint = T("Each game keeps its own folder."), help = LogCopy.PER_GAME),
-        switch("app.logs.wineDebug", CAT_LOGS, T("What to record"), T("Wine debug"), ADVANCED, "enable_wine_debug", false,
-            hint = T("Slows games down: for diagnosing a problem. Pick the channels at the bottom of this page."), help = LogCopy.WINE),
-        switch("app.logs.box64", CAT_LOGS, T("What to record"), T("Box64 / FEXCore"), ADVANCED, "enable_box64_logs", false,
-            hint = T("Slows games down at higher verbosity."), help = LogCopy.BOX64),
-        switch("app.logs.dxvk", CAT_LOGS, T("What to record"), T("DXVK & VKD3D"), ADVANCED, "enable_dxvk_logs", true,
-            hint = T("Safe to leave on: mostly written at startup."), help = LogCopy.DXVK),
-        switch("app.logs.controller", CAT_LOGS, T("What to record"), T("Controller input"), ADVANCED, ControllerLog.PREF_KEY, false,
-            hint = T("For controls that don't work: written when the game exits."), help = LogCopy.CONTROLLER),
-        switch("app.logs.steamLite", CAT_LOGS, T("What to record"), T("SteamLite (Steam client)"), ADVANCED, "enable_steamlite_logs", false,
-            hint = T("Only when a game launches through SteamLite."), help = LogCopy.STEAMLITE),
-        switch("app.logs.headlessSteam", CAT_LOGS, T("What to record"), T("Headless Steam (app session host)"), ADVANCED, "enable_headless_steam_logs", false,
-            hint = T("Only when a game launches through Headless Steam."), help = LogCopy.HEADLESS_STEAM),
-        switch("app.logs.ubisoftReport", CAT_LOGS, T("What to record"), T("Ubisoft diagnostics report"), ADVANCED, UbisoftDiag.PREF_REPORT, false,
-            hint = T("Only for Ubisoft games: adds a wait when the game closes.")),
-        switch("app.logs.ubisoftDeep", CAT_LOGS, T("What to record"), T("Ubisoft deep trace"), ADVANCED, UbisoftDiag.PREF_DEEP_TRACE, false,
-            hint = T("Slows Ubisoft games down: needs Wine debug on.")),
-        switch("app.logs.logcat", CAT_LOGS, T("What to record"), T("Android logcat"), ADVANCED, "enable_logcat", true,
-            hint = T("Bannerlator's own output only."), help = LogCopy.LOGCAT),
-        switch("app.logs.crashReports", CAT_LOGS, T("What to record"), T("Crash reports"), ADVANCED, "enable_crash_reports", true,
-            hint = T("Nothing runs until something crashes."), help = LogCopy.CRASH),
-        switch("app.logs.exitReasons", CAT_LOGS, T("What to record"), T("Exit reasons (auto-save on launch)"), ADVANCED, ExitReasonReporter.PREF_AUTOSAVE, false,
-            hint = T("Records native crashes without root."), help = LogCopy.EXIT_REASONS,
-            disabled = { _, _ -> if (ExitReasonReporter.isSupported()) null else T("Needs Android 11 or newer.") }),
-        row(
-            "app.logs.keepLast", CAT_LOGS, T("Keep logs"), T("Keep last"), ADVANCED,
-            hint = T("How many past launches each game keeps before the oldest are removed."), help = LogCopy.KEEP_LAST, tech = LogLocation.PREF_KEEP_LAST,
-            control = {
-                Control.Select(listOf(0, 1, 3, 5, 10, 20, 50).map { n ->
-                    Opt(n.toString(), if (n == 0) T("No history") else if (n == 1) T("1 launch") else T("$n launches"))
-                })
-            },
-            binding = AppBinding(
-                get = { c -> prefs(c).getInt(LogLocation.PREF_KEEP_LAST, LogLocation.DEFAULT_KEEP_LAST).toString() },
-                set = { c, v -> v.toIntOrNull()?.let { prefs(c).edit().putInt(LogLocation.PREF_KEEP_LAST, it).apply() } },
             ),
         ),
     )

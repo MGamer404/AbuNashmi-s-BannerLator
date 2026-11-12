@@ -798,7 +798,7 @@ private val COMMON_WINE_CHANNELS = listOf(
  */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-internal fun WineChannelGroup(
+private fun WineChannelGroup(
     selected: List<String>,
     onChange: (List<String>) -> Unit,
     modifier: Modifier = Modifier,

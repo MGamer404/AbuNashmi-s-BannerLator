@@ -99,8 +99,18 @@ internal fun xmbDlLines(groups: List<XmbDlGroup>, columns: Int): List<List<Int>>
     return lines
 }
 
-/** [xmbTwoColVertical]'s answer for Up from the first line of cards: the focus goes to the pill bar. */
-internal const val XMB_DL_TO_BAR = XMB_TWO_COL_TO_BAR
+/**
+ * How long a button that asks for a second press to confirm (a download's Cancel, a game's Uninstall, a friend's Remove) waits for it before
+ * it gives up, in ms.
+ */
+internal const val XMB_ARMED_MS = 4000L
+
+/**
+ * [inner], the button of the card under the cursor that holds it (-1: the card itself), made to fit a card that now has [actionCount] buttons:
+ * a card that changed state under the cursor (downloading, then failed) has fewer. -1 stays -1; a card with no buttons drops it.
+ */
+internal fun xmbDlInnerClamp(inner: Int, actionCount: Int): Int =
+    if (inner < 0 || actionCount <= 0) -1 else inner.coerceAtMost(actionCount - 1)
 
 /**
  * Where the cursor is on the new list of card [keys]: on the card it was on ([key]) wherever that has moved to (a download finishing

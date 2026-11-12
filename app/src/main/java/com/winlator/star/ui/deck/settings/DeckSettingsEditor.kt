@@ -186,7 +186,7 @@ internal class CategoryExtra(
     val level: SettingLevel = SettingLevel.SIMPLE,
 )
 
-// The Simple / Advanced choice is remembered across editors.
+// The Simple / Advanced (/ Expert in the plain Deck) choice is remembered across editors.
 internal const val LEVEL_PREF = "deck_settings_level"
 
 /**
@@ -241,10 +241,15 @@ internal fun DeckSettingsEditor(
     val scrollHeader = xmbHome
     val slim = xmbHome && !compact
     val prefs = remember { PreferenceManager.getDefaultSharedPreferences(context) }
-    // Two levels: a stored "EXPERT" (the old third level) reads as ADVANCED.
-    var level by remember { mutableStateOf(SettingLevel.parse(prefs.getString(LEVEL_PREF, null))) }
+    // XMB: two levels, a stored "EXPERT" (the third level) reads as ADVANCED. The plain Deck keeps Simple / Advanced / Expert.
+    var level by remember {
+        mutableStateOf(
+            if (xmbHome) SettingLevel.parse(prefs.getString(LEVEL_PREF, null))
+            else runCatching { SettingLevel.valueOf(prefs.getString(LEVEL_PREF, null) ?: "") }.getOrDefault(SettingLevel.SIMPLE),
+        )
+    }
     val changeLevel: (SettingLevel) -> Unit = { l ->
-        val next = l.effective
+        val next = if (xmbHome) l.effective else l
         level = next
         prefs.edit().putString(LEVEL_PREF, next.name).apply()
     }
@@ -267,9 +272,10 @@ internal fun DeckSettingsEditor(
 
     // Per category: every row that applies in this editor, and the ones shown at the chosen level.
     val rowsByCat = cats.associate { c -> c.id to allDefs.filter { it.category == c.id && applies(it) } }
-    val shownByCat = rowsByCat.mapValues { (_, rows) -> rows.filter { it.level <= level } }
+    // The layout's unlisted rows (the Win components page's, which it draws itself) are counted and searchable but not listed.
+    val shownByCat = rowsByCat.mapValues { (_, rows) -> rows.filter { it.level <= level && layout?.unlisted?.invoke(it) != true } }
     val visibleCats = cats.filter { c ->
-        shownByCat[c.id].orEmpty().isNotEmpty() || ex[c.id]?.let { it.level.effective <= level } == true ||
+        shownByCat[c.id].orEmpty().isNotEmpty() || ex[c.id]?.let { (if (xmbHome) it.level.effective else it.level) <= level } == true ||
             (level != SettingLevel.SIMPLE && worldHandoffs[c.id].orEmpty().isNotEmpty())
     }
     val tracksOverrides = env.scope == EditorScope.GAME || env.scope == EditorScope.CONTAINER
@@ -904,13 +910,14 @@ internal fun DeckSegmented(options: List<Opt>, value: String, onPick: (String) -
 
 @Composable
 private fun LevelSwitch(level: SettingLevel, onLevel: (SettingLevel) -> Unit, slim: Boolean = false) {
+    // XMB: two choices, EXPERT is only an alias of ADVANCED (see SettingLevel). The plain Deck keeps all three.
+    val xmb = rememberXmbHome()
     SegmentedPills(
-        // Two choices: EXPERT is only an alias of ADVANCED (see SettingLevel).
-        options = listOf(SettingLevel.SIMPLE, SettingLevel.ADVANCED).map { Opt(it.name, it.label) },
-        value = level.effective.name,
+        options = (if (xmb) listOf(SettingLevel.SIMPLE, SettingLevel.ADVANCED) else SettingLevel.entries).map { Opt(it.name, it.label) },
+        value = (if (xmb) level.effective else level).name,
         enabled = true,
         alignEnd = false,
-        onPick = { onLevel(SettingLevel.parse(it)) },
+        onPick = { onLevel(if (xmb) SettingLevel.parse(it) else SettingLevel.valueOf(it)) },
         slim = slim,
     )
 }
@@ -937,28 +944,28 @@ private fun SearchButton(onClick: () -> Unit) {
 }
 
 @Composable
-private fun ChainChip(link: ChainLink, onClick: () -> Unit, slim: Boolean = false) {
-    val chipH = if (slim) 30.dp else 38.dp
+private fun ChainChip(link: ChainLink, onClick: () -> Unit) {
+    val chipH = 38.dp
     val shape = RoundedCornerShape(chipH / 2)
     val here = link.onClick == null
     DeckInk { item, cs ->
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(if (slim) 6.dp else 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier
                 .height(chipH)
                 .then(if (here) Modifier else Modifier.deckFocusRingInk(shape, item, scaleTo = 1f))
                 .clip(shape)
                 .background(if (here) cs.primary.copy(alpha = 0.16f) else Color.Transparent)
                 .then(if (here) Modifier else Modifier.border(1.dp, deckLine(), shape).clickable(onClick = onClick))
-                .padding(horizontal = if (slim) 11.dp else 14.dp),
+                .padding(horizontal = 14.dp),
         ) {
-            if (!here) Icon(link.icon, contentDescription = null, tint = cs.onSurface, modifier = Modifier.size(if (slim) 16.dp else 18.dp))
+            if (!here) Icon(link.icon, contentDescription = null, tint = cs.onSurface, modifier = Modifier.size(18.dp))
             Text(
                 text = link.label,
                 color = if (here) cs.primary else cs.onSurface,
                 fontWeight = FontWeight.Bold,
-                fontSize = if (slim) 13.sp else 14.5.sp,
+                fontSize = 14.5.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.widthIn(max = 260.dp),

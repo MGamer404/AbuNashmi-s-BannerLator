@@ -61,4 +61,14 @@ class LabArtOrderTest {
         // The same name linked to another app is a different identity, so a relink does not keep the old game's art.
         assertNotEquals(labHeroKey("Prey", 480490), labHeroKey("Prey", 1000))
     }
+
+    @Test fun picsKey_changesWhenTheTriedPicturesChange() {
+        val before = labPicsKey(listOf(root + "library_hero.jpg", "cover"))
+        assertEquals(before, labPicsKey(listOf(root + "library_hero.jpg", "cover")))
+        // Published art arriving puts a new first picture in front.
+        assertNotEquals(before, labPicsKey(listOf(hashedHero, root + "library_hero.jpg", "cover")))
+        assertNotEquals(before, labPicsKey(emptyList()))
+        // Order matters: it is the order the pictures are tried in.
+        assertNotEquals(labPicsKey(listOf("a", "b")), labPicsKey(listOf("b", "a")))
+    }
 }

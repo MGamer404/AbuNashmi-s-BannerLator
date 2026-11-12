@@ -724,11 +724,7 @@ private fun ContainerItem(
     }
     val rendererLabel = rendererLabelOf(container.renderer, waylandContainer)
     val frameGenLabel = frameGenLabelOf(container.frameGenEngine)
-    val backendLabel = run {
-        val id = container.emulator
-        LocalContext.current.resources.getStringArray(R.array.emulator_entries)
-            .firstOrNull { StringUtils.parseIdentifier(it) == id } ?: ""
-    }
+    val backendLabel = com.winlator.star.ui.EmulatorLabels.chipLabel(container.emulator, container.wineVersion)
     val subtitle = listOf(container.wineVersion, container.screenSize)
         .filter { it.isNotEmpty() }.joinToString(" · ")
 
@@ -971,7 +967,7 @@ private fun layerSizeHint(remote: ContainerLayerUpdater.CatalogCandidate): Strin
     remote.sizeBytes?.let { " (~${ContainerLayerUpdater.formatSize(it)})" } ?: ""
 
 /** Steps of the Backup / Restore game-save flow launched from a container's overflow menu. */
-private sealed class SaveFlow {
+internal sealed class SaveFlow {
     /** Direction picker: back up vs restore. */
     data class Fork(val container: Container) : SaveFlow()
     /** Back up → scope picker: whole container vs a specific game. */
@@ -1006,7 +1002,7 @@ private sealed class SaveFlow {
 }
 
 /** Fires a scoped (or whole-container) backup off the UI thread and routes the result to the bars. */
-private fun runScopedBackup(
+internal fun runScopedBackup(
     context: android.content.Context,
     flow: SaveFlow.BackupFormat,
     layout: GameSaveBackup.BackupLayout,
@@ -1100,7 +1096,7 @@ private fun BackupFormatOption(title: String, subtitle: String, onClick: () -> U
  * takes them, so they are shown rather than ticked, and they alone are enough to go on.
  */
 @Composable
-private fun GameSavesDialog(
+internal fun GameSavesDialog(
     container: Container,
     gameName: String,
     gameKey: String,
@@ -1346,7 +1342,7 @@ private fun SaveFlowCaution() {
 
 /** Blocking, non-dismissable spinner shown while a backup/restore runs off the UI thread. */
 @Composable
-private fun SaveFlowProgressDialog(message: String) {
+internal fun SaveFlowProgressDialog(message: String) {
     Dialog(
         onDismissRequest = {},
         properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
@@ -1369,7 +1365,7 @@ private fun SaveFlowProgressDialog(message: String) {
 }
 
 @Composable
-private fun StorageInfoDialog(container: Container, onDismiss: () -> Unit) {
+internal fun StorageInfoDialog(container: Container, onDismiss: () -> Unit) {
     var driveCSize by remember { mutableLongStateOf(0L) }
     var cacheSize  by remember { mutableLongStateOf(0L) }
     var totalSize  by remember { mutableLongStateOf(0L) }

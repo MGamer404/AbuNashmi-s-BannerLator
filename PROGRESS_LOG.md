@@ -1,5 +1,1119 @@
 # Star-Compose — Progress Log
 
+## 2026-11-12 14:30 EST — 🔀 MERGED fix/last-played-any-launch (main a208c6717; user: "merge")
+
+- **Why:** user asked to check the Home "Continue" tile (it showed Brawlhalla after CS2 ran). Finding: `lastPlayed` (shortcut extra, read by the tile and the recent order) was stamped only by the in-app Play paths (`recordLastPlayed`, ShortcutsScreen.kt); launches that start XServerDisplayActivity directly — pinned home-screen icons (`MoveGameToContainer.pinIntent`) and my test harness — never counted. The tile logic itself (bcda2c55) was right.
+- **Built (88607f91, + main ddeccbcda merged in → 353b2a0d):** XServerDisplayActivity stamps `lastPlayed` right after loading the shortcut (`stampLastPlayed`), keeping the .desktop file's modified time ("Recently added" order). Other shortcut_path routes (installers, quick run) use temp .desktop files outside the library.
+- **CI:** run 43287103388, 4/4 green. Backup `refs/backup/20261112/main-before-last-played-any-launch` = ddeccbcda. Merge `--no-ff`, no MERGE_HEAD, merged tree 5671897b == tested tree.
+- **Device test (Pocket FIT, 14:24 EST):** FlatOut started via `am start -a VIEW … XServerDisplayActivity` (the home-screen icon route) → lastPlayed 13:17:59 → 14:24:35, file mtime unchanged → Home tile "CONTINUE" FlatOut, Windows Steam client still first in the row. No FATAL.
+
+## 2026-11-12 13:58 EST — 🔀 MERGED feat/steam-game-language (main d1719eab5; user: "merge")
+
+- **Why:** Discord #winlator-general 11-12 (ziqing_0501): "even i change app language … the game still downloaded in english … my game language is depends by steam client". User: "do the steam download language first", "follow app", then "anytime language is changed … verification from the user" and "just do it correctly and thoroughly".
+- **Built (branch head 3e855d12, on top of main 38fa3ebc5):**
+  - `SteamGameLanguage`: a game's language = its per-game pick, else the app's language when the game lists it, else English. Saved per app in `steam_games.languages` = supported|packaged|selected|packDepots (column added on open, DB stays v11).
+  - Download selection (`processAppKv`): a language-tagged depot is taken only for the chosen pack; an installed game keeps its installed pack until the user downloads another one.
+  - Game page: "Language: …" + "Change language" (when Steam lists >1); for an installed game whose language needs other files: "<language> files not installed" + "Download language files", and picking such a language asks "Download language files?" (Download / Later). Download = `SteamGameUpdater.downloadLanguage` (in-place pass, own progress window, Stop only stops).
+  - Steam library: one notice when installed games have language files to download.
+  - What games are told: Goldberg gets `steam_settings/configs.user.ini language=…`; the real Steam client (SteamLite `WN_STEAM_LANGUAGE`, appmanifest) gets the wanted language only for games without language-tagged depots, else the installed pack's language.
+  - The installed pack is recorded from the downloader's journal (a pack Steam refuses — no license — is remembered and not offered again); refused depots are never handed to SteamLite as installed.
+  - Optional DLC depots (config `optionaldlc`, e.g. CS2 Workshop Tools 2.1 GB) are skipped.
+  - Game page safety for installed games: during an update/verify/language pass Cancel stops the download (no file wipe, no uninstall), a failed pass returns to the installed state.
+- **CI:** run 43279439573 on 3e855d12, 4/4 green. Backup `refs/backup/20261112/main-before-steam-game-language` = 38fa3ebc5. Merge `--no-ff`, no MERGE_HEAD, merged tree 971e9a41 == tested tree.
+- **Device test (Pocket FIT, app language 简体中文):** library sync (all 223 games got language data); NFS Heat "files not installed" → prompt → only the 174 KB Chinese pack downloaded; Brawlhalla reinstalled + SteamLite launch: told English, 0 deleted, game loads; MIO + Counter-Strike 2 told Chinese, 0 deleted — **CS2 menus in Chinese** (user screenshots 13:05); FlatOut German pack refused → recorded, no prompt; CS2 size −2.1 GB after the optional-DLC skip. No FATAL. Screens: `/sdcard/Download/BL-steam-game-language-test-20261112/`.
+- **Incident during development (fixed before merge):** build 367745c3 told the real Steam client "schinese" for Brawlhalla, whose only depot is tagged english → the client deleted all 7997 files (content_log). The same session made it remove CS2's optional Workshop Tools (908 files). Rule since: anything handed to a real Steam client must describe exactly what is on disk; destructive-capable changes are tested on a throwaway game first.
+- **Not done / known:** the page still names a refused language; games with a separate pack for another language (FlatOut) are told English through SteamLite (a more precise rule is possible, helps only games that read Steam's language); no opt-in for optional DLC (CoD Warzone content now skipped).
+- **Lessons:** three builds were lost to unchecked edits (dropped functions, duplicate local) → rewrite small files whole, grep every changed symbol, re-read the diff before pushing. My test drove the device while the user was on it → check the foreground app before every scripted step. Announce installs to peer sessions too.
+
+## 2026-11-12 08:20 EST — 🔀 MERGED feat/wfg-engine (main d140ea009; user: "merge to main")
+
+- **What:** WFG (WinNative's frame generator by qwertypower, MIT) as a third native frame-gen engine on X11 Vulkan + Wayland, and the present-queue guard (idea from WinNative PR #797) for all three engines. Details in the entry below.
+- **Merge:** `--no-ff` d140ea009 = parents a916a324c (main, unchanged since the branch point) + c64724106 (branch tip); tree == branch tip; app code == tested build 99736b38a (the commits after it touch only this log). Backup `refs/backup/20261112/main-before-wfg-engine` = a916a324c.
+- **Proof:** CI run 43215365747 on 99736b38a 4/4 green. Device-proven: WFG on Wayland at 2×/3×/4× (Pocket FIT, Insane 2). NOT device-tested: WFG on X11, the X11 "no new content → no generation" rule, LSFG Native and Win-FG Native with the guard, HDR.
+- **Open / next:** X11 test of WFG and of the other two engines with the guard; optional WFG controls (Target FPS, Fast/Balance, show-flow); the two shortcuts ContainerManager skips as unreadable (RESIDENT EVIL 2 DX12, NINJA GAIDEN Σ).
+
+## 2026-11-12 07:02 EST — 🧪 WFG frame generator port (feat/wfg-engine 99736b38a; CI green; WFG device-proven on Wayland 2×/3×/4×, X11 not tested)
+
+- **Why:** user 11-12: "bannerlator frame gen options, can we also add wfg from winnative? recon and report" → after the recon: "go straight to the port".
+- **What WFG is:** WinNative's second frame generator by **qwertypower** (DEVAR Entertainment LLC), MIT (`winlator/wfg/LICENSE.wfg`). Dense Inverse Search + Farneback optical flow as Vulkan compute shaders, following OpenCV. Source: WinNative-Emu/WinNative main 72d145bc, `app/src/main/cpp/wfg`.
+- **Built (f28d73362 + bb4090fee):**
+  - `app/src/main/cpp/winlator/wfg/`: `vkr_dis.c`, `vkr_dis.h`, `shaders/*.comp` copied UNMODIFIED; ours: `vk_dispatch.h` (stand-in for WinNative's header, 32 entry points, table `wfg_vkd`), `wfg_engine.{h,cpp}` (`wfg::Engine`, same contract as the other engines), `gen_shaders.sh` + committed `gen/shaders/*.spv.h` (glslc `--target-env=vulkan1.1 -O`, shaderc 2026.1).
+  - CMake: static C library `wfg` (the renderer targets force `-std=c++17`), linked into `vulkan_renderer` and `bannerwayland`; `WFG_UPSTREAM` stamp in the engine-ready log line.
+  - X11 (`VulkanRendererContext`): engine kind 2 next to LSFG (0) and Win-FG (1). Wayland (`framegen_engine.cpp`, `framegen_bridge.{c,h}`): `VKP_FG_ENGINE_WFG = 2`.
+  - App: engine id `"wfg"` (container + per-game `frameGenEngine`); `applyWfgNative` / `prepareWfgNative` / `wfgNativeSession()` in `XServerDisplayActivity`; pickers in Container settings, per-game settings, XMB and the Lab/Deck registry; drawer badge "WFG", Flow Scale hidden for WFG; string `frame_generation_wfg`.
+  - Mapping of our controls: WFG paces itself up to the display rate; 2×/3×/4× caps how many frames it may add per game frame. Flow resolution pinned to Balance (252 px; preset 2 would be Fast 180 px). No Target FPS control and no Show-flow debug view yet.
+- **Present-queue guard (99736b38a, user 11-12: "add it now" after reading WinNative PR #797 by qwertypower — OPEN upstream, +114/−4 in WinNative's own presenters, not in wfg/):** FIFO shows one image per refresh, so output slightly above the display rate fills the swapchain queue and every frame arrives late (input lag). Ours, written against our presenters: `VulkanRendererContext::guardPresentQueue()` + model update after the presents + blocked-acquire seed; `framegen_bridge.c` `guard_trim` / `guard_presented` / `vkp_framegen_note_acquire` (called from `vk_present.c` `acquire_image`). While more than two images wait beyond the next refresh, one generated frame is left out. X11 only: a draw without a new window content update generates nothing (rule engages only while content updates are seen at all). All three engines. Limit: the model uses the panel's TOP rate (`currentDisplayRefreshHz`), so on a panel running slower it trims less than it could, never more. Log line "queue guard" every 600 frames. NOT measured on a device.
+- **Checked:** host `clang -fsyntax-only` clean for `vkr_dis.c`, `wfg_engine.cpp`, `framegen_engine.cpp`, `framegen_bridge.c`, `VulkanRendererContext.cpp` (stubbed Android headers). Kotlin/Java not compiled locally.
+- **CI:** run 43214250368 on bb4090fee: pubg job green at 07:37 EST (other flavors still running then). Run 43215365747 on 99736b38a (guard included), dispatched 07:37 EST — result not in yet.
+- **Device test 1 (Pocket FIT, build 99736b38a installed 07:56 EST, hash 1e6c7a19…; user played Insane 2 on Wayland 07:57–08:01 EST; log `/sdcard/Download/wfg-test-logcat.txt`, recording `/sdcard/Movies/screen-20261112-080149.mp4` 96 s):**
+  - WFG started in 0.25 s after the 2× tap ("WFG frame generation ready", flow 448x252, 4 levels, Farneback + DIS); live switches 2×→3×→4×→3×→2× without a restart or hitch in the log; exit EXIT_SELF status 0; crash buffer empty; no FATAL / Fatal signal / device lost.
+  - Rates from the log: 60→120 (2×), 72→144 (2×), 30→90 (3×), 30→120 (4×), 30→60 (2×). Recording, frame-to-frame change over 1 s windows: 120 / 90 / 60 frames, 0 repeated frames in every window; the step into each real frame is about 15–35 % larger than the steps between generated ones.
+  - Picture (close-ups of consecutive frames): car, wheels, dust and ground hold together. Seen: the game's own HUD text warps slightly over fast-moving background (one name row), and a roadside sign passing behind the lap counter breaks up in generated frames — the usual interpolation limits at an overlay edge.
+  - Queue guard: 0–1 images ahead all session, 1 generated frame left out in total → the queue never built up in this session, so the guard is proven harmless here, not proven to cut lag.
+  - HUD during the test: GPU 40–60 %, 10–14 W.
+- **Still not tested:** WFG on X11 (Vulkan renderer); the X11 "no new content → no generation" rule; LSFG Native and Win-FG Native with the guard; HDR (FP16); a side-by-side with Win-FG Native.
+- **Seen in the same log, not from this work:** `ContainerManager: Skipping unreadable shortcut` for "RESIDENT EVIL 2 DX12.desktop" and "NINJA GAIDEN Σ.desktop" (StringIndexOutOfBounds length=0 index=3), 10 times each — not investigated.
+- **Resume:** worktree `/root/src/Bannerlator-wt/wfg`. When CI is green: stage `/sdcard/Download/Bannerlator-wfg-engine-<sha8>-pubg.apk`, ask before install; test = container Frame generation → WFG, in-game side menu → 2×, Wayland and X11 Vulkan, read logcat for `wfg-native` / `framegen:` lines and FATAL.
+
+## 2026-11-12 05:55 EST — 🔀 MERGED feat/store-name-language (main 286bfbf36; user: "leave as is for now, merge to main")
+
+- **Why:** user 11-12: "we have app language selection, but what about game stores game name language selection?" Decision: follow the app language (Lab's pick, else the phone's), English fallback, no new setting; Steam, GOG, Xbox first. Then, with a Library screenshot: "what about game shortcuts and library tab?"
+- **Built (4 commits, head 8a1a055f6):**
+  - `c5356c32c` `StoreLang` (app locale → Steam language / GOG locale / Xbox tag). Steam store screens ask in that language; the Steam library saves PICS `common/name_localized` in a new `steam_games.name_localized` column (added in `onOpen`, **DB stays v11**: a version bump makes an older build rebuild the database on downgrade). GOG store asks with a locale (tested ones only: GOG's catalog returns an empty list for ko/pt/it); the GOG library makes a second small call for the translated title and keeps the English one (`gog_title_en_<id>`) for install folders. Xbox catalog/search/featured ask in the app language, then English.
+  - `05eaf7525` `LabTitles`: Lab Library/Home tiles, hero title, game menu and Game details show the store's translated name for a shortcut that still carries the store's English name. Show only: shortcut files and settings unchanged; user renames stay.
+  - `3b2c69b51` from the device test: Steam library search matches the English name too; an Xbox library saved in another language stays on show (marked due for refresh).
+  - `8a1a055f6` Microsoft Store search/featured need a full tag (`ja`, `de` answer HTTP 403): `StoreLang.xboxStore()`; 31 tags answer 200.
+- **CI:** run 43201430365 on 8a1a055f6, 4/4 green. Backup `refs/backup/20261112/main-before-store-name-language` = 2ed2ee4de. Merge `--no-ff`, no MERGE_HEAD, merged tree f3415246 == built commit's tree.
+- **Device test (Pocket FIT, app language 简体中文, builds 05eaf752 and 3b2c69b5, 05:01–05:33 EST):** Library tiles 霍格沃茨之遗 / 红怪 / UNCHARTED™: 盗贼传奇合辑; Steam featured asked with `l=schinese`, steam.db v11 with 44 of 223 names translated, search "war" finds 战争雷霆; GOG store 战锤幸存者 / 心灵杀手, 3 of 35 library titles translated; Xbox library (after the user signed in again) 126 of 451 titles translated. No FATAL/ANR. Language restored to English. Screenshots: `/sdcard/Download/BL-store-language-test-20261112/`.
+- **Not device-tested:** 8a1a055f6 itself (the full-tag fix; device has 3b2c69b5), a language without a region on the Xbox store, an installed GOG game's tile.
+- **Known limits (user: "leave as is for now"):** only names the store itself has are shown (most games have none); Steam China-only names (`sc_schinese`) are not used; Classic and Deck game lists and the in-game menu still show the shortcut name; sort still by the shortcut name; Epic and Amazon not started.
+- **Found, not from this work:** Xbox store search "forza" returns 0 results in English too (the list keeps only PC-installable or streamable games) — not investigated.
+- **Lesson:** my second test run drove the device while the user was using it (closed the app, typed into their terminal). Check the foreground app before every scripted step and stop when the user is on the device; a peer's "ack" does not cover the user.
+- **Open / next:** install the staged `/sdcard/Download/Bannerlator-store-name-language-8a1a055f-pubg.apk` (sha256 2e32a08f…e8d5, = main code) on the user's yes; Epic/Amazon names; Classic/Deck lists if wanted.
+
+## 2026-11-11 23:36 EST — 🔀 MERGED fix/lab-home-last-played (main bcda2c55f; user: "merge when green also"; NOT device-tested)
+
+- **Why:** user screenshot 23:21 EST: after exiting Counter-Strike 2 the Lab home big tile still showed "Windows Steam Client x64 / Continue". User: "the top tile (or same in landscape) should always show last played or exited game".
+- **Cause:** `LabHome.kt` took `recent.firstOrNull()`; `sortGames` pins the Windows Steam client first in every order (`DeckLibrarySort.kt`, `pinned`), so with it in the library the tile never moved. CS2's `lastPlayed` was the newer one (23:16:39 vs 19:12:37, read from the .desktop files).
+- **Built (8c84c6b34):** the tile takes the game with the newest `lastPlayed` (fallback: the row's first entry); a game played since the last look clears an earlier pick in the row; the row order is unchanged.
+- **CI:** run 43154623421, 4/4 green, headSha 8c84c6b34. Backup `refs/backup/20261111/main-before-lab-home-last-played` = cc2efba7. Merge `--no-ff`, tree == built commit.
+- **Device test:** none yet. Staged `/sdcard/Download/Bannerlator-lab-last-played-8c84c6b3-pubg.apk` (sha256 d25f9426…); install waits for the user's yes.
+- **Open / next:** install → exit a game → the tile shows it with "Continue"; pick another game in the row, play something, check the tile comes back.
+
+## 2026-11-11 22:52 EST — ✅ Counter-Strike 2 official matchmaking works: SteamLite v9 (package only, no app change; device-proven)
+
+- **Why:** CS2 showed "Some of your game files have been detected to have no signatures or invalid signatures" and would not join VAC-secured servers. User: no bypass; provide correct files.
+- **Dead end first:** Valve's Steam Client Service (branch `feat/steamlite-service` 513d45d8: agent start wait, service files staging, one-time registration). The service registers and starts but stops itself within moments under Wine; **not needed** — the game went online while it was still failing. Branch stays unmerged.
+- **Cause (file trace of cs2.exe start-up):** the game reads `game\bin\win64\csgo.signatures` (all files opened OK), then `C:\Program Files (x86)\Steam\steam.signatures` → not found (the SteamLite package never shipped Valve's catalog), then prints "Launch state does not match desired".
+- **Fix:** SteamLite **v9** = v8 + Valve's unmodified `steam.signatures` from the same client build (the bundled steamclient(64), tier0_s(64), vstdlib_s(64), Steam, Steam2 match its SHA-1 entries). `stageSteamLite` already copies every top-level package file into the Steam dir, so no app change.
+- **Device test (Pocket FIT, driven by root: `am start` + the compositor's `test-input` FIFO):** 22:52 EST on the test setup and 22:56 EST with v8 files + the catalog only: Play → Deathmatch → GO → live official match both times. Run on FEXCore 2611 + GameNative gn-6 (`-unix`).
+- **Published (user: "yes publish it as steamlite version 9"):** winlator-contents release `steamlite-v1` updated in place (asset 19,217,258 B, MD5 E165D618…, title/notes v9), `steamlite.json` version 9 (a84cfe1). FEX build published as `FEXCore-2611-gn-cs2` / `-unix` (Nightlies `FexCore` release + contents.json 6356494).
+- **Open / next:** the in-app update path v8 → v9 has not been run on a device; other VAC games with the new file present not re-run (passive file).
+- **Lesson:** trace what the game itself opens before chasing a service: `+file` on the game process showed the missing file in one run.
+
+## 2026-11-11 15:35 EST — ✅ Epic store bug fixes: first Epic game launch on the fixed code (main, device check)
+- **Device test (Pocket FIT, build 03482bdf = main code with the Epic fixes c524ed38):** the user launched Metalstorm (Epic, EOS) 14:59:22–15:03:00 EST on Wayland. Exit-reasons log: EXIT_SELF, exit code 0; crash buffer empty; DXVK/VKD3D logs written.
+- **Not verified:** the `-epiclocale` argument. The BH_EPIC_LAUNCH line is logcat-only and the buffer had rolled by the time it was read (it kept ~10 min). A 40-minute capture afterwards saw no Epic launch.
+- **Next:** start a logcat capture before the next Epic launch, then read `-epiclocale`. Still open from the Epic list: region codes, install-time language, cloud saves in Epic's format, auto sync, install space.
+- **Proof level:** launch + clean exit device-proven; launch language NOT verified.
+
+## 2026-11-11 14:3x EST — 🔀 MERGED fix/upstream-small-fixes into main (user: "clicks and touch work fine, merge it")
+- Backup `refs/backup/20261111/main-before-upstream-small-fixes` = b14ebc61. `--no-ff` merge of f2dab266 (code = 03482bdf, CI 43083718708 4/4 green); main had not moved; MERGE_HEAD + code == 03482bdf checked before pushing.
+- Device (Pocket FIT, 03482bdf): X11 cube 2128 / 653, DiRT 115.4, 0 FATAL, 0 X server error lines; user: clicks and touch fine. NOT tested: mouse wheel/side buttons with a real mouse, an Epic/HTTPS launch (cert env).
+
+## 2026-11-11 15:xx EST — 🔧 fix/upstream-small-fixes 03482bdf: Tier-1 upstream fixes + credits (user: "start with the small fixes and credits branch", "no regressions"); INSTALLED on the Pocket FIT; launch checkpoint
+- Committed: 53a3059e GetPointerMapping identity map for 7 buttons (Pipetto-crypto/winlator 6c7fa4d7, Seldom, MIT); 0a6e73df button releases routed by ButtonRelease interest, narrowed (GameNative #2110 32ffa28e, tapionallanaire, GPL-3.0); a12e2f5b WINE_ADDITIONAL_CERTS_DIR → imagefs cert.pem (GameNative #2009 219cda9b, Cole McCarren; gethostname shim not ported); 0b969378 credits (README, THIRD-PARTY-LICENSES); 03482bdf default wrapper note "Pipetto-crypto build, 2026-03-02" (user yes).
+- Not committed (regression risk / no effect): lsfg-vk 1.0.5 (engine retired, LSFG Native untouched; leftovers assets/lsfg-vk + libVkLayer_LSFGVK ship unused); 32-bit CPU list (GN #2383 cannot match on BL's Proton: _NET_WM_PID = Linux pid; possible existing bug: X11 launch CPU list not applied on Proton — check Cpus_allowed_list on device); Present ConfigureNotify/cleanup (BrunoSX winlator-app 68e375cf; needs device A/B; local branch wip/upstream-small-fixes-full 593a79b5).
+- CI 43083718708 4/4 green; APK /sdcard/Download/Bannerlator-upstream-small-fixes-03482bdf-pubg.apk sha256 2885f43e… (host == device); installed, base.apk == staged. Restore: Bannerlator-yserver-bundle-d18f656c-pubg.apk.
+- Launch checkpoint: AIO Vulkan cube X11 (ys-aio.sh vk usf x11 15) + DiRT X11 benchmark (ys-game.sh dirt usf x11), fan max. Then user: wheel/side buttons, clicks/drags, touch, an HTTPS/Epic launch.
+- Next (user yes): newer wrapper (Pipetto wrapper-25 tree / GN 20261027) as an extra Wrapper Manager choice, A/B vs default before any default change.
+
+## 2026-11-11 14:2x EST — 🔀 MERGED feat/yserver-bundle into main (user: "merge it")
+- Backup ref `refs/backup/20261111/main-before-yserver-bundle` = bd3bd1be. `--no-ff` merge of 3326476e (code = d18f656c + log commits); main had not moved. Checked before pushing: MERGE_HEAD present, merged code == d18f656c.
+- Every build now bundles yserver r1-pre1 (The412Banner/yserver-android-spike, public) as lib/arm64-v8a/libyserver.so, fetched by _build.yml from ci/yserver.json with a SHA-256 check; licence + credits in assets/yserver/LICENSE, NOTICE_YSERVER.txt, README credits. Still off unless a game sets BANNER_YSERVER=1. APK +4.98 MB (11.8 MB installed).
+- Device-proven on the Pocket FIT (12:45 EST): bundled binary + the Wine image's XKB data, cube 2037 fps, HUD 2047, desktop black, 0 FATAL. CI 43069803925 (d18f656c) 4/4 green.
+
+## 2026-11-11 12:5x EST — ✅ bundled yserver DEVICE-PROVEN (feat/yserver-bundle d18f656c on the Pocket FIT)
+- With files/yserver/yserver and files/yserver/xkb moved aside (now yserver.staged-0029 / xkb.staged): YServerComponent started /data/app/…/lib/arm64/libyserver.so, "ready after 103 ms"; yserver compiled the US keymap from the Wine image's XKB data (imagefs usr/share/X11/xkb); YSERVER-MAP for explorer.exe + the AIO window.
+- AIO Vulkan cube on yserver: 2037.17 avg / 483.45 1 % low (one run; other runs today 554-595); HUD 2046.8 fps (AIO 2062), desktop black; 2 WARN (the usual Vulkan dma-buf lines at start), 0 FATAL, crash 0. Fan restored, peers told.
+- The staged copies stay moved aside, so the bundled binary is what runs. Merge of feat/yserver-bundle: user's go.
+
+## 2026-11-11 12:45 EST — 📲 feat/yserver-bundle d18f656c INSTALLED on the Pocket FIT (user: "install it when it's done and test it"); launch checkpoint
+- CI 43069803925 4/4 green; APK 602,551,723 bytes (+4.98 MB), staged /sdcard/Download/Bannerlator-yserver-bundle-d18f656c-pubg.apk sha256 f9fe1fc4… (host == device); installed 12:44:55 EST, base.apk == staged; lib/arm64/libyserver.so unpacked, -rwxr-xr-x, sha256 cdb1aac0 (= release r1-pre1). Crash buffer empty.
+- Test: files/yserver/yserver → yserver.staged-0029 and files/yserver/xkb → xkb.staged (moved, not deleted) so the bundled binary + the Wine image's XKB data are used; AIO Vulkan cube on yserver (ys-aio.sh vk bundle1 ys 30), fan max. Undo: move both back.
+
+## 2026-11-11 13:4x EST — 🔧 feat/yserver-bundle: yserver ships inside the APK (user: "make our repo public and have our ci pull from there, and make a release")
+- Rule change (user): bundling others' code needs no permission ask when the licence allows it (yserver MIT) — keep the notice and credit.
+- The412Banner/yserver-android-spike made PUBLIC (history scanned first: no secrets/tokens/IPs; author email = the one already on Bannerlator's public commits), LICENSE (MIT) + LICENSE-yserver + README credits (Jos Dehaes, SetZero #349).
+- Release r1-pre1 (prerelease, tag → 774463860e11234571c9eae6a5ed85876d3ae7ca = CI 43064600562): yserver (sha256 cdb1aac0…, 11,761,400 bytes), full package, SHA256SUMS, both licences. Public download hash checked.
+- This branch: ci/yserver.json pin + _build.yml fetch step → jniLibs/arm64-v8a/libyserver.so (compressed ~5 MB in the APK, 11.8 MB installed); NOTICE_YSERVER.txt; README credit; .gitignore. YServerComponent unchanged (staged files/yserver/yserver still wins; bundled otherwise).
+- Next: CI, then (user's yes) install + test with the staged binary and staged xkb moved aside (bundled binary + imagefs xkb).
+
+## 2026-11-11 11:0x EST — 🔀 MERGED feat/yserver-hud-desktop for real (correction of e0ba3ded)
+- **Mistake:** e0ba3ded ("Merge feat/yserver-hud-desktop …") is NOT a merge: in the /root/src/Bannerlator checkout `origin/feat/yserver-hud-desktop` was not fetched, `git merge` refused, the error was hidden by `| tail -1` under `set -e`, and the script committed + pushed only the PROGRESS_LOG entry below. main e0ba3ded had none of the branch's code.
+- Fix: backup `refs/backup/20261111/main-before-yserver-hud-desktop-fix` = e0ba3ded; this `--no-ff` merge of 89e78d6a. Code now equals the device-tested 89e78d6a (CI 43047598280).
+- **Lesson:** never pipe a merge/commit step into `tail`/`grep` in a script (set -e does not see the failure without `set -o pipefail`); fetch the branch ref explicitly and check `git merge` succeeded (MERGE_HEAD exists) before committing; verify the merged code equals the tested commit BEFORE pushing, not after.
+
+## 2026-11-11 10:5x EST — 🔀 MERGED feat/yserver-hud-desktop into main (user: "merge it")
+- Backup ref `refs/backup/20261111/main-before-yserver-hud-desktop` = a1107b51. `--no-ff` merge of 89e78d6a; main had not moved → merged code = the device-tested build (CI 43047598280, 4/4 green).
+- What it does (yserver mode only, BANNER_YSERVER=1): Wine's desktop (explorer.exe) stays black for game shortcuts (YServerComponent.setHideClass → YSERVER_HIDE_CLASS, needs yserver patch 0022/0023); the HUD and session stats show the game's own frame rate from yserver's YSERVER-FPS line (FpsCounter.reportRate) instead of the compositor's frames capped at the display refresh. Nothing changes in X11 or Wayland mode.
+- Device test (Pocket FIT, 10:50 EST, AIO Vulkan cube on yserver de999f09, no extra env): Fusion HUD 2218.8 fps / 0.5 ms (was 144.0 / 6.9 ms; AIO 2176), desktop black; 0 FATAL, crash 0.
+- yserver side (patches 0020-0023: no core stalls, hide class, fps line, black exposures) lives in The412Banner/yserver-android-spike; the binary is still hand-installed in files/yserver.
+
+## 2026-11-11 09:1x EST — ✅ X11 checks after the X server fixes PASSED (Pocket FIT, 4e8c7e65 = main 02577e6a code)
+- Windows Steam client on X11 (ys-steam2.sh xsr x11, BANNER_YSERVER stripped): 08:57:00–09:07:27 EST. Steam first finished a client update left half-installed by an earlier session (bootstrap_log: "uninstalled manifest found … steam_client_publicbeta_win64 (1)", install step 08:59:18→09:06:14 on the SD card, "Could not remove backup file (5): crashhandler64.dll.old"); package folder clean afterwards. steamwebhelper at 570 s; final screenshot: store + dropdown menu + friends list drawn, HUD X11 D3D11·DXVK. 0 XClientRequestHandler lines, 0 FATAL, crash buffer empty (logcat 08:57:01–09:07:27, 56 onMapWindow).
+- AIO Vulkan cube X11 (ys-aio.sh vk xsr x11 15): avg 2164.97 fps, 1% low 827.94 (before the fixes 2181 / 847 → same within noise); picture correct (cube, X11); 0 XClientRequestHandler lines, 0 FATAL, crash 0.
+- Proof level: request/robustness fixes now device-run on Steam (multi-process CEF) + AIO + DiRT with no regressions and no error paths hit; console rule device-proven (DiRT). DesktopHelper log line not yet seen firing (no console window in these runs).
+- Results: /sdcard/Download/perf-harness/results/xsr/. Peers told "done"; Termux in front.
+
+## 2026-11-11 08:5x EST — 🚀 launch checkpoint: X11 checks after the X server fixes (user: "restore the shortcut and do the steam and aio checks")
+- NFS HPR: shortcut restored from /sdcard/Download/bl-backup-20261111/NFS-HPR.desktop.before-fex-stability (md5 2ee1a0b7 == original). EA overlay-off line in the container-1 EA ini kept (fixed the first crash). Second crash (exe+0x1B121ADF at "Connecting to EA servers") NOT fixed: STABILITY, FEX_SMCCHECKS=full, FEX_HIDEHYPERVISORBIT=1 all failed; Box64 untested.
+- Now (installed 4e8c7e65 = main 02577e6a code): Windows Steam client on X11 via new harness /sdcard/Download/perf-harness/ys-steam2.sh (temp shortcut, BANNER_YSERVER stripped, until steamwebhelper + 90 s, max 600 s), then AIO Vulkan cube X11 (ys-aio.sh vk xsr x11 15). Check logcat for XClientRequestHandler / DesktopHelper lines, FATAL, crash buffer; results in perf-harness/results/xsr/.
+- Restart: rootsh "sh /sdcard/Download/perf-harness/ys-steam2.sh xsr x11"; rootsh "sh /sdcard/Download/perf-harness/ys-aio.sh vk xsr x11 15".
+
+## 2026-11-11 07:4x EST — 🚀 launch checkpoint: NFS HPR + FEX_HIDEHYPERVISORBIT=1 (user: "yes add it and launch it")
+- 07:03 run (STABILITY + FEX_SMCCHECKS=full): NOT fixed (my 07:08 "fixed" was wrong: the game was still in the intro). Same crash 07:36:14 at NFS11Remastered.exe+0x1B121ADF, 1.4 s after the game's LSX GetAuthCode (ClientId ALASKA_NFS_HP_PC_CLIENT) was answered = online login step; r12=0xdeadbeef.
+- Now: envVars += FEX_HIDEHYPERVISORBIT=1 (keeps STABILITY + SMC full), launch; user presses through the menus. Next if it fails: Box64 for this game.
+- Undo: copy /sdcard/Download/bl-backup-20261111/NFS-HPR.desktop.before-fex-stability back.
+
+## 2026-11-11 07:0x EST — 🚀 launch checkpoint: NFS HPR with STABILITY + FEX_SMCCHECKS=full (user: "keep stability, add the smc checks and launch it")
+- 06:56:20 STABILITY run (game env FEX_TSOENABLED=1, VECTORTSO=1, MULTIBLOCK=0, X87REDUCEDPRECISION=0): same crash at 06:59:02 (syscall fault → c0000005 at NFS11Remastered.exe+0x1B121ADF) → TSO/multiblock/x87 not the cause.
+- Now: shortcut envVars += FEX_SMCCHECKS=full (preset stays STABILITY), launch via am start. Next if it fails: BL preset DENUVO (SMCCHECKS=full + FEX_HIDEHYPERVISORBIT=1, FEXCorePresetManager ~170), then Box64.
+- Undo: copy /sdcard/Download/bl-backup-20261111/NFS-HPR.desktop.before-fex-stability back (original, before both changes).
+
+## 2026-11-11 06:5x EST — 🚀 launch checkpoint: NFS HPR with FEX preset STABILITY (user: "yes set stability and launch it for me")
+- 06:46:56 run with the EA overlay off: game ran 06:47:17–06:49:24 (licence granted, "Connecting to EA servers"), then main thread: syscall fault (bad pointer) → c0000005 at NFS11Remastered.exe+0x1B121ADF (protected section). Not overlay/licence/X server; exe uses ProtoSSL (no OpenSSL). Container 1 = FEX 2611+9 PERFORMANCE_TSO. Code note at XServerDisplayActivity ~12212: Extreme presets (SMC checks off) crash EA's Activation64 anti-tamper the same way → test a stricter preset.
+- Now: backup of the HPR shortcut → /sdcard/Download/bl-backup-20261111/, set `fexcorePreset=STABILITY` on that shortcut only, launch via am start (container 1). Installed 4e8c7e65 (= main 02577e6a code). Undo: copy the backup back.
+
+## 2026-11-11 06:5x EST — 🚀 launch checkpoint: NFS Hot Pursuit Remastered with the EA overlay off (user: "yes do it and launch it for me with root")
+- Finding: NFS HPR (Steam, EA chain) closes ~1 s after start: EA app overlay (IGO) injects into NFS11Remastered.exe ("Forcing the completion of the kernel32.dll loading") → injected thread faults at kernel32+0x3C3A8 → EA "Game session was too short" → EA quits (runs 06:24, 06:38 yserver, 06:40 Wayland; EA log igoEnabled[true]). Setting key user.igoEnabled (string in EADesktop.exe); an env var of that name does nothing.
+- Now: backup of the EA user ini → /sdcard/Download/bl-backup-20261111/, append `user.igoEnabled=false`, launch HPR via am start (container 1). Installed: 4e8c7e65 (= main 02577e6a code). Check after: EADesktopVerbose.log "Setting up IGO … igoEnabled[false]", no "Unhandled page fault", game window in the Wayland log.
+- Undo: copy the backup ini back.
+
+## 2026-11-11 06:4x EST — 🔀 MERGED fix/xserver-console-log into main (user: "yes merge and install it when green")
+- Backup ref `refs/backup/20261111/main-before-xserver-console-log` = 29f406a2. `--no-ff` merge of 0dec8d39 (+ log 4e8c7e65); main had no new commits → merged code = CI-tested 4e8c7e65. CI 43011414145 4/4 green, skipped steps = same as 43004548075.
+- Adds DesktopHelper log lines (tag DesktopHelper) for the console-window rule. Proof level: CI-green; install on the Pocket FIT next.
+
+## 2026-11-11 06:3x EST — ✅ console-window rule DEVICE-PROVEN on X11 + 🔧 fix/xserver-console-log (log lines)
+- Device test (Pocket FIT, 97b5b360 = main cb3901cf code): DiRT Showdown windowed on X11, 06:17:51–06:18:26 EST. BL "Start with the game" trainer (F:\Trainers\Trainer.exe via blrun0.bat) opened a conhost.exe window at 06:18:02 while DiRT was in front. **User: "it kept speed and sound"** (before the fix: 16 fps, no sound). Exit 0, crash buffer empty, 0 XClientRequestHandler lines (no unsupported / failed / misread requests); XIO + "X connection broken" only at exit, as in pre-fix X11 sessions (Windows Steam 11-10). The 06:16 DiRT run was Wayland mode (displayBackend=wayland), not a test of the fix.
+- fix/xserver-console-log: DesktopHelper logs (tag DesktopHelper) when the rule fires ("console window mapped … while X was in front") and each re-raise or skipped re-raise (user: "add the log line"). Merge needs the user's go.
+
+## 2026-11-11 06:13 EST — 📲 INSTALLED 97b5b360 (= main cb3901cf code) on the Pocket FIT (user: "yes install it")
+- CI 43004548075 pubg artifact staged `/sdcard/Download/Bannerlator-xserver-robustness-97b5b360-pubg.apk` sha256 5f4d5cda… (host == device, keepFrontOverConsole in dex); `pm install -r` Success 06:13:48 EST; installed base.apk == staged; crash buffer empty; files/yserver/yserver kept. Replaces 931c441d (restore APK `/sdcard/Download/Bannerlator-yserver-FINAL-931c441d-pubg.apk`). Peers root-6a/root-15 told.
+- RESUME: user tests next — windowed X11 game with a console window (speed + sound stay), Windows Steam on X11, one AIO run. After: logcat `XClientRequestHandler` ("Unsupported opcode", "failed; skipped", "read N of M bytes"), crash buffer, FATAL, game wine_debug.log.
+- Proof level: installed; NOT device-tested yet.
+
+## 2026-11-11 05:5x EST — 🔀 MERGED fix/xserver-robustness into main (user: "fix the xserver bugs and merge that after green")
+- Backup ref `refs/backup/20261111/main-before-xserver-robustness` = b95bde74. `--no-ff` merge of 97b5b360 (+ log 97ecdcb6); main had no new commits, so the merged code = the CI-tested 97b5b360.
+- CI 43004548075 (headSha 97b5b360) 4/4 green; skipped steps = same list as the last green build 42970888210.
+- **Proof level: CI-green, NOT device-tested** (merged on the user's word). Test to do: X11 game that opens a console window (windowed), Windows Steam on X11, an AIO run; logcat XClientRequestHandler for "Unsupported opcode" / "failed; skipped" / "read N of M bytes" lines.
+
+## 2026-11-11 05:3x EST — 🔧 fix/xserver-robustness 97b5b360: Java X server bugs (user: "fix the xserver bugs and merge that after green")
+- Why: 3 bugs from the 11-10 X server review + the X11 console-window activation bug found in the yserver job.
+- Built (97b5b360, XClientRequestHandler / FontRequests / DesktopHelper / errors BadName + BadRequest):
+  1. Handler exceptions (RuntimeException) caught per request: logged once per opcode, request skipped. Before: escaped the X epoll thread → app died (OpenFont ≠ "cursor", DrawRequests "GC Function other than COPY", PutImage leftPad, Drawable null data, …).
+  2. Every request continues at header position + its length (requestEnd), also after errors and short/long reads (logged once per opcode).
+  3. Unhandled requests: body skipped (was: read as the next request). Defined core request without reply → ignored (Wine's error_handler, winex11.drv/x11drv_main.c:300-325, calls Xlib's default handler = exit on unexpected errors); with reply → BadAlloc (libX11 xcb_io.c _XReply returns 0 without the handler for BadAlloc/BadAccess, checked in mirror/libX11 :773-795); undefined opcodes (0, 120-126) / unregistered extension → BadRequest.
+  4. OpenFont other than "cursor" → BadName (XLoadQueryFont absorbs it, libX11 Font.c:201).
+  5. Setup: wrong byte order / protocol ≠ 11 → Failed reply + client closed (was a crash); setup read only when name+data arrived; big-request length < 2 words → client closed.
+  6. GrabServer/UngrabServer: reply removed (X defines none; Wine calls XGrabServer in display.c:243, palette.c:541).
+  7. DesktopHelper: conhost.exe mapped while another app window was raised → no focus/raise for it, previous window re-raised in Wine at 0.3 s + 1.3 s (same rule as yserver mode, which took windowed DiRT from 16 fps/mute to 116.8). Tap still focuses the console.
+- CI: 43004548075 (headSha 97b5b360) running. Main b95bde74 (yserver merge) CI 43003061151 4/4 green.
+- Device test: NOT device-tested (user: merge after green). Risk: X11 sessions run the new request path for every request; normal requests behave as before (handled cases unchanged, position fix is a no-op when a handler reads exactly its length).
+- Next: CI green → backup ref → --no-ff merge to main → stage the main APK, offer install + a test (game with a console window, Windows Steam, an AIO run).
+
+## 2026-11-11 04:5x EST — 🔀 MERGED feat/yserver-spike into main (user: "merge it, then fix the xserver bugs and merge that after green")
+- Backup ref `refs/backup/20261111/main-before-yserver-spike` = cb421007. `--no-ff` merge; main's 5 new commits were docs/log only (mali-report + PROGRESS_LOG), so the merged code = the device-tested 931c441d (CI 42970888210, 4/4 green).
+- What it adds: opt-in only. `BANNER_YSERVER=1` (game or container env) AND an executable `files/yserver/yserver` → yserver hosted on the Wayland compositor; without both, every path is main's (guestWayland() == waylandMode). The yserver binary is NOT in the APK (Jos Dehaes + SetZero not asked yet). Compositor also offers ext_data_control_v1 (clipboard) in every Wayland session; layer proton_11.12.3-DroidDeck binds only zwlr, so no change there.
+- Last device result before merge: user's Windows Steam run on yserver 04:28:58–04:30:50 EST (signed in, Steam window + friends list, up to 59.8 fps at cap 60, exit code 0, no crash).
+- Next: fix/xserver-robustness (3 Java X server bugs + X11 console-window activation), merge after green per the user.
+
+## 2026-11-11 01:3x EST — ✅ yserver display job FINISHED (feat/yserver-spike 931c441d + yserver spike 4e229a33), device-proven on the Pocket FIT, NOT for merge yet
+- **What it is:** `BANNER_YSERVER=1` in a game's (or container's) env → Wine stays on winex11, yserver (Rust X server, upstream + SetZero's PR #349 Wayland host + our patches 0001–0019) is the X server, and Bannerlator's Wayland compositor shows its windows (display, touch/mouse/keyboard, HUD, zero-copy layer). `0`/`off` = off, `record` = old headless test.
+- **yserver patches (private repo The412Banner/yserver-android-spike, feat/android-build):** 0008 Android KMS platform + Wayland host (stub gbm/libinput/udev, own xshmfence), 0009/0009a AHardwareBuffer pool hand-off (dma-buf wl_buffer + banner_ahb_v1), 0010 immediate presents, 0011/0016/0017 frame cap (live via fps file), 0012 copy wait, 0013/0014 blit instead of vkCmdCopyImage (Adreno blob allocated per copy: 1.8 → 0.1 ms per Present), 0014/0015/0019 YSERVER-MAP (app windows, wow64), 0018 debug switch.
+- **BL side:** YServerComponent (pipe reader, env, fps file), guestWayland() split, bring-to-front on map (+re-raise after conhost/explorer), launch CPU mask on map (fixes GTA IV's CPU-0 pin), FPS limiter → yserver (launch + live), compositor ext_data_control_v1 (clipboard for yserver).
+- **Results (Pocket FIT, final builds, 0 FATAL everywhere):** AIO Vulkan cube 500x500: ys 2120 / X11 2181 / Wayland 2776 fps (1 % low ys 323 vs X11 847). DiRT Showdown benchmark: ys 116.8 (117.0 zero-copy) / X11 114.3 / Wayland 113–117. GTA IV benchmark: ys 66.03 / X11 66.1 / Wayland 65.4. Frame cap 60: 60.01 fps (±1.39 ms). Windows Steam client (multi-process CEF): store + friends render on yserver (black on Wayland). Mouse click through compositor → yserver → Wine (Start menu) works.
+- **Not tested / limits:** live FPS-limiter toggle in-game (launch value tested), clipboard end to end (protocol bound, no copy/paste tried), keyboard typing, controllers only via WinHandler (as before), HDR (X11 guest has none), frame generation on yserver, OpenGL games (GLX route refused; EGL route only), 32-bit-only edge cases. yserver binary is hand-staged in files/yserver (not bundled: publishing it needs Jos Dehaes' + SetZero's OK per the user's rule).
+- **Pre-existing X11 issue found (not touched):** DesktopHelper raises every mapped app window, so a console window flashing up ~9 s into DiRT steals the game's activation (game throttles to 16 fps, mutes) — tonight's slow X11 DiRT runs.
+- **Staged for the user:** /sdcard/Download/Bannerlator-yserver-FINAL-931c441d-pubg.apk (9c566326…, installed) + /sdcard/Download/yserver-android-FINAL-4e229a33 (e5bbb132…, staged in app data). Restore: /sdcard/Download/Bannerlator-espectro-minor-bugs-f598c5df-pubg.apk.
+
+## yserver display job — launch checkpoints (feat/yserver-spike)
+### yserver launch checkpoints (newest first)
+- 04:34 EST 04:35 EST result (user run 04:28:58-04:30:50): Windows Steam client on yserver (shortcut envVars BANNER_YSERVER=1) — logged on 04:29:15, Desktop 'Steam' window 04:29:18 + friends list; Wine virtual desktop 1280x720 one Wayland surface, up to 59.8 fps (cap 60), copy path (zero-copy off); Steam CPU drawing (GPU drawing auto only X11+GL); exit EXIT_SELF code 0, crash buffer empty, yserver 92 clients, 2 WARN (Vulkan dma-buf at start); picture not seen by me (no screenshot) — asked user
+- 04:32 EST 04:32 EST user launch: Windows Steam client with BANNER_YSERVER=1 (user added it); BL 931c441d + yserver 4e229a33 installed; RESUME: read files/yserver/logs newest + logcat YServerComponent/FATAL
+- 01:30 EST launch: regression check on final BL 931c441d: AIO vk wl + x11 + ys (p7a)
+- 01:29 EST launch: yserver click test via compositor test-input (p6e)
+- 01:28 EST launch: yserver tap test (p6d) on BL 931c441d (clipboard ext_data_control) + yserver 4e229a33; Steam client renders on yserver (p6c)
+- 01:11 EST launch: Windows Steam client ys until steamwebhelper + 75 s, max 15 min (p6c)
+- 01:06 EST result: GTA IV ys 66.03 (= x11 66.1 / wl 65.4) with CPU mask fix (p6a). launch: Windows Steam client ys 240 s (p6b)
+- 01:03 EST launch: GTA IV ys with CPU mask fix (p6a) + affinity sample; BL 95325269 (4691e391) + yserver 4e229a33 (e5bbb132)
+- 00:46 EST launch: GTA IV ys + x11 CPU affinity sampling (p5f)
+- 00:43 EST launch: GTA IV ys YSERVER_DEBUG_SKIP_PRESENT_COPY=1 (p5e) — measures present copy cost; yserver a1705954 (30531d5b)
+- 00:39 EST launch: Windows Steam Client x64 on yserver, 90 s, screenshots (p5d)
+- 00:36 EST launch: GTA IV ys MESA_VK_WSI_PRESENT_MODE=immediate (p5c)
+- 00:32 EST launch: GTA IV x11 with screenshot at 105 s (p5b) for GPU% comparison
+- 00:29 EST launch: GTA IV ys with 0017 (p5a); BL 04102206 (f667baed) + yserver 99be9391 (b6468306)
+- 00:13 EST launch: GTA IV ys + x11 thread samples at 100 s (p4m)
+- 00:07 EST launch: GTA IV ys WRAPPER_DISABLE_PRESENT_WAIT=1 (p4k) and ys YSERVER_PRESENT_ASYNC=0 (p4l)
+- 00:04 EST launch: GTA IV ys zero-copy layer (p4j), screenshot at 105 s
+- 00:00 EST launch: GTA IV ys with telemetry + present_pace + thread sample (p4i); GTA: ys 40.1 / wl 65.4 / x11 66.1
+- 23:53 EST launch: GTA IV benchmark ys / wl / x11 (p4h), ~3-4 min each, background; DiRT ys zero-copy 117.0 (p4g)
+- 23:51 EST launch: DiRT ys with BANNER_WAYLAND_ZERO_COPY=1 (p4g)
+- 23:50 EST launch: AIO vk ys FPS limiter 60 rerun (p4f)
+- 23:49 EST launch: AIO vk ys 15 s with FPS limiter 60 (p4d frame cap) and without (p4e)
+- 23:47 EST result: DiRT ys 116.8 fps (p4c) with activation fix; next: install BL frame-cap build + yserver 0016, limiter + zero-copy layer tests
+- 23:46 EST launch: DiRT ys with re-raise after conhost (p4c); BL d948577f (593d129c) + yserver b507382a
+- 23:34 EST launch: DiRT ys with conhost/explorer filter (p4b); BL 5b675b89 (e8db1a5a) + yserver b507382a
+- 23:22 EST launch: DiRT ys with activation fix (p4a); BL 7938d479 (3d5a8011) + yserver b507382a (0001-0015, unstripped 43cec66c); user asked to keep hands off
+- 23:05 EST launch: DiRT ys with WRAPPER_DISABLE_PRESENT_WAIT=1 (p3p); finding: DiRT x11 is bimodal 16 vs ~110 fps run to run (FIFO second swapchain), not yserver-specific
+- 23:03 EST launch: DiRT x11 + read game env (p3o)
+- 23:01 EST launch: DiRT x11 with MESA_VK_WSI_PRESENT_MODE=immediate (p3n)
+- 22:56 EST launch: DiRT x11 + wl with DXVK_LOG_LEVEL=info DXVK_LOG_PATH=D:\dxvklog-* (p3m)
+- 22:53 EST launch: DiRT x11 right after fast wl (p3l) — tests whether ys runs leave a slow state
+- 22:51 EST launch: DiRT wl recheck (p3k)
+- 22:50 EST launch: AIO vk x11 recheck (p3j) — DiRT now 16 fps in x11 too (was 114); kgsl CP AHB bus errors during DiRT
+- 22:45 EST launch: DiRT x11 + thread sampling (p3i) for A/B
+- 22:41 EST launch: DiRT ys + thread sampling (p3h)
+- 22:39 EST launch: DiRT ys + thread sampling at 40 s (p3g)
+- 22:36 EST launch: DiRT ys with RUST_LOG=info,present_pace=debug (p3f)
+- 22:33 EST launch: DiRT ys with YSERVER_PRESENT_TRACE=1 RUST_LOG=info,yserver_core::core_loop::process_request::present_ext=debug,yserver::kms::render::backend::kms::present=debug (p3e)
+- 22:31 EST launch: DiRT ys sync (blit, no async) + YSERVER_LOOP_TELEMETRY (p3d); p3c: x11 114.3 / wl 113.1 / ys(async) 16.2 fps (GPU 10% = waiting)
+- 22:24 EST launch: AIO vk ys blit+async (p3b), then DiRT Showdown benchmark x11 / wl / ys(blit) (p3c) — each ~3 min; yserver be806b03 unstripped, BL 4e582b35
+- 22:23 EST launch: AIO vk ys 20 s YSERVER_COPY_BLIT=1 + telemetry + simpleperf (p3a), yserver be806b03 unstripped
+- 22:16 EST launch: AIO vk ys 20 s + simpleperf on yserver (p2d), unstripped yserver b1e83a57 staged (current binary backed up to /sdcard/Download/ys-stage/yserver-current.bak)
+- 22:12 EST launch: AIO vk ys 6 s with YSERVER_PRESENT_TRACE=1 YSERVER_LOOP_TELEMETRY=1 RUST_LOG=info (p2c)
+- 22:10 EST launch: AIO vk ys sync + ys async (p2b); BL 4e582b35 (54c4d800) + yserver e61d1a15 (0001-0012, f85ffcb1)
+- 22:03 EST launch: AIO vk ys (p2a) with yserver 47ef5361 (0009 AHB pool hand-off), BL c72254b5
+- 21:46 EST launch: AIO vk baselines x11 + wl + ys (p1b), installed c72254b5 + yserver 80215caa; p1a ys vk = 2506 frames/15 s (167 fps, CPU frames), 0 FATAL
+
+## 2026-11-10 21:45 EST — 📲 c72254b5 installed on the Pocket FIT + yserver 80215caa staged; first hosted launch next
+- yserver CI 42947265501 ✅ (80215caa: 031ec58d + PR349 6f3c46ff + patches 0001–0008, stubs + xshmfence; NEEDED libnativewindow/libdl/libz/libm/libc; 11.6 MB), `--version` = `features=[wayland]` as uid 10193 in untrusted_app c193. Staged files/yserver/yserver sha256 ca7e9368… (old bc0a13f0 binary backed up to /sdcard/Download/ys-stage/yserver-bc0a13f0.bak).
+- BL CI 42947017626 ✅ 4/4 (c72254b5); pubg APK 356cd7a5… host == device == installed 21:44:33 EST; crash buffer cleared before install.
+- **Resume point:** installed c72254b5 + staged yserver 80215caa; next = `rootsh 'sh /sdcard/Download/perf-harness/ys-aio.sh vk p1a ys 15'` (temp shortcut "ZZ YS AIO", removed after); results in /sdcard/Download/perf-harness/results/p1a/. No background jobs. Restore = /sdcard/Download/Bannerlator-espectro-minor-bugs-f598c5df-pubg.apk (main code, no yserver).
+
+## 2026-11-10 21:4x EST — 🔧 yserver display job P1: hosted mode c72254b5 (CI 42947017626), yserver P0 build in CI
+- **User (21:2x):** "start step 1 and do all of them until finished ... best performance possible, stage an APK for me to test only when you finish ... use root to build and drive the device yourself, install and run. device is yours" → standing install/launch permission for THIS job only; peers root-6a + root-15 told (both acked, holding BL until "done").
+- **P0 (yserver-android-spike feat/android-build):** PR #349 (6f3c46ff) merged onto 031ec58d + patches 0001–0007 + **0008** (cfg kms/epoll/eventfd/wayland_host on android; drm/gbm/input + wayland deps for android; ioctl request types (bionic `int`); KMS DRI3 hooks → Android AHB import; `YSERVER_TMPDIR` in the KMS path). Stub libgbm/libinput/libudev (abort if called), real minimal libxshmfence. Local `cargo check --target aarch64-linux-android --features wayland` clean. CI 42946620134 failed (-lxshmfence) → 42947265501 running.
+- **P1 (this branch, c72254b5):** `BANNER_YSERVER=1` (game or container env; `0`/`off` = off; `record` = old headless) → `yserverHosted`: `waylandMode=true` (compositor = display, input, FPS limiter, FG) while the guest stays X11: new `guestWayland()` replaces waylandMode for setWineDisplayDriver (Graphics=x11, winex11.drv not hidden), guest launcher (DISPLAY=:0), adapter env, BANNER_WSI_AHB, HDR env, GPU spoof, GL safe mode, WaylandGameDriver, Fast OpenGL (GLX route refused under yserver: no server GLX on Android). Wayland layer gate skipped. `YServerComponent` hosted: waits until the compositor socket accepts (stale file safe), runs `yserver :0 -nolisten tcp --rootless` with WAYLAND_DISPLAY=wayland-0, XDG_RUNTIME_DIR=files/.wayland-rt, YSERVER_TMPDIR=imagefs/usr/tmp, XKB from imagefs; binary = files/yserver/yserver (staged) else APK libyserver.so (not bundled yet).
+- **Harness:** `/sdcard/Download/perf-harness/ys-aio.sh <api> <tag> <x11|wl|ys> [bench_s] [env]` (copy of the user's AIO.desktop, 1280x720, Banners-AIO r3; results/<tag>/).
+- **Next:** stage yserver 80215caa build into files/yserver, install c72254b5, first hosted AIO run (vk).
+
+## 2026-11-10 21:15 EST — 📝 yserver display plan (research only, nothing built; awaiting the user's go)
+- **User:** "restore MIO and plan the display part". MIO shortcut restored from the backup 21:12 EST (md5 56bb3629 == backup, owner u0_a193 + label kept, `envVars=BANNER_WAYLAND_ZERO_COPY=1`).
+- **Found (checked live):** upstream yserver PR **#349** (SetZero / ferrix-os, branch up/v2-pr4 @ 6f3c46ff, OPEN, +7216 lines, updated 2026-11-10 18:56 EST) "a rootless Wayland host on the rootless core": every X top-level → `xdg_toplevel`, override-redirect → `xdg_popup`, pure-Rust `wayland-client` (no C lib), host seat (no libinput), compositor keymap, pointer lock via `zwp_locked_pointer_v1` + `zwp_relative_pointer_v1`, clipboard over `ext_data_control_v1`, RandR = compositor size. **CPU frames only** (readback into `wl_shm`). Tested by the author with a Proton game under Hyprland. Builds on merged #346 (compositor host on the card-less KMS platform) + #345 (DRI3 without a KMS card). Our pinned yserver 031ec58d has the `DisplayHost` trait (`rootless/display.rs:77`) but no Wayland host.
+- **Blocker to solve first:** the host lives in the KMS platform, `cfg(kms)` = linux/freebsd/openbsd only (`crates/yserver/build.rs:19`); deps drm/gbm/input(libinput) linux-only, udev linux (`Cargo.toml:52-58`); 91 files use `drm::`, 25 libinput. Android needs either `kms` on with stub gbm/input/udev crates, or the host moved onto the surface platform we run today.
+- **BL compositor fit:** has wl_shm, xdg_wm_base v3 + xdg_popup, pointer constraints + relative pointer, linux-dmabuf v4, `banner_ahb_v1` v3 (AHB zero-copy + fence), wlr data-control (not ext → no clipboard at first), keymap from `$XDG_RUNTIME_DIR/keymap.xkb`; already shows a non-Wine client (gamescope).
+- **Plan:** P0 Android build of #349 (spike repo, decide stub-kms vs surface-platform); P1 BL `BANNER_YSERVER` = start the compositor + yserver `--rootless` as its Wayland client, Wine on winex11 → picture + touch/mouse/keyboard through the compositor (CPU frames); P2 zero-copy: forward a full-window DRI3 AHB pixmap as dma-buf `wl_buffer` + `banner_ahb_v1.attach` (fallback GPU copy into an AHB backing); P3 clipboard, screen size, cursor, polish. Test-only env switch, no UI text. Ask Jos Dehaes + SetZero before anything public or merged.
+- **Proof level:** research only.
+
+## 2026-11-10 21:10 EST — ✅ yserver test: MIO runs on yserver (Pocket FIT, 2bc36808, headless)
+- **User:** launched MIO (RealSteam) 21:07, exited 21:08; "black screen, game sound and controls sound only" (black = expected, headless).
+- **yserver log** `files/yserver/logs/yserver-20261110-210749.log`: started 21:07:49 EST (Adreno 750 blob Vulkan 1.3.128, 2968 fonts, screen 1280x800, rootless recording host), 23 X clients over the unix socket (fd passing on), window 0x200004 1280x800 mapped + first frame 21:07:51, **DRI3 AHB path used**: 6 × AHardwareBuffer 1280x800 format 5 → B8G8R8A8 pixmaps at 21:08:03; SIGTERM 21:08:37 on exit → clean "exiting". 0 WARN/ERROR lines.
+- **Frames:** 1989 window updates in 46 s (21:07:51–21:08:37, avg ~43/s; not an FPS benchmark, BL's FPS limiter is not in this path); 40 kept (every 30th). Frames 30→1200 show black → Focus logo → douze dixièmes logo → fmod/CNC/Île-de-France credits → MIO title → main menu (Continue / New game / Load game / Settings / Exit) = the game drew through yserver. Contact sheet: `/sdcard/Download/yserver-MIO-frames-20261110.png`.
+- **Android side:** crash buffer empty; logcat main buffer (starts 21:08:16, start lines rolled out) has no FATAL; `YServerComponent: yserver stopped` 21:08:37; game process exited with code 0; BH_REALSTEAM resumed the app session normally. Last tombstone 19:57 (before this install, unrelated).
+- **Seen:** game ran at 1280x800 (yserver's default screen), not the shortcut's 1920x1080 — BL passes no size to yserver yet. Gamepad sounds in the menu per the user → gamepad input seems to reach the game (gamepad goes through WinHandler, not X); not checked in logs.
+- **Proof level:** device-proven headless (Wine + Steam + MIO on yserver, DRI3 AHB frames correct, clean start/stop). NOT tested: on-screen display, touch/mouse/keyboard, screen size, FPS.
+- **State:** MIO shortcut still has `BANNER_YSERVER=1` (next MIO launch = black screen); backup `/sdcard/Download/bl-backup-20261110/MIO_ Memories in Orbit.desktop.before-yserver`.
+
+## 2026-11-10 21:07 EST — 🧪 yserver test armed on MIO (Pocket FIT, 2bc36808 installed; launch next)
+- **User:** "you add it to MIO". MIO's shortcut (xuser-1 "DD P11-12.3 Arm", `displayBackend=x11`, `launchMode=RealSteam`) `envVars` = `BANNER_WAYLAND_ZERO_COPY=1 BANNER_YSERVER=1`. Written in place as root with `cat >` (owner u0_a193, label app_data_file:s0:c193,c256,c512,c768 kept; md5 a773296f). Backup (md5 56bb3629): `/sdcard/Download/bl-backup-20261110/MIO_ Memories in Orbit.desktop.before-yserver`.
+- **Note:** MIO starts through the Windows Steam client (RealSteam), so Steam's CEF windows also go to yserver. Headless: black screen, no input → a Steam prompt would stall the launch (frames would show it).
+- **Resume point:** installed 2bc36808 (base.apk 383aea46); nothing running; no background jobs. After the user's launch + exit: `rootsh 'ls -la /data/data/com.tencent.ig/files/yserver/logs/'`, read the newest `yserver-*.log` + `rec-*/`, `logcat -d -b crash`, logcat FATAL / YServerComponent lines. Undo: copy the backup over the shortcut with `cat >` (keeps owner/label), or remove ` BANNER_YSERVER=1` (setting it to 0 does NOT turn it off: `envVars.has()`).
+- **Proof level:** installed; NOT device-tested.
+
+## 2026-11-10 21:04 EST — 📲 INSTALLED feat/yserver-spike 2bc36808 on the Pocket FIT (user: "install it when it's done")
+- Installed 21:04:19 EST after telling root-6a + root-15; BL was idle (no wine, no services, Termux on top). base.apk sha256 383aea46… == staged == CI artifact; versionName 3.1.9-pre2 (unchanged); crash buffer empty; `files/yserver/` (yserver bc0a13f0 + xkb + VERSION) kept.
+- Code = main f0e68086 + the test switch; without `BANNER_YSERVER` it behaves like main.
+- **Test plan:** `BANNER_YSERVER=1` on one game in X11 mode (not Wayland) → save memory → launch → expect black screen + no input (headless); read `files/yserver/logs/yserver-*.log`, `rec-*/` frames, crash buffer, logcat FATAL.
+- **Restore:** `/sdcard/Download/Bannerlator-espectro-minor-bugs-f598c5df-pubg.apk` (5154bb41).
+- **Proof level:** installed; NOT device-tested (no launch yet).
+
+## 2026-11-10 20:52 EST — 🔀 main f0e68086 merged into feat/yserver-spike (2bc36808), rebuild (CI 42942017992, NOT for merge)
+- **User:** "yes do the merge and build it" — one test APK with the Epic + Espectro fixes and the yserver switch, so the Epic testing and the yserver test share one install.
+- **Merge:** backup `refs/backup/20261110/yserver-spike-before-main-merge` = 6ae64864 (pushed); `--no-ff` 2bc36808 (parents 6ae64864 + f0e68086). Only conflict PROGRESS_LOG.md (both sides added entries; kept both, spike entry in time order). Merged tree vs main = only `XServerDisplayActivity.java` (+12/−2) and `YServerComponent.java` (+86), checked with `git diff --cached --stat origin/main`.
+- **CI 42942017992** (headSha 2bc36808 == pushed): ✅ green 21:01 EST, 4/4 flavors; skipped steps identical to the f598c5df build 42939066673 (cache / main-only). pubg APK sha256 `383aea46762c2b84f4a5451c124fc97a25a2e57672694cb605cb2dc2f452ab16` (host == device), staged `/sdcard/Download/Bannerlator-yserver-spike-2bc36808-pubg.apk`; `YServerComponent` + `BANNER_YSERVER` present in classes4/5.dex.
+- **User:** "install it when it's done" (~20:55 EST).
+- **Device:** Pocket FIT runs f598c5df (main 229ab05d code, installed 20:43 by root-15, base.apk 5154bb41); `files/yserver/` (yserver bc0a13f0 + xkb) still in app data.
+- **Next:** tell root-6a/root-15, check BL is not running → install → `BANNER_YSERVER=1` on one game (X11 mode) → launch → read `files/yserver/logs/`.
+- **Restore:** `/sdcard/Download/Bannerlator-espectro-minor-bugs-f598c5df-pubg.apk` (root-15, base.apk 5154bb41).
+- **Proof level:** CI-green, staged; NOT installed, NOT device-tested.
+## 2026-11-10 21:15 EST — 📲 INSTALLED main 229ab05d (standard) on the Retroid Pocket Duo (user: "install the latest main branch build of bannerlator")
+- Main artifacts build CI 42940295678 (headSha 229ab05d, 4/4 green; later main commits are log-only), artifact Bannerlator-main-standard.
+- Staged `/sdcard/Download/Bannerlator-main-229ab05d-standard.apk`: com.winlator.banner 3.1.9-pre2 (106), cert a40da80a (same as the installed app), sha256 3d10fe07…0022, host == device.
+- Replaced 3.1.8 (104) base.apk be337c7a… (installed 11-02). Rollback copy `/sdcard/Download/Bannerlator-duo-before-main-be337c7a.apk` (hash == installed).
+- No other Claude session on the Duo, no game running, Termux in front. `pm install -r` Success 21:14:55 EST; installed base.apk == staged; no crash-buffer entries after the install (buffer not cleared; older entries = Magisk su notify helper + GMS, unrelated).
+- **Proof level:** installed; NOT launched, NOT device-tested on the Duo.
+- **Note:** the Duo jumps from the 3.1.8 Turnip GMEM test build straight to main → first run of the Lab UI, new file manager and Windows Steam client parts on the A722. Open Duo item from 11-01: System driver + Wayland = black.
+
+## 2026-11-10 20:43 EST — 📲 INSTALLED f598c5df (= main 229ab05d code: Espectro + Epic fixes) on the Pocket FIT (user: "install it")
+- root-6a (Epic test, nothing running in BL) + root-54 said ok before; "done" sent after.
+- `pm install -r` Success 20:43:42 EST; installed base.apk sha256 5154bb41…94b5 == staged; 3.1.9-pre2 (106). Replaced a597055f (7f72f313).
+- No FATAL / crash-buffer entries after the install. The crash buffer was cleared right before the install (`logcat -b crash -c`), so older entries are gone. The install closed BL's open Epic screens ("app died, no saved state", expected). BL not running after; Termux in front.
+- **Proof level:** installed; NOT device-tested.
+- **Next:** the user tests (19:35 entry list): editor layer download Cancel, arm64ec→arm64ec WOWBox64 kept, game dialog FEX download listed, x86_64 chip Box64, PiP keeps running, Task Manager memory, first-launch Controls menu. Save log + memory before every launch.
+
+## 2026-11-10 20:4x EST — 📦 espectro + Epic build f598c5df (= main 229ab05d code) staged on the Pocket FIT (CI 42939066673, not installed)
+- Staged `/sdcard/Download/Bannerlator-espectro-minor-bugs-f598c5df-pubg.apk`: com.tencent.ig 3.1.9-pre2 (106), cert a40da80a, sha256 5154bb41…94b5, host == device. Older `…-d773bc08-pubg.apk` (no Epic fixes) left in Download, superseded.
+- FIT installed APK = 7f72f313 (epic-store-bugs a597055f, 20:02:11 EST) — root-6a's Epic test; root-6a told main moved.
+- **Proof level:** CI-green, merged, staged; NOT installed, NOT device-tested.
+- **Resume:** check with root-6a (Epic test done?) → ASK the user before `pm install -r` → installed hash == 5154bb41…, crash buffer → test list in the 19:35 entry.
+
+## 2026-11-10 20:37 EST — 🔀 MERGED fix/espectro-minor-bugs → main 229ab05d (branch CI 42939066673)
+- **User:** "merge to main when done". Merged **before a device test** on the user's word.
+- Branch CI 42939066673 green 4/4 on f598c5df (8:27–8:35 PM EST); skipped steps same as the earlier branch run; libblsteam.so restored from main's c524ed38 build (cache key = Rust sources; Rust tree branch == main 994a5b1c), so the Epic manifest.rs fix is in.
+- Backup `refs/backup/20261110/main-before-espectro-minor-bugs` = 04715c8b (pushed). `--no-ff` merge 229ab05d (parents 04715c8b + f598c5df); merged tree == CI-built tree f598c5df; no AI trailer. Merge pushed alone so main's artifacts build runs on it.
+- Pocket FIT still runs a597055f (epic-store-bugs, root-6a's Epic test); nothing installed from this merge.
+- **Proof level:** CI-green (branch), merged; NOT device-tested.
+- **Next:** stage the pubg APK (`/sdcard/Download/Bannerlator-espectro-minor-bugs-<sha8>-pubg.apk`, sha256 host == device) → check with root-6a → ASK the user before install. Test list: 19:35 entry.
+
+## 2026-11-10 20:3x EST — 🔀 main 04715c8b merged into fix/espectro-minor-bugs (98c0682c), rebuild
+- **User:** "yes merge main and rebuild" (main got fix/epic-store-bugs at 20:22 EST), so one build carries the Epic store fixes and the 7 Espectro fixes.
+- Backup `refs/backup/20261110/espectro-minor-bugs-before-main-merge` = b2e54731 (pushed). `--no-ff` merge 98c0682c (parents b2e54731 + 04715c8b), no AI trailer.
+- Only PROGRESS_LOG.md conflicted (both sides added top entries) → kept all, newest first (14,342 base + 22 + 32 = 14,396 lines). Checked: every main-only file == main, every espectro-only file == branch; XServerDisplayActivity.java = branch + main's 5-line Epic manifest-command hunk only.
+- Staged d773bc08 APK is now superseded (not installed). The FIT runs a597055f (= main code); root-6a asked to be told before anything is installed over it.
+- **Proof level:** merged, NOT compiled yet.
+- **Resume:** build-artifacts CI on the branch (assert headSha) → stage pubg `/sdcard/Download/Bannerlator-espectro-minor-bugs-<sha8>-pubg.apk` (sha256 host == device) → check with root-6a → ASK the user before install.
+
+## 2026-11-10 20:22 EST — 🔀 MERGED fix/epic-store-bugs → main c524ed38 (CI 42938535257)
+- **User:** "merge to main". Merged after CI 42930770419 green and the user's first check on the Pocket FIT (Hogwarts Legacy update check + Verify, "seems good"); **an Epic game launch on this build was not tested before the merge**.
+- Backup `refs/backup/20261110/main-before-epic-store-bugs` = 2fb8169c; `--no-ff` c524ed38 (parents 2fb8169c + b936f975); code identical to the installed a597055f (only PROGRESS_LOG.md differs); no AI trailer. The push started CI Build (artifacts only) 42938535257 (headSha c524ed38) + GitHub Pages.
+- Pocket FIT runs a597055f = main code. Elite still 2e7456c4.
+- **Not done (Epic):** -epiclocale region codes, install-time language from the first container, cloud saves in Epic's format (item 8), auto cloud sync, install-space work.
+- **Next:** an Epic game launch on the FIT (check BH_EPIC_LAUNCH -epiclocale, crash buffer); main CI result.
+
+## 2026-11-10 20:03 EST — 📦 fix/espectro-minor-bugs d773bc08 staged on the Pocket FIT (CI 42932580327, not installed)
+- CI 42932580327 green 4/4 (standard, pubg, antutu, ludashi); headSha d773bc08 = pushed branch; skipped steps = main-only cache saves + cached native builds (libblsteam.so from cache).
+- Staged `/sdcard/Download/Bannerlator-espectro-minor-bugs-d773bc08-pubg.apk`: com.tencent.ig 3.1.9-pre2 (106), cert a40da80a, sha256 221843be…409b, host == device.
+- Installed on the FIT: still 3.1.9-pre2 from 18:51:11 EST (lastUpdateTime). root-6a is installing epic-store-bugs a597055f to the same package (20:0x EST, user said yes there); told it this session only stages.
+- **Proof level:** CI-green, staged; NOT installed, NOT device-tested.
+- **Resume:** wait for root-6a "done" → ASK the user before `pm install` (it replaces the epic-store-bugs build) → after install check hash + crash buffer → test list in the 19:35 entry.
+
+## 2026-11-10 20:02 EST — 📲 INSTALLED fix/epic-store-bugs a597055f on the Pocket FIT (user yes)
+- **User:** "yes install it on the fit".
+- Before install: installed pubg build = 2b4e3aa5 (base.apk 3a3d4ddf…2eea, 18:51:11 EST); undo APK = `/sdcard/Download/Bannerlator-epic-game-fixes-2b4e3aa5-pubg.apk` (3a3d4ddf, same file). No Wine/game running; Bannerlator idle in the background, Chrome in front. Peers root-15 + root-54 messaged before install (a yserver-spike 4903bdb7 APK for the same package is staged by another session).
+- **Install:** `pm install -r` of `/sdcard/Download/Bannerlator-epic-store-bugs-a597055f-pubg.apk` (7f72f313…2cb1) via /data/local/tmp; then installed base.apk hash == staged, crash buffer.
+- **Result 20:02:11 EST:** `pm install -r` Success; installed base.apk sha256 7f72f313…2cb1 == staged; versionName 3.1.9-pre2 (vc106, unchanged); crash buffer empty since 20:00; bh_epic_prefs + epic_store_cache kept. Peers told "done".
+- **User check 20:19 EST (screenshot 201914):** Hogwarts Legacy detail page: Check for Updates → "Up to date ✓" (recorded epic_manifest_version 2153883 == latest from Epic; a missing record would now say "Installed version not recorded"); Verify / Repair running (252/526). Crash buffer empty since 20:02. User: "seems good". Launch not tested yet.
+- **Resume point:** if the session is cut, check `pm path com.tencent.ig` hash: 7f72f313 = installed, 3a3d4ddf = still the old build. Then the user tests: Epic library loads, a game's update check / Verify, a launch's BH_EPIC_LAUNCH -epiclocale, crash buffer.
+- **Proof level:** CI-green, installing; NOT device-tested.
+
+## 2026-11-10 19:4x EST — 🧪 feat/yserver-spike 0ca9b718: test switch for the yserver X server (step 3, NOT for merge)
+- **Why:** user "continue yserver" (yserver Android spike, private repo The412Banner/yserver-android-spike; steps 0-2 passed headless in Termux).
+- **Built:** `YServerComponent` + switch in `setupXEnvironment`: with `BANNER_YSERVER=1` in the game's env and an executable `files/yserver/yserver`, BL starts that binary (`:0 --headless --rootless --rootless-record`, `YSERVER_TMPDIR=imagefs/usr/tmp`, xkb from `files/yserver/xkb`, every 30th frame kept, max 40) instead of the Java X server; else unchanged. Overlay closes after 2 s like Wayland mode (no Java windows). No yserver code or binary in this repo; the binary is staged by hand.
+- **Expect:** black screen, no input (headless); proof = yserver log + recorded frames in `files/yserver/logs/`.
+- **CI 42931263093** (headSha 4903bdb7): ✅ green, 4 flavors (skipped steps = the usual cache/main-only ones). pubg APK sha256 `0b71a4f156ba171a66c1aff685fa3b85f3513f13480078aab1f60aaac9cd0943` (host == device), staged `/sdcard/Download/Bannerlator-yserver-spike-4903bdb7-pubg.apk`; new strings present in classes4/5.dex.
+- **yserver staged** into `files/yserver/` (yserver + xkb + VERSION from yserver-android-spike bc0a13f0; binary sha256 3d74e678…; owner u0_a193, label app_data_file:s0:c193,c256,c512,c768). Pre-test as uid 10193 in untrusted_app_27:c193: socket ~100 ms, clean exit, 0 warn/error lines; pre-test files removed.
+- **Restore point:** installed now = fix/epic-game-fixes 2b4e3aa5 (18:51, base.apk sha256 3a3d4ddf… == `/sdcard/Download/Bannerlator-epic-game-fixes-2b4e3aa5-pubg.apk`).
+- **Device test:** not installed yet — waiting for the user's yes.
+
+## 2026-11-10 19:35 EST — 🔧 fix/espectro-minor-bugs 49d235eb: 7 fixes from El_Espectro's "Minor bugs in 3.1.9-pre2" thread (CI 42932580327)
+- **Why:** the user asked to read the Discord thread (BannerHub server, thread 1556629640133742652, El_Espectro, Dante, Ajay) and fix the reported bugs, "in lab ui also". Read with the bot's read-only helper; videos looked at frame by frame.
+- **Branch:** fix/espectro-minor-bugs off main 2fb8169c, worktree `/root/src/Bannerlator-wt/espectro-minor-bugs`.
+- **Fixes (each its own commit):**
+  1. 19987dc1 Cancel on a component download from the container / game / Lab editors (`startContentDownload`) now stops the download and the unpack and never installs; same guards in the Contents hub install step and the sheet's install from a file. Cause: cancel only cancelled the coroutine; `Downloader` and `extraContentFile` are blocking and the rename into place ran anyway.
+  2. 40c3d9ea arm64ec → arm64ec layer change in the container editor keeps the WOWBox64 version (`applyArch` reset it to 0.3.7; defaults only re-seeded on an arch flip). Shared view model → Classic, Lab, Deck.
+  3. 92250c38 Classic game dialog: a Box64/WOWBox64/FEXCore/Box64EC version downloaded there shows at once (lists were read once). Lab already refreshed via the container view model.
+  4. 5bda8c04 Translator chip: Box64 on x86_64 layers, FEXCore/WOWBox64 on arm64ec (`EmulatorLabels.chipLabel`; game cards, XMB, Big Picture, Lab Library, launch screen, container card). Copy/move of a game to a container of the other architecture drops its emulator/version/SSBS extras.
+  5. 5cc32e07 PiP: the guest keeps running in the PiP window (`pauseAllWineProcesses` was outside the PiP check); closing the PiP window freezes it in onStop.
+  6. 49ac03cf Task Manager: its process listener is a side listener while open (the game-exit / installer watchers re-took the single owner slot every 2 s → frozen list, memory never changed); null info ignored.
+  7. 49d235eb In-game Controls menu (Classic/Deck/Lab) refreshed after the #333 smart default loads the Virtual Gamepad, so it no longer says "-- Disabled --" over a shown pad; choosing Disabled opts out.
+- **Not done:** profile import mid-game / in PiP (reporter: feature request). Whether fresh installs should get the #333 Virtual Gamepad at all = user's call.
+- **Proof level:** committed + pushed; CI 42932580327 dispatched 19:35 EST (headSha d773bc08 = branch), green 19:44 EST; NOT device-tested.
+- **Resume:** dispatch `build-artifacts.yml` on the branch (assert headSha) → stage pubg APK `/sdcard/Download/Bannerlator-espectro-minor-bugs-<sha8>-pubg.apk` (sha256 host == device) → ASK before install.
+
+## 2026-11-10 19:34 EST — 📦 fix/epic-store-bugs a597055f CI green, staged on the Pocket FIT (CI 42930770419)
+- CI 42930770419 green 4/4 (headSha a597055f); skipped steps are main-only saves and cache paths only; libblsteam.so rebuilt by cargo (Rust manifest change), Gradle build success.
+- Staged `/sdcard/Download/Bannerlator-epic-store-bugs-a597055f-pubg.apk` (597,555,721 bytes), sha256 7f72f313…2cb1, host == device (root).
+- **User 19:3x:** the lmkd/memory-killer fix waits ("we will visit the memory stuff later, focus on epic fixes and build").
+- **Next:** ask the user before installing; then check the Epic library loads, an Epic game's update check and Verify, a launch's BH_EPIC_LAUNCH -epiclocale, crash buffer.
+- **Proof level:** CI-green, staged; NOT installed, NOT device-tested.
+
+## 2026-11-10 19:22 EST — 🔧 fix/epic-store-bugs a597055f: Epic bug fixes 2–7 done, CI 42930770419 dispatched
+- **User:** "finish the epic fixes and build them". The session that started the branch (root-de) was lost at 19:09 when Android's low-memory killer closed Termux; its token and library fixes were still uncommitted in the worktree. Reviewed and committed them, then wrote items 6 and 7.
+- **Commits:** 747e5bba (items 2+3: JSON manifest blob numbers, manifest launch command; root-de) → 2b04f12c (items 4+5: token refresh one at a time, expired token → sign in again; library sync keeps the cache on a failed page, 401/403 → sign in; URL-encoded cursor/auth code/refresh token; manifest paths with ".." or absolute refused before download and counted as damaged in Verify) → a597055f (item 6: -epiclocale from the game's own lc_all = shortcut, else its container, then device locale, then en; item 7: library-screen installs record the installed version, an update check with no recorded version no longer saves the latest and says "Up to date", Verify / Repair records the version once the files match).
+- **Checked:** EpicCredentialStore + isSafeRelativePath compiled with plain-Java stand-ins: 20/20 (expired token → null, 8 parallel callers → 1 refresh, ".." / absolute / drive paths refused). Every getValidAccessToken caller already handles null. The Rust engine writes chunk files only (by GUID), so the Java path check covers both engines. Kotlin not compiled locally (no kotlinc) → CI.
+- **Not done:** Epic region codes for -epiclocale (pt-BR, zh-Hans…; would port GameNative EpicConstants), install-time language still from the first container (no container at download time).
+- **Hogwarts Legacy 19:09 EST:** not a crash: lmkd LOW_MEMORY kill at adj 0 (lmkd_cushion minfree mode counting GPU memory twice; same as WRC 11-08). Details in the memory notes.
+- **Next:** CI result → stage APK on the FIT with hashes → ask the user before installing.
+- **Proof level:** pushed, CI running; NOT device-tested.
+
+## 2026-11-10 19:0x EST — 🔀 MERGED fix/epic-game-fixes → main e8cf80bb (CI 42927706039)
+- **User:** "merge it and build the fixes you mentioned on a new branch after". Merged **before a device test** on the user's word (CI 42925330883 green, local JVM checks 27/27).
+- Backup `refs/backup/20261110/main-before-epic-game-fixes` = 33526bd1; `--no-ff` e8cf80bb (parents 33526bd1 + 2b4e3aa5); code identical to 2b4e3aa5; no AI trailer. The push started only the artifacts build (42927706039) + GitHub Pages.
+- Pocket FIT runs 2b4e3aa5 = main code. Hogwarts Legacy launch not done yet.
+- **Next:** new branch for the Epic small bugs (JSON manifests, manifest launch command, token refresh, library sync, launch language, "Up to date").
+
+## 2026-11-10 18:51 EST — 📦 fix/epic-game-fixes 2b4e3aa5 installed on the Pocket FIT (CI 42925330883)
+- CI 42925330883 green (4/4); APK sha256 3a3d4ddf…2eea, host == device == installed; installed 18:51:11 EST after root-d2's ok; crash buffer empty; Hogwarts Legacy files and Epic records intact.
+- Hogwarts Legacy (Epic) finished downloading 18:43:02 EST (76.7 GB, EOS detected). Bannerlator's own Epic record shows appName `fa4240e5…` with catalogItemId `864c7bc2…` — the id mismatch the fix addresses.
+- Epic comparison with DroidDeck and GameNative done (read-only): ranked list given to the user; awaiting their pick.
+- **Next:** the user launches Hogwarts Legacy → check BH_EPIC_GAMEFIX / BH_DENUVO / BH_EPIC_LAUNCH and the crash buffer.
+- **Proof level:** CI-green, installed; NOT device-tested.
+
+## 2026-11-10 18:5x EST — 🔧 fix/epic-game-fixes 2b4e3aa5: Epic per-game fixes now apply; Trover added (CI 42925330883)
+- **Why:** the user asked whether Hogwarts Legacy (Epic) is set up properly. `EpicGameFixes` keys its five fixes by ids copied from GameNative's `gamefixes/EPIC_<id>.kt`, which are **catalog ids** (GameNative's `GameFixesRegistry` looks Epic fixes up by catalog id), but looked them up by the shortcut's `epicAppName`. An Epic game's catalog id and appName differ (egdata.app: Hogwarts Legacy catalog `864c7bc2…`, appName `fa4240e5…`; the FIT's WRC Generations shortcut too), so none of the five fixes ever applied: Hogwarts Legacy ProgramData wipe, Bethesda "Installed Path" (Oblivion, Fallout 3, New Vegas), Kingdom Hearts III Media Foundation overrides.
+- **Built:** lookup by `epicCatalogId`, appName alias table for older shortcuts. Trover Saves the Universe (from GameNative #1953 by Mo Kakwan / Wavewash): Engine.ini lines merged into the game's own config (lobby map instead of the startup-movie map, `r.SceneColorFormat=2`, VR plugins + WmfMedia off), `BOX64_AVX`/`BOX64_MMAP32`/`OPENSSL_ia32cap`/`WINEPATH` when unset, `-nohmd -dx11` when missing. GameNative's container-wide Trover changes (its own Box64/Wine/Turnip/DXVK versions, dxvk.conf, 720p + lower quality, DLL overrides) left out. User/container values always win.
+- **Checked:** real `EpicGameFixes.java` compiled with plain-Java stand-ins for the Android classes: 27/27 checks (ids, env, args, ini merge incl. CRLF and UTF-16LE, Hogwarts wipe).
+- **Rest of the Hogwarts path (code-read):** Epic auth args every launch; Denuvo scan → `-epicovt` ownership token.
+- **Next:** CI → stage; install only after the user's Hogwarts download on the FIT finishes and the user says so.
+- **Proof level:** pushed; NOT built yet; NOT device-tested.
+
+## 2026-11-10 17:2x EST — 🔀 MERGED feat/windows-steam-library → main e850b0f4 (artifacts-only CI 42914583364)
+- **User:** "merge it"; "after the merge have the main branch build artifacts only".
+- **Backup:** `refs/backup/20261110/main-before-windows-steam-library` = 23269b0b (pushed before the merge).
+- **Merge:** `--no-ff` e850b0f4 (parents 23269b0b + 961f32b1); main had only PROGRESS_LOG commits since the branch point, so the merged code is identical to the device-proven 961f32b1 (checked with `git diff`). Author The412Banner, no AI trailer.
+- **In it:** store games in Windows Steam (library location + `C:\\BannerlatorSteamLibrary` links), Start in Big Picture + exit to desktop, Menu press/double press in Big Picture, compact Run program picker, automatic GPU drawing on the GL renderer with the overlay-menu fix, diagnostics removed.
+- **CI:** the push started only "CI Build (artifacts only)" run 42914583364 (plus GitHub's own pages deployment); release.yml is manual and was not run. No tag, no release.
+- **Devices:** Pocket FIT 961f32b1 = main code; Elite 2e7456c4 (older main).
+- **Branch** feat/windows-steam-library kept.
+
+## 2026-11-10 17:15 EST — ✅ 961f32b1 device-proven: store games show as installed in Windows Steam (feat/windows-steam-library)
+- **User:** "counter strike shows installed now".
+- **Log:** "Store games in Steam: 4 linked in C:\\BannerlatorSteamLibrary"; "Non-Steam games: 27 listed, 2 already installed in Steam" (Half-Life + MIO, the only installed store games with shortcuts); GPU drawing on (automatic). Links: Brawlhalla → SD, Counter-Strike / Lossless Scaling / MIO → internal; Counter-Strike's appmanifest StateFlags 4; libraryfolders.vdf lists `C:\\BannerlatorSteamLibrary`; crash buffer empty.
+- **Not tested:** Play on a linked game from Steam; client uninstall keeping store games.
+- **Next:** merge to main on the user's go.
+
+## 2026-11-10 17:08 EST — 📦 961f32b1 installed on the Pocket FIT: store games as installed games in Windows Steam (CI 42909848059)
+- ef37b6cd's CI run 42909013339 was cancelled; **961f32b1** replaces the hand-written libraryfolders.vdf entry with `WindowsSteamClient.addLibraryFolder` (existing `libraryEntry`/`serialize`/`writeAtomic`).
+- Checked before install: uninstall deletes only the links (`FileUtils.delete` and `totalSize` never follow links); the non-Steam list reads every library in libraryfolders.vdf, so linked games are not listed twice; the FIT's Steam libraries are F: and E: only, so C: may hold this one. Counter-Strike has no Goldberg setting (off), so it is linked.
+- CI 42909848059 green (4/4); APK sha256 ac51f363…8137, host == device == installed; installed 17:08:31 EST after root-d2's ok; crash buffer empty.
+- **Next:** the user starts Windows Steam → Counter-Strike, Brawlhalla, MIO and Lossless Scaling should be installed, Counter-Strike gone from Non-Steam; then merge on the user's go.
+- **Proof level:** CI-green, installed; NOT device-tested.
+
+## 2026-11-10 16:3x EST — 🔧 ef37b6cd: every Steam-store game listed as installed in Windows Steam (CI 42909013339)
+- **Device results first:** e5566300 installed 15:40:22 EST; the FIT's Steam shortcut back to its original options (backup of the hand-made state `…desktop.test1b`); launch log "Windows Steam: GPU drawing on: WINE_DISABLE_VULKAN_OPWR=0, -cef-disable-gpu left out" — automatic GPU drawing device-proven. "Windows Steam" offered in Move to… and the download dialog; Half-Life moved there shows installed in Steam (user).
+- **User:** Counter-Strike downloaded to Internal storage was not installed in Steam → chose option 3 (every store game, wherever it lives).
+- **Built:** `store/SteamLibraryMirror` — `C:\BannerlatorSteamLibrary` in the client's container: `steamapps/common/<folder>` links to the store game's real folder, `SteamAppManifest.recordInstall` writes the appmanifest, the library is added to libraryfolders.vdf; synced at each client start before the non-Steam list. Skips games already in a client library, Goldberg-on games, missing folders; removes its own stale entries; uninstalling the client removes the folder (links only). Steam's updates/verify/uninstall act on the store's files (told to the user).
+- **Proof level:** pushed; NOT built yet; NOT device-tested.
+
+## 2026-11-10 15:4x EST — 🔧 e5566300: Windows Steam GPU drawing automatic on the GL renderer; diagnostics removed (CI 42894723372)
+- **User:** "do it" (auto GPU mode + remove diagnostics, then the store-download test, then merge).
+- **Built:** `windowsSteamGpuDrawing()` — Windows Steam session, X11, GL renderer outside native mode, and no user `WINE_DISABLE_VULKAN_OPWR` other than 0 → steam.exe starts without `-cef-disable-gpu` and with `WINE_DISABLE_VULKAN_OPWR=0`; other renderers keep CPU drawing; the launch log says which. Decided before the launch command is built (it is built before the environment merge).
+- **Removed:** BLXDiag (XDiag.java and every hook); four files are back to their pre-diagnostic content.
+- **Next:** install (user's yes) → put the FIT's Steam shortcut back to its original options (no hand-made GPU settings) → Steam starts on GPU drawing by itself → store-download test → merge.
+- **Proof level:** pushed; NOT built yet; NOT device-tested.
+
+## 2026-11-10 15:2x EST — ✅ 63a7eaeb device-proven: Start in Big Picture via steam://open/bigpicture, exit returns to the desktop window
+- **User:** "works, big picture opens and exiting goes back to desktop". Logcat 15:16:25 "Steam (Windows): desktop window up, asked Steam to open Big Picture".
+- **Device-proven on the FIT (feat/windows-steam-library):** Big Picture menus / Quick Access in GPU mode (fix B), Big Picture start and exit, Menu press / double press in Big Picture, Run popup.
+- **Not device-tested:** "Windows Steam" as Steam-store download/move target, non-Steam skip of installed games, uninstall keeping store games.
+- **Open (user decides):** GPU mode automatic for Windows Steam on the GL renderer (today hand-edited on the FIT's shortcut), remove the BLXDiag logging, winex11 fix proposal for root-8b, merge.
+
+## 2026-11-10 15:13 EST — 📲 63a7eaeb installed on the Pocket FIT: "Start in Big Picture" opens Big Picture after Steam's desktop window
+- **Problem (user 14:0x):** Exit Big Picture → black screen with sound. BLXDiag: the Big Picture window was minimized, no new window followed. Steam's webhelper.txt: after "SP BPM_uid0 WasHidden 1" no "CreatingPopup name:SP Desktop_uid0" — started with `-gamepadui`, the client never makes its desktop window. User checks: with the toggle off the desktop window shows (GPU mode); desktop → Big Picture button → exit → desktop comes back.
+- **Fix 63a7eaeb** (user: "build it on the same branch"): no `-gamepadui`; the session waits for a mapped steamwebhelper window titled "Steam" (≥ 640×360) and then runs `steam.exe steam://open/bigpicture` once. CI 42889377322 green 4/4.
+- **Installed 15:13:03 EST** (user: "install it"): base.apk sha256 e90b967a… == staged, crash buffer 0, data intact.
+- **Proof level:** CI-green + installed; NOT device-tested.
+
+## 2026-11-10 13:58 EST — ✅ Big Picture menus drawn with GPU drawing: fix B 118636d3 device-proven on the Pocket FIT
+- **Installed 13:54:09 EST** (CI 42877757631 green 4/4; base.apk sha256 a65f2af0… == staged; crash buffer 0).
+- **User screenshots 13:57:** Big Picture side menu and Quick Access (Help panel) fully drawn over the page, GPU drawing (D3D11 · DXVK).
+- **Log:** 38 BLXDiag "reapply" summaries — the Quick Access copy (box 950,38–1280,683) and the menu strip (0,0–229,720) laid back over each page frame.
+- **Still hand-made on the FIT's shortcut:** no `-cef-disable-gpu`, `WINE_DISABLE_VULKAN_OPWR=0`. Open: make that automatic for Windows Steam on the GL renderer, remove the diagnostics, propose the winex11 fix to root-8b, merge (user decides).
+
+## 2026-11-10 13:5x EST — 🔧 Big Picture menus: root cause found (BLXDiag), fix 118636d3 (CI 42877757631)
+- **Diagnostic build d19568bc installed 13:30:40 EST**; user ran Big Picture, opened the menu and Quick Access, closed Steam ("closed steam, read the log").
+- **BLXDiag log (13:32:57–13:34:07):** all Wine windows are children of the explorer desktop window; the GL renderer drew only Steam's main window 0x3800005; the GPU process's offscreen windows sit in its transparent dummy parent (hidden, as intended). The side menu and Quick Access are not X windows: Chromium draws them as overlay child windows into their own offscreen windows (e.g. 229×721, 812×645, made and destroyed per opening), and Wine copies them into the same window 0x3800005 only when they change, while the page is copied there ~24×/s over the whole window (box 0,0–1280,720). Cause in Wine: `X11DRV_client_surface_present` — `region = 0; /* window is exclusive fullscreen, ignore everything else */` — no child-window clipping for a fullscreen toplevel. The resize content reset was not the cause.
+- **Fix B (user: "yes do B on the same branch, install when done"):** `xserver/OverlayCopies` — per destination window, the last copy from each source window; after each copy the smaller overlapping copies from other live, mapped sources are copied again from their current picture; destroyed/unmapped sources are forgotten. `XServer.keepOverlayCopies` for Windows Steam sessions only. Diagnostics stay on (op "reapply").
+- **Proper fix A (later, root-8b review, new layer only on the user's word):** winex11 skips the fullscreen shortcut when the toplevel has child windows.
+- **Proof level:** pushed; NOT built yet; NOT device-tested.
+
+## 2026-11-10 12:5x EST — 🔬 Quick proof failed (layer restored); compact popup installed; diagnostic build d19568bc for the Big Picture menus
+- **Quick proof result (user video 12:22):** Wine appended `--in-process-gpu` (6 "HACK: appending" lines) but Windows Steam's web helper ignored it (still `--type=gpu-process`, switch absent from its logged start line); menus as before. Original layer kernelbase.dll restored 12:26 EST (sha256 b9b121b9…), root-8b told.
+- **Compact popup ca49b7e0 installed 12:41:50 EST** (user: "install anyway"; closed the running Steam session): base.apk sha256 ca83f22e… == staged, crash buffer 0, data intact.
+- **Lead (code):** `WindowManager.changeWindowGeometry` replaces a resized window's drawable with a new blank one. A real X server keeps the picture (Wine asks for NorthWest bit gravity). Pictures copied in by Wine's other-process rendering only come back on the GPU process's next present, so slide-in menus stay blank after each resize until something changes.
+- **Diagnostic build d19568bc** (user: "make the diagnostic build"): `xserver/XDiag` logs to logcat tag BLXDiag in Windows Steam sessions only — window create/map/unmap/reparent/configure/destroy, "content-reset" on resize, name/opacity changes, a per-second summary of PutImage/ShmPutImage/CopyArea/Present per window and client, and the GL renderer's window list on change. CI 42868077100.
+- **Next:** install (needs the user's yes) → one Steam Big Picture run opening the menu and Quick Access → read BLXDiag → fix (likely: keep the old picture on resize).
+
+## 2026-11-10 12:10 EST — 🧪 Quick proof: Windows Steam's web helper with --in-process-gpu (patched layer kernelbase.dll on the Pocket FIT)
+- **User (after 98447478):** Big Picture menu / Quick Access "still invisible until I navigate" → the transparent-window fix alone does not solve it. Asked whether DroidDeck has something: yes, DroidDeck's Linux Steam gets `--no-zygote --in-process-gpu` on steamwebhelper (`tools/linuxfs/preload/webhelper.c`), so GPU drawing stays in the window-owning process.
+- **Windows Steam:** `logs/webhelper.txt` start line maps `-cef-disable-gpu` but drops `-cef-in-process-gpu` / `-cef-single-process`. Wine has no IFEO Debugger. Proton's kernelbase has a CreateProcess command-line append table (`dlls/kernelbase/process.c` ~592, Warhammer2.exe / SummerIslands.exe → ` --in-process-gpu`).
+- **Quick proof (user: "do the quick proof"; root-8b OK as a device-only test):** layer `11.0-12.3-arm64ec-16/lib/wine/aarch64-windows/kernelbase.dll` swapped by rename (owner/mode/SELinux context kept) for a copy where "SummerIslands.exe" reads "webhelper.exe" (32 bytes, both arm64x copies), sha256 f0d01953… Backup `/sdcard/Download/bl-backup-20261110/kernelbase-12.3-aarch64.orig.dll` (b9b121b9…). **Restore after the test** (root-8b: the FIT must match the published v16 layer).
+- **Proper fix if it works:** proton-wine `staging/proton_11.12.3-DroidDeck/<topic>`: table entry for steamwebhelper.exe gated by an env var Bannerlator sets for Windows Steam sessions; root-8b reviews; new layer name/release only on the user's word.
+- **Also:** compact Lab-style Run popup ca49b7e0 (user: "small and minimal with thin lines between options in lab style"), CI 42860657973; install approved.
+
+## 2026-11-10 11:44 EST — 📲 INSTALLED feat/windows-steam-library 98447478 (all-in-one) on the Pocket FIT (user: "install the all-in-one when it's done")
+- **Staged** `/sdcard/Download/Bannerlator-windows-steam-library-98447478-pubg.apk` sha256 `b5271c9e07c181f891dd238140e25937661bf8d2956718eff4121b0b7bd41e60` (host == device; artifact = run 42849152804 / 98447478).
+- **Installed 11:43:56 EST:** base.apk == staged; crash buffer 0; nothing was running in Bannerlator; Box64EC, xuser-1, xuser-2 intact; Steam shortcut keeps the GPU + OPWR test settings.
+- **Proof level:** CI-green + installed; flicker fix and Run popup NOT device-tested.
+
+## 2026-11-10 11:30 EST — 📲 INSTALLED d1fdecf8 (hide transparent windows) on the Pocket FIT; 98447478 (run-program popup) CI green
+- **98447478** (feat/windows-steam-library): in-game "Run a program" popup over the running game (no pause), always opening on the device's storage, then C: and the game folder; every file listed and opened with its Windows program (user + Discord request: Cheat Engine .CT). CI 42849152804 green 4/4; contains d1fdecf8.
+- **d1fdecf8 installed 11:29:57 EST** (user: "install it", after being told it closes the running AIO-Graphics-Test session, which was the user's own, not root-8b's): base.apk sha256 0f71f275… == staged; crash buffer 0; Box64EC, xuser-1, xuser-2 intact; the Steam shortcut keeps the GPU + `WINE_DISABLE_VULKAN_OPWR=0` test settings.
+- **Next:** user tests Big Picture (menu / Quick Access without flicker); 98447478 installs when its download finishes (user: "install the all-in-one when it's done").
+
+## 2026-11-10 10:4x EST — 🔧 feat/windows-steam-library d1fdecf8: don't draw fully transparent windows (Windows Steam); picker 795c0033 installed
+- **Test 1b result (user video 10:08 + "qam and steam menu flicker. dashboard is smoother now"):** with `WINE_DISABLE_VULKAN_OPWR=0` and no `-cef-disable-gpu`, Big Picture draws through DXVK (~120 fps, GPU 15–26 %) and scrolls smoother; the left menu shows only in single frames, Quick Access never. Logcat: focused window "Steam Big Picture Mode", Steam button / Quick Access chord sent as designed.
+- **Investigation:** Wine's offscreen surfaces live in its dummy parent (1×1 override-redirect at 0,0, empty shape, `_NET_WM_WINDOW_OPACITY` 0) and Wine copies their pictures into the real windows. All three renderers draw every mapped window at full size (no parent clipping, no shape, no opacity), so those surfaces covered Steam's windows from the screen origin. Container 1 uses the GL renderer, whose Present path copies frames into the window's CPU content, so Wine's copy can read them.
+- **Fix d1fdecf8:** `Window.isFullyTransparent()` + `XServer.hideTransparentWindows` (Windows Steam sessions only); GL, Vulkan and ASR renderers skip such a window and its children. CI 42846752326.
+- **Picker 795c0033 installed 10:38:52 EST** (user asked): base.apk sha256 3b54c452… == staged, crash buffer 0, Bannerlator not running, data intact.
+- **Proof level:** d1fdecf8 pushed, NOT built yet; NOT device-tested. Shortcut keeps the test-1b settings for the test.
+
+## 2026-11-10 10:06 EST — 🧪 Big Picture test 1 = white screen; cause found; test 1b (other-process rendering on) set up
+- **Test 1 result (user 10:01, screenshot):** white screen + sound, overlay "D3D11 · DXVK 1.8 fps", 564 ms.
+- **Cause (wine_debug.log):** `x11drv_client_surface_create HACK: Failing surface creation for other process window` → DXVK `Failed to recreate surface: VK_ERROR_OUT_OF_HOST_MEMORY` → `CreateSwapChainForHwnd: Failed`. Chromium's GPU process draws into the browser process's window. Our layer (proton_11.12.3-DroidDeck) carries `android/patches/dlls_winex11.drv_init.c_opwr.patch` (GameNative #82, Dmage22 via Utkarsh Dalal): Proton's other-process window rendering (OPWR) is off on Android unless `WINE_DISABLE_VULKAN_OPWR=0`, because it needs XComposite to keep the offscreen surface hidden ("the surface shows up at the screen origin"). Bannerlator's X server has only a bookkeeping XComposite (`extensions/XComposite.java`), registered only with `BANNER_X11_GLX=1`.
+- **Steam GPU log:** ANGLE D3D11 on "Wrapper(Adreno (TM) 750)", GPU compositing on, accelerated rasterization off (Chromium blocklist).
+- **Test 1b (user: "do the quick experiment"):** shortcut = test 1 + `envVars=WINE_DISABLE_VULKAN_OPWR=0`. Backups in `/sdcard/Download/bl-backup-20261110/` (`.before-gpu-test` = original, `.test1`).
+- **If it is promising:** real XComposite in Bannerlator's X server (keep redirected windows off screen, support the copy) — not started.
+
+## 2026-11-10 09:59 EST — 🧪 Big Picture test 1 on the Pocket FIT: Windows Steam without -cef-disable-gpu
+- **Video 09:52 (fd7e6e7e, 20 s):** Menu press in Big Picture opens its left menu (works); double press opens the Quick Access Menu, which draws one full frame and then is no longer repainted (only the focused icon's area updates); hold → drawer works. Overlay: CPU 26–46 %, GPU 5–15 %. Logcat of the test lost (256 KiB main buffer) → `logcat -G 16M` set (until reboot).
+- **Test 1 (user: "yes set up test 1"):** container 1 "Windows Steam Client x64.desktop" backed up to `/sdcard/Download/bl-backup-20261110/Windows Steam Client x64.desktop.before-gpu-test` (sha256 e1e85d95…); after the user closed Steam, execArgs written without `-cef-disable-gpu` (only change; owner/context kept). Undo: copy the backup back with `cat >`.
+- **Resume point:** user starts Steam (Big Picture on), tries Quick Access/Friends and browsing; then logcat "Steam (Windows)", wine_debug.log, dxgi logs, video.
+
+## 2026-11-10 10:0x EST — 🔧 feat/windows-steam-library 795c0033: in-game "Run a program" opens a file picker (CI 42838176028 running)
+- **User (screenshots 09:37):** in-game drawer Run… opens the typed New Task box; "can we make this a file picker … device wide/storage options?" → plan → "yes build it on the same branch". Asked whether it runs a second exe with the game: yes, same winhandler EXEC in the running session.
+- **Built:** Run… (drawer) and "Run a program" (quick menu) open the app's file picker (internal storage, SD cards, the container's C:; .exe .bat .cmd .msi .lnk). The pick gets a Windows path via `WinePath.resolveWindowsPath` (a new drive letter when needed, its dosdevices link created live) and starts with `winHandler.execInFolder` (from its own folder). The New Task box keeps typed commands and gets Browse…, which fills the box with the picked path.
+- **Not verified:** a drive letter added while Wine runs is usable at once (dosdevices link created live).
+- **Proof level:** pushed; NOT built yet; NOT device-tested.
+
+## 2026-11-10 09:38 EST — 📲 INSTALLED feat/windows-steam-library fd7e6e7e on the Pocket FIT (user: "install it when it's done")
+- **CI 42828613162** (headSha fd7e6e7e): 4/4 success; artifact checked = run 42828613162 / fd7e6e7e.
+- **Staged** `/sdcard/Download/Bannerlator-windows-steam-library-fd7e6e7e-pubg.apk` sha256 `035324060fa5e0ad08b10c49622027504c2d6d269ca9529464c32a9944317720` (host == device).
+- **Installed 09:38:36 EST:** base.apk == staged; crash buffer 0; Bannerlator was open on its library (no Wine session); Box64EC, Proton 11.0-12.3-arm64ec-16, xuser-1, xuser-2 intact; peers told before and after.
+- **Proof level:** CI-green + installed; NOT device-tested (Big Picture toggle, Windows Steam library target, Big Picture Menu press / double-press QAM).
+- **Resume point:** after the user's test: `logcat -d | grep "Steam (Windows)"` for the focused window title and which action ran; screenshots.
+
+## 2026-11-10 09:0x EST — 🔧 feat/windows-steam-library fd7e6e7e: Menu press in Big Picture = Steam button, double press = Quick Access Menu (CI 42828613162 running)
+- **User:** "when guide button … is used in big picture, nothing happens, drawer only opens when held … open big picture side menu with a press and when non big picture mode is running in game it opens in game overlay" + "can you make the same button open qam with a double press?"
+- **Built:** short press → if the focused X window's title (or a named parent's; WM_NAME, then _NET_WM_NAME) contains "Big Picture": wait 300 ms, then the Steam button on player one's pad (`pressLinuxSteamButton(false)`, Guide through BANNERIN); a second press in that time → Steam held + A tapped (`pressLinuxSteamButton(true)`, the Linux session's QAM chord). Otherwise Shift+Tab as before. Hold → side drawer, unchanged. Each press logs "Steam (Windows): focused window '…'".
+- **Not verified:** Big Picture's window title on Wine ("Steam Big Picture Mode" assumed; the log line will show it); the Guide+A chord opening QAM in Windows Big Picture.
+- **Proof level:** pushed; NOT built yet; NOT device-tested.
+
+## 2026-11-10 08:37 EST — 📲 INSTALLED feat/windows-steam-library 58238b63 on the Pocket FIT (user: "install it when it's done")
+- **CI 42820036587** (headSha 58238b63): 4/4 success; artifact checked = run 42820036587 / 58238b63.
+- **Staged** `/sdcard/Download/Bannerlator-windows-steam-library-58238b63-pubg.apk` sha256 `b2dfd1ac67036b08ca5373cef6e8e9bdb1c218f1e353e3bb72cc5a8f4c86561e` (host == device).
+- **Installed 08:37:21 EST:** base.apk == staged; crash buffer 0; only the app process was running; Box64EC component, Proton 11.0-12.3-arm64ec-16, xuser-1, xuser-2 intact; peers told before and after.
+- **Proof level:** CI-green + installed; NOT device-tested.
+- **Resume point:** user tests: (1) Windows Steam shortcut settings → Start in Big Picture on → Steam opens in Big Picture; (2) Steam store: "Windows Steam" offered as download location / Move target → Steam lists the game installed, no download; (3) that game no longer in the non-Steam list. Log check: wine_debug.log "Windows Steam: Steam store library added: Windows Steam".
+
+## 2026-11-10 08:3x EST — 🔧 feat/windows-steam-library 58238b63: Steam store games installed in Windows Steam's library + "Start in Big Picture" (CI 42820036587 running)
+- **User:** "if a user installs or downloads a game using the steam app store can we make it show up in the windows steam client also" + "can we give it a toggle to launch in Big picture mode" → plan given → "yes build both on a new branch, keep it a choice".
+- **Store games:** the client's folder becomes an app Steam library location "Windows Steam" (when added, and at each start of an existing client; storage volumes only). The store's existing library path (steamapps/common + appmanifest via SteamAppManifest) makes Steam list downloads/moves there as installed. Not the default location. Non-Steam list skips games already installed in the client's libraries. Uninstall keeps the store's games (files, appmanifest, libraryfolders.vdf, library entry); otherwise deletes the folder and forgets the entry.
+- **Big Picture:** shortcut extra `steamBigPicture`; launch adds `-gamepadui` to steam.exe's arguments; toggle in Lab/Deck settings (Windows Steam group), XMB and the Classic editor; off by default. 3 Lab strings in all 32 languages.
+- **Proof level:** pushed; NOT built yet; NOT device-tested.
+- **Resume point:** CI 42820036587 → stage pubg on the FIT → ASK the user → tests: Big Picture toggle on → Steam opens in Big Picture; Steam store → download/move a game to "Windows Steam" → Steam shows it installed (no download), Play works; non-Steam list without it; uninstall keeps it.
+
+## 2026-11-10 07:4x EST — ✅ Storage choice works on the Pocket FIT; non-Steam games appear from the second Steam start; correction about the SD leftover
+- **User (screenshot 07:41:56):** Big Picture "NON-STEAM 0", "my games added in app are not showing up".
+- **Storage choice device-proven:** the re-added client is at `F:\bannerlator\windows_steam\steam.exe` (F: = `/storage/7B7F-E3AA`, the FIT's SD card; 2.0 GB); libraryfolders = that folder + `E:\SteamLibrary`.
+- **Why 0 non-Steam games:** wine_debug.log at the 07:37 start: "Non-Steam games: no signed-in account yet (listed on the next start)". The user signed in at 07:38 (loginusers.vdf; `userdata/2932373` 07:38–07:40). `SteamShortcutsSync` writes `userdata/<account>/config/shortcuts.vdf` just before Steam starts, for each account folder, so the list appears from the next start. Same on the 05:04 run (fresh C: client).
+- **CORRECTION:** the 05:4x entry said F:\SteamLibrary was gone after the uninstall. I had checked `/storage/6136-3230` (the Elite's SD card). The FIT's SD is `7B7F-E3AA`, and its `SteamLibrary` was still there (Steam's steam.dll kept it, same cause as the internal one, fixed in 64c14f7e). Deleted now (steam.dll + libraryfolder.vdf + empty steamapps/common; not in the new client's list).
+- **Lesson:** SD card IDs differ per device (FIT 7B7F-E3AA, Elite 6136-3230). Take the path from the container's drive map, not from notes.
+
+## 2026-11-10 07:27 EST — ✅ Elite (main 2e7456c4): WINDOWS STEAM badge + pinned first seen; "+" add refuses P11 Arm as designed
+- **User screenshot** /sdcard/Pictures/Screenshots/Screenshot_20261110-072516.png (07:25 EST): Library 13 games, sort "Last played": "Steam x64" (P11 Arm) first with the WINDOWS STEAM badge; Steam Latest / Steam = CUSTOM; toast "Windows Steam Client x64 is already in P11 Arm".
+- **Why the toast:** GameActionsHost.kt:415 (main) — the picked container already has a shortcut with storeSource=windows_steam (findShortcut, WindowsSteamClient.kt:110); P11 Arm has "Steam x64", converted 04:08. One client shortcut per container = intended.
+- **To test the add flow on the Elite:** pick Container-2 (xuser-2, no shortcuts).
+- **Proof level:** badge + first place device-proven on the Elite (screenshot); first place under other sorts not checked.
+
+## 2026-11-10 07:22 EST — 📲 Elite: INSTALLED main 2e7456c4 pubg (user: "yes install main on the elite")
+- **User (07:1x EST):** "yes install main on the elite" (explicit yes for this build).
+- **Build:** CI build-artifacts 42809389053 (workflow_dispatch, headSha 2e7456c4, pubg/antutu/standard/ludashi success); artifact Bannerlator-main-2e7456c4-pubg id 13761533162 (591,865,282 B zip), downloading in 8 range parts (scratchpad main-2e74-pubg/, script rangedl.sh).
+- **Plan:** unzip → check manifest com.tencent.ig + cert → stage `/sdcard/Download/Bannerlator-main-2e7456c4-pubg.apk` (sha256 host == device) → ListAgents → `pm install -r` over a7febd02 (3ebae481…) → installed base.apk == staged, crash buffer → check Steam x64.desktop still storeSource=windows_steam.
+- **Staged 07:2x EST:** download 32 s (8 parts); `/sdcard/Download/Bannerlator-main-2e7456c4-pubg.apk` sha256 `ea08878faf81b7c1940a9f2e6a7ef4c92855c3a8998778355dcf30bc83d4ccad` (host == device, 597,516,631 B); manifest com.tencent.ig; cert SHA-256 A4:0D:A8:0A… (same as earlier builds); strings in dex: "Non-Steam games" (classes4), "32-bit code: ", "Where should Steam go?", "Also uninstall Steam?" (classes5). App process up (pid 780), no Wine/.exe running, Discord in front.
+- **Hold:** new local peer root-4c (started 07:2x) asked for an ok before the install (rule from the 11-10 05:12 FIT incident); install waits for its reply.
+- **Peer ok:** root-4c "ok" (only syncing DroidDeck git, not touching the device).
+- **Installed 07:22:10 EST:** `pm install -r` Success; installed base.apk sha256 `ea08878f…ccad` == staged; versionCode 106 / 3.1.9-pre2; crash buffer 0 lines; no Wine running before. Steam x64.desktop kept (storeSource=windows_steam, owner 10193); xuser-1/2 present, 15 Desktop entries. root-4c told "done".
+- **Elite now = main 2e7456c4 code** (same code as the FIT 66cc2700). Proof level: installed; new parts NOT tested on the Elite (zip fix, storage choice, uninstall, Box64EC fix).
+- **Undo:** `/sdcard/Download/Bannerlator-windows-steam-client-a7febd02-pubg.apk`.
+- **Resume point:** if cut mid-download, rerun rangedl.sh (it restarts parts); if cut after install, compare `dumpsys package com.tencent.ig | grep lastUpdateTime` (later than 04:08:12 = installed) and the base.apk hash.
+
+## 2026-11-10 07:15 EST — ✅ Elite (a7febd02): non-Steam games list written by the 04:09 Steam x64 start (file check, read-only)
+- **Found (Elite session root-af, checking after the FIT catch-up):** the user started Steam x64 on the Elite at ~04:09 EST after the 04:08 install (CS:S d3d9 log 04:11, controller.txt 04:26). `F:\Download\Steam-x64\userdata\2932373\config\shortcuts.vdf` (2,823 B, 04:09) holds **8 entries, all tagged Bannerlator**: A Game About Digging A Hole™, aio, DiRT Showdown, DOOM + DOOM II, MIO Memories in Orbit, Resident Evil 2, Samorost 3, Sonic Mania (Exe paths on Z:/E:/F:); `config/grid/` has 8 covers (04:09).
+- **Left out as designed:** Brawlhalla + FlatOut (Steam's own `start.exe steam://rungameid/…` shortcuts), Steam / Steam Latest / Steam x64 (steam.exe).
+- **Not seen:** the `Non-Steam games: N listed` note is not in `Steam x64/wine_debug.log` (grep 0 hits) — where the note lands is not checked yet. Not confirmed on screen (no screenshot); Menu = Shift+Tab not confirmed on the Elite.
+- **Elite still runs a7febd02** (lastUpdateTime 04:08:12): older than main 2e7456c4 (no zip fix, storage choice, uninstall, Box64EC fix). Proof level for the sync: device-proven at file level on the Elite.
+
+## 2026-11-10 06:4x EST — 🔀 MERGED fix/box64ec-default-version → main 53cad678 (user: "install the log line build when it's staged and merge to main when green, then build main as artifacts only")
+- **Bug (user screenshots 05:29, Pocket FIT):** a game set to Box64EC showed "Box64EC Version 0.4.5-c415ed7a4-experimental-0" in its settings but ran on FEXCore. The screen fills the row with the first installed Box64EC when nothing is saved (ContainerDetailViewModel), the launcher only copied box64ec.dll for a saved version, and with one version installed there is nothing to "change", so nothing got saved.
+- **164172fe:** applyX64Translator uses the saved Box64EC version when it is installed, otherwise the first installed Box64EC component (install dir must exist; the profile list can hold catalog entries), and copies box64ec.dll again when it is missing from system32.
+- **66cc2700:** one "x86" line per launch through logSessionLine (Wayland session log in the game's log folder, wine_debug.log on X11 when logging is on, logcat always): 32-bit translator (FEXCore/WOWBox64) and 64-bit translator (Box64EC/FEXCore) with versions and DLL names; says when Box64EC was picked but box64ec.dll is not available. A box64ec.dll left by a removed component is no longer used.
+- **CI:** 42804325443 (164172fe) and 42807895126 (66cc2700) green 4/4, 15 skipped each, 0 failed.
+- **Device (Pocket FIT, 164172fe installed 06:31:23 EST, base.apk 838a2bd0…):** MIO's shortcut with only emulator64=box64ec and xuser-1 system32/box64ec.dll deleted → 06:37 launch: box64ec.dll copied back, system.reg Wow64\amd64 = box64ec.dll, MIO log "cpu: Box64EC", no crash entries. 66cc2700 (log line) not device-tested yet.
+- **Merge:** backup `refs/backup/20261110/main-before-box64ec-default-version` = 1f22cbeb7; `--no-ff`; main had not moved; merged tree == 66cc2700 tree.
+
+## 2026-11-10 05:46 EST — 🔀 MERGED feat/windows-steam-client → main 2ccaacf5 (user: "merge when green also and tell me"); 64c14f7e installed on the Pocket FIT
+- **CI 42800339918** (headSha 64c14f7e): 4/4 success.
+- **Install (user: "install anyway nothing is running in bannerlator"; root-8b's ok request was held by its session):** 05:44:59 EST, base.apk sha256 `d3008b6c07a90a849a801214394724601cb9702b7a09dcac918278f2fab25021` == staged `/sdcard/Download/Bannerlator-windows-steam-client-64c14f7e-pubg.apk`; app was not running; crash buffer 0; Box64EC, Proton 11.0-12.3-arm64ec-16, xuser-1, xuser-2 intact.
+- **Leftovers from the uninstall test deleted by hand (user asked):** `/storage/emulated/0/SteamLibrary` (steam.dll + libraryfolder.vdf + empty steamapps/common) and `xuser-1/app_data/cover_arts/Windows Steam Client x64.png`, both re-checked first.
+- **Merge:** backup `refs/backup/20261110/main-before-windows-steam-client` = 85b2d83d; `--no-ff`; main had only PROGRESS_LOG commits since the branch base 985560ce and the branch does not touch the log → no conflicts; merged `app/` tree 856e7c53 == 64c14f7e's. Branch kept.
+- **Main CI:** 42801832350 (push, headSha 2ccaacf5) GREEN 4/4 (pubg/standard/antutu/ludashi), no failed steps.
+- **Proof level:** add client + uninstall device-proven on the FIT; storage choice and the 64c14f7e leftover fix NOT device-tested; Elite still runs a7febd02.
+
+## 2026-11-10 05:4x EST — ✅ Uninstall offer works on the Pocket FIT (dd7eadd5); 🔧 64c14f7e removes the two leftovers (CI 42800339918 running)
+- **User screenshots 05:33:** container 1 "Windows Steam Client x64" → Remove → "Also uninstall Steam? Deletes Steam from DD P11-12.3 Arm's C: drive (1.1 GB)." → Uninstall → toast "Steam uninstalled (1.1 GB freed)" (appeared over the launcher after the user left the app, so the separate thread finished on its own). Library 37 → 36.
+- **Disk check:** C:\Program Files\Steam, AppData\Local\Steam, Common Files\Steam, the .desktop and F:\SteamLibrary gone; log `Windows Steam uninstalled … (1220403135 bytes, failed: 0)`; crash buffer empty.
+- **Left behind:** `/storage/emulated/0/SteamLibrary` (Steam had copied its steam.dll, 545,944 B, into the library root, so the "no files" check kept it) and `app_data/cover_arts/Windows Steam Client x64.png`.
+- **Fix 64c14f7e:** steam.dll in a library root counts as Steam's own (like libraryfolder.vdf); the removed shortcut's cover picture (customCoverArtPath inside the container's app_data/cover_arts, not used by another shortcut) is deleted too.
+- **Proof level:** uninstall device-proven (dd7eadd5); 64c14f7e pushed, NOT built yet; storage choice NOT device-tested.
+- **Resume point:** CI 42800339918 → stage → ASK before installing (no pre-approval) → the FIT's leftover folder + PNG can be deleted by hand if the user wants.
+
+## 2026-11-10 05:28 EST — 📲 INSTALLED feat/windows-steam-client dd7eadd5 (storage choice + uninstall offer) on the Pocket FIT (user: "install it when it's done")
+- **Peer:** root-8b (holding the FIT for Box64EC/AIO) gave its ok before the install; root-66/root-12 told before and after.
+- **CI 42797900190** (headSha dd7eadd5): 4/4 success. Artifact 13753959164 checked = run 42797900190 / dd7eadd5.
+- **Staged** `/sdcard/Download/Bannerlator-windows-steam-client-dd7eadd5-pubg.apk` sha256 `c8e8495df729e96bc5f73a3303ffda4db271f75d3f898b1849bbd268235d71a7` (host == device), "Also uninstall Steam?" in classes5.dex.
+- **Installed 05:28:13 EST:** base.apk == staged; crash buffer 0; only the app process was running; Box64EC component, Proton 11.0-12.3-arm64ec-16, xuser-1, xuser-2 intact.
+- **Proof level:** CI-green + installed; storage choice and uninstall offer NOT device-tested.
+- **Resume point:** user tests (1) Add Windows Steam client x64 in container 2 → storage choice; (2) remove container 1's "Windows Steam Client x64" → "Also uninstall Steam?" → Uninstall → check C:\Program Files\Steam, AppData\Local\Steam, E:/F:\SteamLibrary. Rollback APKs in Download: 74778b25, 5bad2962.
+
+## 2026-11-10 05:3x EST — 🔧 feat/windows-steam-client dd7eadd5: offer to uninstall Steam when its shortcut is removed (CI 42797900190 running)
+- **User:** "when removing the shortcut, can we offer to totally uninstall and remove the full client so it doesn't linger" → plan given → "yes build the uninstall on the same branch".
+- **Built:** `ShortcutsViewModel.remove` (every layout and bulk remove go through it) asks `WindowsSteamClient.uninstallOffer` before the .desktop is deleted: client folder found through the shortcut + container drives; no offer when any other shortcut in any container points into it. The offer goes to a process-wide StateFlow; `GameActionsHost` (Deck shell + Classic) shows "Also uninstall Steam?" with where, size, games installed in Steam's folder and kept library count; Uninstall / Keep Steam.
+- **Deletes:** the client folder (guard: steam.exe + Steam's own files, or bannerlator/windows_steam, or C:\Program Files\Steam; never a storage root, drive mount, Download folder, drive_c or Program Files), the container's AppData\Local\Steam + Common Files\Steam (kept when another steam.exe shortcut in that container uses them), and SteamLibrary folders with no files. Libraries with games kept; registry left. `FileUtils.delete` (symlinks removed, not followed) on its own thread.
+- **Lesson logged (memory device-launch-tests):** 05:12 install went ahead ~1 min after messaging root-8b, without its ack; no harm (nothing running, its Box64EC intact). Rule: wait for the holding peer's ack.
+- **Proof level:** pushed; NOT built yet; NOT device-tested.
+- **Resume point:** CI 42797900190 → stage pubg `/sdcard/Download/Bannerlator-windows-steam-client-dd7eadd5-pubg.apk` → ASK the user (no pre-approval for this build) → check with root-8b first → test: remove the container 1 "Windows Steam Client x64" shortcut → dialog → Uninstall → C:\Program Files\Steam, AppData\Local\Steam gone; E:/F:\SteamLibrary removed if empty.
+
+## 2026-11-10 05:12 EST — 📲 INSTALLED feat/windows-steam-client 74778b25 (storage choice) on the Pocket FIT (user: "install it when it's done" / "install")
+- **CI 42795645739** (headSha 74778b25): pubg/standard/antutu/ludashi success; no failed steps.
+- **Staged** `/sdcard/Download/Bannerlator-windows-steam-client-74778b25-pubg.apk` sha256 `a01d13fb65952602f081dbbe1a036abe7e0d30a13762e857340d37363e3358a4` (host == device), "Where should Steam go?" in classes5.dex.
+- **Installed 05:12:26 EST:** installed base.apk == staged; crash buffer 0; only the app process was running; app data kept (Proton 11.0-12.3-arm64ec-16, xuser-1, xuser-2); peers root-8b/root-66/root-12 told before and after.
+- **Screenshots 04:56–04:57 (5bad2962 run):** Windows Steam badge + pinned first; Steam sign-in → Store as the user's account, controller P1. Launch card pill said "Vulkan (Wayland)" but wine_debug.log: "Windows Steam: steam.exe starts on X11" → the card shows the container's backend, not the session override (cosmetic, open). Libraries added E:\SteamLibrary, F:\SteamLibrary; non-Steam games listed from the next start (no account at first start).
+- **Open user ask:** offer a full Steam uninstall when the shortcut is removed (plan given, awaits answer).
+- **Proof level:** CI-green + installed; storage choice NOT device-tested.
+- **Resume point:** user tests Add in container 2 → check `<sd>/bannerlator/windows_steam/steam.exe`, shortcut Exec on the SD drive letter, wine_debug.log notes.
+
+## 2026-11-10 05:1x EST — 🔧 feat/windows-steam-client 74778b25: pick internal storage or the SD card for the Windows Steam client (CI 42795645739 running)
+- **User:** "can we allow the user to select internal or external storage? then proceed to create the shortcut" → plan given (drop the C: option) → "yes build the storage choice on the same branch".
+- **Built:** `WindowsSteamClient.places()` = Internal storage + the SD card (`SteamSdInstall.detect`), each `<root>/bannerlator/windows_steam`, free space, and whether a 64-bit steam.exe is already there (then no download: containers share one client). A storage fits with ≥ 1.2 GB + 250 MB free (client was 1.1 GB on the FIT). `addClient(ctx, container, dir)`; the container C: path (`installDir`) is gone. Dialog after the container picker: "Where should Steam go?" with radio rows (free space / "Steam is already here" / "Not enough space"), SD picked by default when it fits, button Download or Add. The shortcut reaches the folder through the storage's drive letter (`WinePath.resolveWindowsPath` maps one when the container has none).
+- **Proof level:** pushed; NOT built yet; NOT device-tested. The FIT's container 1 keeps its C: client from the 5bad2962 test.
+- **Resume point:** CI 42795645739 → stage `/sdcard/Download/Bannerlator-windows-steam-client-74778b25-pubg.apk` on the FIT (sha256 host == device) → ask the user → test in container 2 (container 1 already has the shortcut): SD default, free space shown, download into `<sd>/bannerlator/windows_steam`, shortcut path on the SD drive letter; then container 1 after removing its shortcut → "Steam is already here" + Add without download.
+
+## 2026-11-10 04:58 EST — ✅ 5bad2962 on the Pocket FIT: "Add Windows Steam client x64" now works (download, unpack, shortcut, client start)
+- **Checked read-only while the user tested** (peer root-8b holding the device): container 1 `drive_c/Program Files/Steam/steam.exe` 5,823,128 B, PE machine 0x8664; `drive_c/users/xuser/Desktop/Windows Steam Client x64.desktop` with storeSource=windows_steam, launchMode=Raw, Exec `C:\Program Files\Steam\steam.exe` (same escaping as the other shortcuts); cover `app_data/cover_arts/Windows Steam Client x64.png`.
+- **Client start:** bootstrap_log "Verification complete" 04:56:31 EST; Steam folder 1.1 GB / 79 entries by 04:57.
+- **Crash buffer:** one `F libc fdsan: attempted to close file descriptor 290 … owned by FILE*` line at 04:56:34 (pid 1524); same warn-only fdsan type as seen on the Elite 11-09.
+- **Proof level:** add flow device-proven on the FIT (files + client download). NOT confirmed yet: sign-in, badge + pinned first on screen, non-Steam games list in Steam, Menu press = Shift+Tab.
+- **User idea (open, awaits go):** choose Internal storage or SD card for the client (`<volume>/bannerlator/windows_steam`) instead of the container; drop the C: option.
+
+## 2026-11-10 04:43 EST — 📲 INSTALLED feat/windows-steam-client 5bad2962 on the Pocket FIT (user: "yes install it"); user tests Add client next
+- **Before:** a7febd02 installed (04:20:17); only the app process was running (no game); peers root-66/root-12/root-8b told before and after.
+- **Installed 04:43:52 EST:** `pm install -r` Success; installed base.apk sha256 `b161d1c1…f9a8` == staged; crash buffer 0 lines.
+- **Proof level:** CI-green + installed; NOT device-tested.
+- **Resume point:** user retries Add a game → Add Windows Steam client x64 in container 1 → check `drive_c/Program Files/Steam/steam.exe` (PE 0x8664), `Windows Steam Client x64.desktop` (storeSource=windows_steam), logcat tag WindowsSteamClient, crash buffer. Rollback: `Bannerlator-lab-parity-91549b4f-pubg.apk`.
+
+## 2026-11-10 04:42 EST — 📦 feat/windows-steam-client 5bad2962 CI GREEN 4/4, staged on the Pocket FIT; awaiting the user's yes to install
+- **CI 42791080613** (headSha 5bad2962): pubg/standard/antutu/ludashi success; non-success steps are only the usual skipped cache / main-only steps.
+- **Staged** `/sdcard/Download/Bannerlator-windows-steam-client-5bad2962-pubg.apk` sha256 `b161d1c14e93df8d40636bd5fd464588e1b9376ab059f08614eb3e581f8ef9a8` (host == device), com.tencent.ig vc106, "The download is not a zip file" in classes4.dex.
+- **Installed now on the FIT:** a7febd02 (`3ebae481…`, lastUpdateTime 04:20:17). Rollback file on the FIT: `Bannerlator-lab-parity-91549b4f-pubg.apk`.
+- **Proof level:** CI-green, staged; NOT device-tested.
+- **Resume point:** user yes → no game running + tell peers → `rootsh` pm install -r via /data/local/tmp → base.apk sha256 == b161d1c1… + crash buffer → user retries Add a game → Add Windows Steam client x64 (container 1).
+
+## 2026-11-10 04:30 EST — 🔧 feat/windows-steam-client 5bad2962: "Add Windows Steam client x64" unpacked nothing (fix pushed, CI 42791080613 running)
+- **User (Pocket FIT, 04:21 EST, screenshot Screenshot_20261110-042155.png):** installed a7febd02 pubg themselves (base.apk sha256 `3ebae481…a97`, lastUpdateTime 04:20:17), Add a game → Add Windows Steam client x64 → toast "The download is not the 64-bit steam.exe". Container 1 `drive_c/Program Files/Steam` created 04:20, EMPTY.
+- **Cause (verified):** the manifest lookup is fine (`steam_win64` has a direct file/size/sha2 after its steamrow/steamchina blocks) and the download passes the size + sha256 check (`steam_win64.zip.9ddc7f40…`, 2,692,595 B, `9a5aba7f…`). The file has 20 bytes before the first `PK\3\4` local header (python zipfile: one entry steam.exe, header_offset 20). `ZipInputStream` returns no entry unless the stream starts at a header → nothing written → the PE check fails. Reproduced on the host with OpenJDK 25 `ZipInputStream` on Valve's file: 0 entries as-is; started at offset 20: steam.exe 5,823,128 B, PE machine 0x8664.
+- **Elite never hit it:** its "Steam x64" shortcut was switched to windows_steam by hand (04:08), the download path never ran there.
+- **Fix 5bad2962:** `WindowsSteamClient.firstEntryOffset` finds the first local header in the first 64 KB; the unpack starts there (FileInputStream channel position); no header → "The download is not a zip file".
+- **CI:** 42791080613 (headSha 5bad2962) running.
+- **Proof level:** pushed; fix logic proven on the host against Valve's file; NOT built yet; NOT device-tested.
+- **Resume point:** CI 42791080613 → stage `/sdcard/Download/Bannerlator-windows-steam-client-5bad2962-pubg.apk` on the Pocket FIT (sha256 host == device) → ask the user before installing → test: Add a game → Add Windows Steam client x64 in container 1 (empty Steam folder there is harmless) → steam.exe written, shortcut "Windows Steam Client x64" with badge, pinned first. Rollback on the FIT: a7febd02 (installed now) / `Bannerlator-main-b121585e-pubg.apk` is NOT on the FIT; `Bannerlator-lab-parity-91549b4f-pubg.apk` is.
+
+## 2026-11-10 04:08 EST — 📲 INSTALLED feat/windows-steam-client a7febd02 on the Elite (user: "yes install it"); user tests next
+- **User (04:07 EST):** "yes install it".
+- **Before:** installed ce29246d (lastUpdateTime 2026-11-09 23:11:26); staged APK sha256 re-checked on the device 04:07 = `3ebae481…a97`. No other Claude session running (ListAgents).
+- **Plan:** `pm install -r` → check base.apk sha256 + crash buffer → back up `Steam x64.desktop` to `/sdcard/Download/bl-backup-20261110/` → storeSource custom→windows_steam (in place, owner u0_a193 kept) → user tests: (1) start Steam x64 → Bannerlator games listed as non-Steam games (log `Windows Steam: Non-Steam games: N listed…`, `userdata/2932373/config/shortcuts.vdf`, `config/grid/`), (2) Menu press over a game = Shift+Tab overlay, (3) "+" → Add Windows Steam client x64 in a container without it, (4) badge + pinned first.
+- **Installed 04:08:12 EST:** `pm install -r` Success; installed base.apk sha256 `3ebae481…a97` == staged; crash buffer 0 lines.
+- **Steam x64 shortcut switched:** backup `/sdcard/Download/bl-backup-20261110/Steam x64.desktop` (sha256 60dbab87… == original); only change `storeSource=custom` → `storeSource=windows_steam` (written in place, owner 10193 kept, app not running). Undo: copy the backup back with `cat >`.
+- **Baseline before the first Steam start:** `F:\Download\Steam-x64` = /storage/6136-3230/Download/Steam-x64; `userdata/2932373/config/` has cloudstorage, librarycache, licensecache, localconfig.vdf — no shortcuts.vdf, no grid/.
+- **Proof level:** CI-green + installed; NOT device-tested yet.
+- **Resume point:** if the session dies: check `dumpsys package com.tencent.ig | grep lastUpdateTime` (newer than 23:11:26 = installed) and whether the .desktop backup exists; rollback APK `Bannerlator-steam-x64-auto-ce29246d-pubg.apk`.
+
+## 2026-11-09 23:58 EST — 📦 feat/windows-steam-client a7febd02 CI GREEN 4/4, staged; awaiting the user's yes to install
+- **Correction:** this entry and the one below first said 2026-11-10 / "~00:05 EST"; the real times are 11-09 23:45 EST (user's "all games" message, 04:45 UTC) and 23:58 EST (staged). Fixed.
+- **CI 42758239019** (headSha a7febd02): pubg/antutu/standard/ludashi success, no failed steps. Also green: 42757422741 (1b93606d).
+- **Staged** `/sdcard/Download/Bannerlator-windows-steam-client-a7febd02-pubg.apk` sha256 `3ebae481c17f4383b0cd031d99da905b3bc665a5881c96acd80d6604ae1bba97` (host == device), manifest com.tencent.ig; new code present (classes4: WindowsSteamClient + "Non-Steam games", classes5: "Add Windows Steam client x64").
+- **Installed now:** ce29246d (feat/steam-x64-auto = main code), lastUpdateTime 2026-11-09 23:11:26. Rollback: `Bannerlator-steam-x64-auto-ce29246d-pubg.apk` / `Bannerlator-main-b121585e-pubg.apk`.
+- **Resume point:** ask install → after install: back up + switch "Steam x64.desktop" storeSource custom→windows_steam (keep owner u0_a193) → user tests.
+
+## 2026-11-09 23:50 EST — 🔧 feat/windows-steam-client a7febd02: app games listed in Windows Steam as non-Steam games (CI 42758239019 running)
+- **User (23:45 EST):** "all games added as shortcuts in the app" (which games to list in Steam); update = automatic at each Steam start (my recommendation, not objected).
+- **Built:** `store/SteamShortcutsSync.kt`, called from `WindowsSteamClient.prepareLaunch` (launch worker thread) for every steam.exe session: for each `userdata/<digits>` account → `config/shortcuts.vdf` (binary VDF reader/writer: map/string/int32, other types kept raw). Lists every Wine shortcut of every container (reads the .desktop directly, no cover decoding) except windows_steam/android/gamescope/launchMode=Stream/steam.exe targets and missing files. Path: same container = as is; else the container's C:, an existing drive, or a new drive for the storage volume (WinePath.resolveWindowsPath); another container's C: = left out (counted in the log line). Entries tagged "Bannerlator"; user's entries kept; ours matched by appid (CRC-32(quoted exe + name) | 0x80000000) keep Steam's play time and switches. Cover → `config/grid/<appid>p.png`. Log line `Windows Steam: Non-Steam games: N listed[, M left out] for account …`.
+- **Earlier commits:** 3b4d58dc + 1b93606d (add entry, badge, pin, Shift+Tab, Classic pin); CI 42757422741 on 1b93606d: ludashi job green (compiles), rest running.
+- **Note:** a drive added for a game in another container's storage may only apply from the next start.
+- **Proof level:** pushed; NOT built yet for a7febd02; NOT device-tested.
+- **Resume point:** CI 42758239019 → stage pubg APK `/sdcard/Download/Bannerlator-windows-steam-client-a7febd02-pubg.apk` → ask install → tests: add flow (new container or one without the client), badge/pin, Shift+Tab over a game, non-Steam games in Steam x64 (userdata/2932373/config/shortcuts.vdf has none yet).
+
+## 2026-11-09 — 🔧 feat/windows-steam-client 3b4d58dc pushed (CI 42757256289 running): "Add Windows Steam client x64", badge, pinned first, Menu press = Shift+Tab
+- **User asks (~23:30–23:45 EST):** a 4th entry in "+"/Add games → pick container → download the x64 Steam client "legit from Steam" → shortcut "Windows Steam Client x64" with a "Windows Steam" badge like the store games, always first in the library. "go with your recommendations" = client in the container's C:\Program Files\Steam; existing "Steam x64" shortcut also badged + pinned (data change on the Elite after install, not code). Also: "after the desktop client launches and I press my guide side menu button it automatically launches big picture, it shouldn't. it is only supposed to open the in-game overlay after launching a game similar to shift tab".
+- **Built (branch off main 985560ce, worktree /root/src/Bannerlator-wt/windows-steam-client):**
+  - `store/WindowsSteamClient.kt`: `addClient()` — manifest `https://client-update.steamstatic.com/steam_client_win64` (live 23:4x: v1792618285) → `win64/steam_win64` package (`steam_win64.zip.9ddc7f40…`, 2,692,595 B, sha256 9a5aba7f… = the starter used for the working Steam x64; the zip holds only steam.exe, 5,823,128 B) → size + SHA-256 check → unzip (canonical-path check) into `C:\Program Files\Steam` → PE must be x64 → `Windows Steam Client x64.desktop` (storeSource=windows_steam, launchMode=Raw, execArgs = the working shortcut's CEF options, addedAt) + 600x900 cover (Steam logo on #1B2838). Already has the shortcut → no second one; x64 steam.exe already there → no download. `isWindowsSteamShortcut`, `findShortcut`, `installDir`.
+  - `GameActionsHost.kt`: 4th MenuOptionCard (DesktopWindows icon) → container picker (ImportKind.WINDOWS_STEAM) → "Download Steam (64-bit) from Valve into <container>?" → progress % → toast; refresh.
+  - Badge: STORE_SHELVES first entry "Windows Steam", STORE_ORDER, storeMarkOfLabel → Steam mark, Lab filter "Windows Steam", `ShortcutBadgeOverlay(showWindowsSteam)` pill "WINDOWS STEAM" at all 4 call sites (Classic ×2, XMB, Lab).
+  - Pinned: `GameSortKey.pinned` (= windows_steam shortcut) sorts first in every `sortGames` order (Lab, Deck, XMB, Simple). Classic list order not changed (not via sortGames) — to check.
+  - Menu button press in Windows Steam sessions: Shift+Tab (press, release +150 ms) instead of `pressLinuxSteamButton` (Guide → Big Picture); hold → side menu unchanged.
+  - Tests added (LibrarySortTest pinned-first, StoreMarkTest) — not run (no local toolchain; CI has no unit-test step).
+- **Proof level:** pushed; CI 42757256289 (headSha 3b4d58dc) running; NOT device-tested.
+- **Also asked (open, not started):** list the app's existing games in Windows Steam as non-Steam games.
+- **Resume point:** wait for CI → stage pubg APK → ask install → test the add flow in a container without Steam, the badge/pin, Shift+Tab over a game.
+
+## 2026-11-09 — ✅ MERGED feat/steam-x64-auto → main be84e768 (user: "merge it to main", ~23:22 EST)
+- **Proof before merge:** CI 42753083274 green 4/4 on ce29246d; device-proven on the Elite by the user (Steam x64 starts with only the automatic fixes, Menu button hold works) + logs (two entries below).
+- **Merge:** `--no-ff` of ce29246d onto main 4ed855a7 (4 log-only commits since the branch point) → **be84e768**, authored The412Banner. Code tree == tested ce29246d (`git diff ce29246d be84e768` outside PROGRESS_LOG is empty). Backup ref `refs/backup/20261109/main-before-steam-x64-auto` → 4ed855a7 (on GitHub, ls-remote checked).
+- **Main CI:** push build 42755343999 (headSha be84e768) **GREEN 4/4** (pubg, antutu, standard, ludashi).
+- **Still not confirmed:** Menu button short press → Steam guide; CS:S shown as installed / starting.
+- **Branch** feat/steam-x64-auto kept (delete only on the user's word). The Elite runs ce29246d = main code.
+- **Merged by session root-af** (root-7c's session was killed with Termux at 23:13:10).
+
+## 2026-11-09 — ✅ feat/steam-x64-auto ce29246d: user confirms Steam x64 starts with only the branch's automatic fixes; Menu button hold works
+- **User (~23:20 EST):** "guide hold button works, and client launches after bannerlator fixes for steam in a new branch" → the Steam x64 shortcut (manual `PROTON_DISABLE_LSTEAMCLIENT=1` and `displayBackend=x11` removed for this test) starts the 64-bit client with what the branch adds at launch; Menu button hold → side menu works.
+- **Proof level:** device-proven by the user (client start, Menu hold) + logs (entry below). Still not confirmed: Menu button short press → Steam guide, CS:S shown as installed / starting.
+- **Open (user decides):** merge feat/steam-x64-auto to main (CI green 42753083274, device-proven) → backup ref first.
+
+## 2026-11-09 — ✅ feat/steam-x64-auto ce29246d: auto X11 + 64-bit switch + E:\SteamLibrary work, Steam took CS:S as installed (logs); first run lost to a low-memory kill storm
+- **Logged by session root-af** (GenieX session): root-7c's session was closed by Android at 23:13:10 EST (Termux killed, `exit-info` reason LOW_MEMORY), so the user's report "ok launched steam x64 after install and counter strike source move" (~23:17) came to me. Read-only: I launched, installed and force-stopped nothing.
+- **Run 1 (Bannerlator start 23:12:22, log `Steam x64/previous/2026-11-09_23-13-10/wine_debug.log`):** header `Windows Steam: steam.exe starts on X11 (its pages do not draw on Wayland yet)`, `Windows Steam: 64-bit client: PROTON_DISABLE_LSTEAMCLIENT=1, so steamclient64.dll keeps Steam's own tier0_s64.dll`, `Windows Steam: Steam libraries added: E:\SteamLibrary`; Wine `use_lsteamclient lsteamclient disabled`. Steam content_log 23:12:55 loaded libraryfolders.vdf, 3 libraries. **Ended by lmkd 23:13:10:** 28 kills in 23:12–23:13 (`killinfo`), Termux (pid 13502, adj 50) at 23:13:10.347 and Bannerlator itself (pid 18539, adj 0, foreground) at 23:13:10.557 (`exit-info` LOW_MEMORY). Discord (~0.58 GB), claude (0.40 GB), Gboard, GMS, Play Store were open.
+- **Run 2 (app restart 23:13:10, Steam start 23:14:06, current `wine_debug.log`):** same X11 + 64-bit notes; `Steam libraries: every mapped storage already has one` (the add is one-time). content_log 23:14:18: 3 apps from `F:\Download\Steam-x64` (228980, 240, 291550), 1 from Steam-latest, 0 from `E:\SteamLibrary`. **CS:S:** `appmanifest_240.acf` StateFlags 4, build 25338318, SizeOnDisk 4889304515, file untouched since 23:02 and no `AppID 240` update/validate lines → Steam accepted it as installed without downloading. Run ended 23:16:18 `EXIT_SELF` (normal close).
+- **Proof level:** log-proven on the Elite for the auto X11 path, the 64-bit switch and the library add; CS:S "installed" per Steam's logs, NOT yet confirmed on screen by the user. NOT checked: Menu button press → Steam guide / hold → side menu (no lines in controller.txt / wine_debug.log), CS:S actually starting.
+- **Note:** Steam x64 start pushed the Elite into a kill storm with Discord etc. open — close big apps before Steam x64.
+- **Resume point:** ce29246d installed; Bannerlator open (pid 27209), no game running; branch not merged (needs the user's go). Shortcut backup `/sdcard/Download/.steam-x64-desktop-before-autotest.bak`; rollback APK `Bannerlator-main-b121585e-pubg.apk`.
+
+## 2026-11-09 — 📦 feat/steam-x64-auto ce29246d installed on the Elite (CI 42753083274 green 4/4); auto-path test next
+- **Installed 23:11:26 EST (user: "yes install it"):** pubg APK sha256 `2081f573…a5d1` — staged, device copy and installed base.apk match; crash buffer empty. Rollback APK: `Bannerlator-main-b121585e-pubg.apk` in Download.
+- **Test prep:** the Steam x64 shortcut lost its manual `PROTON_DISABLE_LSTEAMCLIENT=1` and `displayBackend=x11` (backup `/sdcard/Download/.steam-x64-desktop-before-autotest.bak`), so the new code has to supply both. Expected: X11 note in the wine_debug.log header, the 64-bit switch note, `E:\SteamLibrary` added, CS:S listed as installed, Menu button press → Steam, hold → side menu.
+- **Proof level:** CI-green, installed; NOT device-tested yet.
+- **Resume point:** nothing running; user launches Steam x64.
+
+## 2026-11-09 — 🔧 feat/steam-x64-auto ce29246d pushed (CI 42753083274) + Counter-Strike: Source moved from the app's store into Steam x64
+- **Branch `feat/steam-x64-auto` (user: "go ahead with the branch, include x11 too", "add it to the branch", Menu button choice "Steam sessions: button = Steam Guide"):** new `store/WindowsSteamClient.kt`; a shortcut whose target is `steam.exe` now gets, at launch: `PROTON_DISABLE_LSTEAMCLIENT=1` for a 64-bit client (PE header; unless the user set it or opted into lsteamclient; the app's own Steam modes still win), X11 when the shortcut has no display system of its own, one Steam library per mapped storage volume without one (the user's Bannerlator library there, else `<drive>:\SteamLibrary`, written to `steamapps/` and `config/libraryfolders.vdf`), and the Menu button as Steam's Guide on a press (existing Steam-button press on player one's pad) / side menu on a 0.5 s hold. Notes go to `wine_debug.log`. CI 42753083274 (headSha ce29246d) building. NOT device-tested.
+- **CS:S move (user, 23:02 EST):** the app's store had installed app 240 to `/storage/6136-3230/bannerlator/steam_games/Counter-Strike_ Source` (4.9 GB, build 25338318, depots 240/241/232331 = exactly Steam's public manifests). Steam closed → renamed (same SD volume) to `F:\Download\Steam-x64\steamapps\common\Counter-Strike Source` and wrote `appmanifest_240.acf` (StateFlags 4, build 25338318, the three depots). The app's store database still points at the old folder. Undo: move back, delete the acf.
+- **Resume point:** nothing running; user launches Steam x64 to check CS:S shows as installed; CI result → stage APK → ask install.
+
+## 2026-11-09 — ✅ Brawlhalla downloads, runs and goes online through 64-bit Windows Steam (device-proven); Steam service installed
+- **User 22:47–22:50 EST:** Brawlhalla (291550) downloaded through Steam x64 into the SD library (build 26465982, 1.57 GB, "Fully Installed" 22:47:25), started from Steam ("App Running" 22:49:14, DXVK D3D11) and got online.
+- **Steam Client Service:** the user pressed "Install Service" (22:35): registered in container 1 (`SteamService.exe /RunAsService`, LocalSystem, demand start) and running; Wine logged only semi-stub notes.
+- **"No internet connection" on the first install try:** Steam's server link dropped 5 s before (`I/O Operation Failed` 22:39:36, back 22:39:59). Such drops also at 22:34:53 and once on the 32-bit client (21:22) — cause not known yet (not the layer, which is unchanged). Retrying worked.
+- **Crash buffer:** one `fdsan` line at 22:26:52 (warn-only for targetSdk 28, no tombstone) — not a crash.
+- **Next:** branch `feat/steam-x64-auto` (switch + X11 + per-storage Steam libraries), in progress.
+
+## 2026-11-09 — ✅ 64-bit Windows Steam runs in Bannerlator (PROTON_DISABLE_LSTEAMCLIENT=1), device-proven sign-in + Store
+- **Run 22:26–22:27 EST (user screenshots):** "Logging in… The412Banner" then the Store; no password asked (the sign-in token in the container's Windows user folder carried over). Wine log: `lsteamclient disabled`, no crash, steamclient64 stays loaded. Client 1792618285 (64-bit, 2026-10-21), connection log "Logged On … OK" at 22:27:09, the red 32-bit banner is gone, and the second library (FlatOut) is kept.
+- **New prompt:** "Steam Service Error — the Steam Service requires some maintenance" (the Steam Client Service is not installed in the prefix). Advice to the user: Cancel for now; install it only if a game install or anti-cheat needs it.
+- **Shortcut cleanup:** the FEX preset override from the earlier tests removed (back to the container's Performance + TSO); FEX 2611 (user's pick), `PROTON_DISABLE_LSTEAMCLIENT=1` and X11 stay.
+- **Proof level:** device-proven for start, sign-in and Store on 64-bit Steam (X11). Not tested yet: FlatOut and the controller on 64-bit Steam, downloads, Big Picture.
+- **Open (user decides):** permanent fix = Bannerlator sets the switch for steam.exe shortcuts automatically, and/or the next layer applies the tier0 rewrite only when Proton's Steam bridge is opted in.
+
+## 2026-11-09 — 🎯 Steam x64 root cause: Proton's tier0 → ntdll import rewrite breaks the real steamclient64.dll (fix test: PROTON_DISABLE_LSTEAMCLIENT=1)
+- **Logging run 22:21 EST (`+seh,+loaddll`):** the first fault is in the browser process while it loads `steamclient64.dll`. Its allocator helper (steamclient64+0x8AA9F9) reads the import `tier0_s64.dll!g_pMemAllocSteam`. The import slot points at Wine's unresolved-import stub (`48 B9 …` = `movq $dll,%rcx`, loader.c `allocate_stub`) instead of the variable → access violation → Wine's loader catches it and unloads steamclient64 → SteamUI's `LoadSteamClient` fails → "There was a problem with your Steam installation". The later ntdll crashes (ntdll+0xC5188, +0xCAD74) are only fallout.
+- **Why:** the layer's `dlls/ntdll/loader.c` `import_dll()` (proton_11.11.9-DroidDeck 8e2653cb) keeps stock Proton's rule: when `use_lsteamclient()` is on (unless `PROTON_DISABLE_LSTEAMCLIENT` is set), `tier0_s64.dll` / `vstdlib_s64.dll` imported by `steamclient64.dll` or `gameoverlayrenderer64.dll` are redirected to `ntdll.dll`, which has no `g_pMemAllocSteam`. Only the 64-bit names are matched, which is why the 32-bit client works. FEX and the presets were never the cause (crash identical on 2610/2611, Performance/Compatibility).
+- **Fix test (22:25):** Steam x64 shortcut env `PROTON_DISABLE_LSTEAMCLIENT=1` (logging override removed). Proper fix later (user decides): Bannerlator sets it for steam.exe shortcuts / Raw launches unless lsteamclient is opted in, or the layer ties the tier0 rewrite to `WINE_LSTEAMCLIENT` like the steamclient redirect.
+- **Resume point:** nothing running; user launches Steam x64.
+
+## 2026-11-09 — 🔍 Steam x64: FEX 2611 + Compatibility doesn't help — the crash is identical every run; logging run next
+- **User runs 22:17–22:18 EST:** FEX-2611+26 nightly for the Steam x64 shortcut (confirmed in use: container `libarm64ecfex.dll` = that build), with Performance and then Compatibility. Same failure.
+- **Evidence:** in all three runs (2610 Performance + TSO, 2611 twice) the 64-bit steamwebhelper faults at exactly `0x5FFFF05188` and steam.exe overflows its stack in exception setup at exactly `0x5ffff0ad74`. A crash that repeats exactly like this rules out memory ordering and the FEX build; the address is outside FEX's DLL. Bannerlator b121585e itself: crash buffer empty.
+- **Step 2 (set 22:20):** the Steam x64 shortcut gets `WINEDEBUG=+warn,+err,+fixme,+seh,+loaddll` (shortcut env vars override the global setting) so one run shows every DLL's load address and the exception chain.
+- **Resume point:** nothing running; user launches Steam x64 once; undo = remove the shortcut's `envVars` line.
+
+## 2026-11-09 — 📦 main b121585e installed on the Elite; Steam x64 test 1: FEX "Compatibility" preset for that shortcut only
+- **Installed 22:11:45 EST (user: "yes install it"):** main code `b121585e` (feat/lab-parity merge; later main commits are log-only), CI 42745526415 (headSha b121585e, 4/4 jobs green), pubg APK sha256 `4bac96a1…0c7b` — staged file, device copy and installed base.apk all match; crash buffer empty at install. Peer session told and hands-off.
+- **Steam x64 plan, step 1a:** the "Steam x64" shortcut now has `fexcorePreset=COMPATIBILITY` (all FEX memory-ordering emulation on; the container stays on Performance + TSO). If it still fails: 1b = FEXCore-2611 for this shortcut, then 2 = one launch with `+seh` logging to pin the crashing function.
+- **Proof level:** install verified; app start and Steam x64 NOT tested yet.
+- **Resume point:** nothing running; user launches Steam x64; logs in `Download/bannerlator/Steam x64/` and `F:\Download\Steam-x64\logs`.
+
+## 2026-11-09 — ❌ Steam x64 downloads fine but fails at start ("problem with your Steam installation"); Steam Latest (32-bit) stays
+- **Run 21:47–21:50 EST (user):** the 64-bit starter downloaded client 1792618285 (win64 channel) and verified it, then SteamUI showed "There was a problem with your Steam installation. Please reinstall steam."
+- **Cause as far as read:** the message comes from `SteamUI.dll` when `CSteamGamesUIModule::LoadSteamClient` returns an error other than "no network" (disassembly at 0x13a606648). No missing DLL or import in the Wine log. In the same run the 64-bit `steamwebhelper.exe` crashed (page fault at 0x5FFFF05188) and steam.exe's main thread overflowed its stack while handling an exception (0x5ffff0ad74), both in the same memory region. Likely a problem running 64-bit Windows code through the arm64ec emulation (exception handling); NOT proven, module not identified. Reinstalling would not help.
+- **Proof level:** device-observed failure; cause unproven.
+- **Resume point:** nothing running; Steam Latest (32-bit) is the working client; Steam x64 folder + shortcut kept for debugging (undo: delete both).
+## 2026-11-09 — ✅ MERGED feat/lab-parity → main (user: "works, merge it to main", ~21:3x EST)
+- **Device-checked by the user** on the Pocket FIT (pubg 898774db): "works". Earlier proof: my UI drive of 91549b4f (19:55–20:04 EST, menus only) + user checks of later builds.
+- What it brings: Mods in Lab (game page + Lab/Deck in-game menus), Library sort/filter/card style/select-remove, Xbox not-installed, container line, launch-spec chips, CustomCover picks, Steam link cover/details/title, art retries, top-line Search/Community/Friends, account picture, Steam pill, Contents refresh/repos/search/Set-as-default outcome + Undo/error text/row details, Containers layer update/revert, Lab storage dialog, save backup/restore, honest import/export (shared ContainerManager result methods), busy banner, Controls rename/retry/previews/multi-select/system import, Appearance 5 % sizes + side-menu storage switches, compact pills, plurals, lists open on the current choice, 125 new strings × 32 languages.
+- Main had moved to d3f7eec0 (11 log-only commits from the Steam client session) → overlap PROGRESS_LOG only, both sides kept in full. Backup ref refs/backup/20261109/main-before-lab-parity = d3f7eec0 (on GitHub, ls-remote checked).
+- **Lesson:** in zsh `$M:refs/...` is read as the `:r` modifier on $M (mangles the refspec, "src refspec … does not match any") — write `"${M}:refs/..."`. That was the cause of tonight's earlier silent backup-push failures too.
+
+## 2026-11-09 — ✅ feat/lab-parity 898774db INSTALLED on the Pocket FIT (pubg) 21:20:59 EST (user: "yes install it"; NOT device-checked yet)
+- CI 42740697939 GREEN ×4. Staged /sdcard/Download/Bannerlator-lab-parity-898774db-pubg.apk sha256 713f2ed1… (host == device), cert a40da80a. Before: 90d8089b; no game running. `pm install -r` Success; installed == staged; crash buffer empty; peers told + "done".
+- **User checks:** account picture (portrait side menu header right end next to the Steam pill; landscape top-line right corner), tap → My account. Merge on go.
+
+## 2026-11-09 — 🔧 feat/lab-parity 898774db: account picture in the Lab side menu header + landscape top line (CI 42740697939 running)
+- User (screenshots 210404 landscape Home, 210413 portrait drawer with the new "Online" pill): show the Community configs profile picture when signed in, else the Steam profile picture — portrait at the top of the side menu next to the Steam pill, landscape in the top line's right corner.
+- LabAccountButton (LabFrame.kt): url = AccountUiBus.account.displayAvatarUrl → SteamFriendsStore.self.avatarUrl → SteamAccountStore saved avatar of the active account → AccountAvatar's sign-in figure; tap → AccountUiBus.requestMyAccount() (DeckGameActionsHost opens My account; the drawer closes first). Portrait: right end of the drawer header row; landscape: after the clock.
+- **Next:** green → stage pubg → ASK install → user check → merge on go.
+
+## 2026-11-09 — ✅ feat/lab-parity 90d8089b INSTALLED on the Pocket FIT (pubg) 21:03:02 EST (user: "yes install it"; NOT device-checked yet)
+- CI 42736480948 GREEN ×4 (headSha 90d8089b). Staged /sdcard/Download/Bannerlator-lab-parity-90d8089b-pubg.apk sha256 f80ffd05… (host == device), cert a40da80a; resources.arsc has the de strings.
+- Before: f9c6f492 (957a8783…); no game running, Termux in front. `pm install -r` Success; installed base.apk f80ffd05… == staged; crash buffer empty; peers told + "done".
+- **User checks:** Steam pill in the Lab side menu header (signed in), choice lists open on the ticked entry (Interface size → 100 %), Lab Storage dialog, "1 session", a translated language (Settings › Appearance › Language). Merge on go (backup ref refs/backup/<date>/main-before-lab-parity; check main first).
+
+## 2026-11-09 — 🌐 feat/lab-parity 90d8089b: translations for all new Lab strings (CI 42736480948 running)
+- ec5fcbed (items 1-3) CI 42734827136 GREEN ×4.
+- 125 new strings × 32 languages from 4 drafting agents (8 locales each), validated by scratchpad i18n3/check.py (every key, placeholders); filled with lab_strings.py: all 32 = 1897/1897, missing 0; 33 strings_lab.xml parse OK, no unescaped apostrophes.
+- **Tool trap (lesson):** lab_strings.py takes `pt-PT` / `zh-CN` / `zh-HK` / `zh-TW` (it adds the "r"); `pt-rPT` / `zh-rCN` map to non-existent values-pt-rrPT / values-zh-rrCN, so `missing` lists everything and `fill` would write a wrong folder. `b+es+419` works as is.
+- Translator notes kept: "Undo" = same word as Cancel in fr/it/ro; "Community configs" chosen per language (no existing term); "Save location" = component file storage (not game saves); cs/bg/ar/el/pl/ru use "label: N" count style like their existing files.
+- **Next:** green → stage pubg → ASK install → user check → merge on go.
+
+## 2026-11-09 — 🔧 feat/lab-parity ec5fcbed: remaining items 1-3 + translations in progress (CI 42734827136 running)
+- f9c6f492 INSTALLED on the Pocket FIT 20:17:15 EST (pre-approved; 957a8783… == staged; crash buffer empty; peers told + done).
+- User: "yes do 1-3 and the translations on the same branch". ec5fcbed: (1) Steam connection pill in the Lab side menu header; (2) Steam link in Lab Game details renames the game to Steam's title (rename moved above linkSteam; cover/icons move with it); (3) ContainerManager.importContainerResult / exportContainerResult (one main-thread callback with the real result; old Runnable methods delegate), ContainersViewModel busy flag always reset + "Couldn't import" message + export path only when copied; Lab "A backup named … is already in Backups"; SimpleActionSheet opens on the "  ✓" entry.
+- Translations: lab_strings.py extract → 1897 strings (125 new per locale; 4 locales slightly fewer); 4 agents drafting 8 locales each into scratchpad i18n3/draft_<locale>.json (check.py validates placeholders/coverage). Next: fill all 32 → commit → CI → stage pubg → ASK install → merge on go.
+
+## 2026-11-09 — 🔧 feat/lab-parity f9c6f492: small issues from the UI drive (CI 42733575018 running)
+- User: "fix those small issues on the same branch".
+- LabBadged → BoxWithConstraints: under 84 dp (or 120 dp with the selection mark) only the store's own pill (LabStoreBadges, no EA/EOS beside it) — Icons cards no longer wrap "EO S".
+- LabGame: "%1$s · 1 session" and "FPS · last session" for a count of 1.
+- New ui/simple/LabStorage.kt LabStorageDialog (Lab frame: container name, Drive C, Cache, Total, Clear cache, Done; Classic's getSizeAsync sizes + Clear cache steps) replaces Classic's StorageInfoDialog on Lab Containers.
+- **Next:** green → stage pubg → ASK install → user checks → merge on go. Translations for the new Lab strings still to do (lab_strings.py) before/after merge.
+
+## 2026-11-09 — 🧪 feat/lab-parity 91549b4f: UI drive on the Pocket FIT, 19:55–20:04 EST (menus only, no game launch)
+- **Seen working on the device:** Home: top-line Search, no pills on the row, big-tile chips from the launch spec (driver version, DXVK version). Drawer: Community configs + Steam friends. Library: Sort (Last played / Name A–Z / Z–A / Container), store filter (only present stores; Xbox = 7 games), card-style sheet; Covers style shows pills + container line + "Not installed · Stream" on an un-downloaded Xbox game. Game page (Prototype): Mods tile "Special K" → Mods dialog (Special K on, DLL d3d9.dll (auto), Start with the game), Container tile, About this game (2009 · Action, Adventure · Metacritic 79 + description). Contents: Search all repositories, Refresh the lists, Manage (Import or export, Save location, Restore default repositories, Add a repository); Installed shows "Default · arm64ec". Containers ⋯: Revert layer to 11.0-11.1 v16, Back up saves…, Restore a save…, Storage info (Drive C 8.05 GB, cache 273 MB, total 8.31 GB). Controls: layout previews, Pick via system…, community list = checkbox + eye + Download dialog. Appearance: Side menu storage switches, Interface size 50 % up in 5 % steps (100 % ticked). Settings controller link → Lab Controls. Y-search → Lab game page. Container-2 (X11, wrapper-original) › Wrapper settings and tools: only Downloads and tools (no empty Detected panel).
+- logcat: crash buffer empty, no FATAL/ANR for com.tencent.ig. All my test changes put back (filter All, cards Icons). Termux back in front; peers told done.
+- **Not checked (needs a game launch or changes data):** in-game Mods page, Set as default result + Undo, game page after remove/rename, select-and-remove, save backup/restore, layer revert.
+- **Small issues seen:** EPIC + EOS pills wrap ("EO S") on narrow Icons cards; playtime tile says "1 sessions"; Storage info is Classic's purple dialog.
+
+## 2026-11-09 — 🧪 feat/lab-parity 91549b4f: driving the Lab UI on the Pocket FIT (user: "drive the device to make sure all the fixes are there correctly", ~20:0x EST)
+- Resume point: Pocket FIT runs 91549b4f (fa4e605c…). I open Bannerlator (Lab) and check each new item by screen (uiautomator dump + screencap), menus only — no game launches, no remove/restore/layer update/downloads. No background jobs. If cut: bring Termux back, send peers "done".
+
+## 2026-11-09 — ✅ feat/lab-parity 91549b4f INSTALLED on the Pocket FIT (pubg) 19:54:24 EST (user: "yes install it" / "go ahead and install it"; NOT device-tested yet)
+- CI 42724334473 GREEN ×4 (headSha 91549b4f). Staged /sdcard/Download/Bannerlator-lab-parity-91549b4f-pubg.apk sha256 fa4e605c… (host == device), com.tencent.ig vc106, cert a40da80a.
+- Before: 321d7aed (3a5a3504…); Bannerlator UI was open (pid 25282, no game). Held the install to ask root-8b (busy) — it was not using BL; the user said go. `pm install -r` Success; installed base.apk fa4e605c… == staged; crash buffer empty; peers told + "done".
+- Undo: /sdcard/Download/Bannerlator-lab-badges-bugs-321d7aed-pubg.apk (== main 822ee6fb code).
+- **User tests:** see the 91549b4f entry below (Mods tile/dialog + in-game Mods page, About tile, Library sort/filter/card style/select, top-line Search/Community/Friends, Contents Refresh/search/Manage/Set as default + Undo/error text, Containers layer/storage/saves/busy, Controls rename/previews/multi-select/system import, Appearance sizes + side-menu switches, Settings › Controllers). Merge on go.
+
+## 2026-11-09 — 🔧 feat/lab-parity 91549b4f: all four areas merged + follow-ups (CI 42724334473 running; NOT installed, NOT device-tested)
+- Helper branches (each CI-green ×4, compile only): lab-parity-contents 27b10e68 (CI 42722084373), lab-parity-containers cd00e480 (42722479904), lab-parity-mods-game 45d99a88 (42722340107), lab-parity-library ee7d3ec8 (42722705722). Merged --no-ff into feat/lab-parity with no text conflicts (9c14a70b, 1f2c9aeb, 6d702b34, ad27f8a4); 3-way compile check CI 42723784588.
+- Follow-ups 91549b4f: top-line Search runs the shell search (no fake Y key); Home GPU drivers tile → Contents Installed; SteamStoreSearch.findAppIdByName stops caching a failed request as a week-long "none" (searchOrNull).
+- What's in it: Mods (Lab game page tile + LabModsDialog; Mods page in Lab/Deck in-game menus), game page follows the library, About this game tile, Wine-only Container/Mods tiles; Library sort/filter/card style + select/remove, Xbox not-installed, container line, launch-spec chips, CustomCover picks, Steam link cover/details, art retries, Search/Community/Friends in the top line/drawer, Stores refresh, Linux runtime status; Contents refresh/repo management/search/Set-as-default outcome+Undo/error text/row details/GPU drivers tab, old pages removed; Containers layer update/revert, storage info, save backup/restore, honest toasts, export refresh, busy banner; Controls rename/retry/previews/multi-select/system import; Appearance 50–150 % 5 % steps + side-menu storage switches; Settings › Controllers → Lab; no empty "Detected in this wrapper".
+- Known, not changed: ContainerManager.importContainer never calls back on failure (busy stays on); export says "Exported" when the target existed; SimpleMenuPage action lists start on the first entry; Lab Steam link doesn't rename to Steam's title.
+- **Next:** green → stage pubg → ASK install → user test (long list) → fixes → merge on go.
+
+## 2026-11-09 — 🚧 feat/lab-parity started: Mods in Lab + the rest of the Lab-vs-Classic gaps (off main 45d3f56c; NOT built yet)
+- **User (~18:5x EST):** "yes add mods to lab on a new branch, any everything else missing please you listed" (list = memory bannerlator-lab-gaps, audit 11-09).
+- **Plan:** integration branch feat/lab-parity. Four helper agents, each in its own worktree + sub-branch off 45d3f56c, disjoint files, each CI-compiles its part:
+  - feat/lab-parity-mods-game — Mods (Lab game settings/page + Lab and Deck in-game menus), game page live game after remove/rename, details text, container tile only for Wine games (LabGame/LabGameMenu/DeckInGame/ShortcutsScreen visibility).
+  - feat/lab-parity-library — Library sort/filter/view + multi-select, Xbox not-installed label, setup chips, cover picks via CustomCover + Steam link cover/details, art retry fixes, top-line search/friends/community entries, Stores refresh, Linux runtime tile status (LabPages/LabArt/LabGameDetails/LabPreview/LabFrame/LabHome).
+  - feat/lab-parity-contents — Contents refresh, repository management, cross-repo search, Set-as-default outcome + Undo, failure reasons, row details, Tools GPU drivers tab, dead driver pages (LabContents + SimplePages Contents parts).
+  - feat/lab-parity-containers — Containers layer update/revert, storage info/clear cache, save restore/per-game backup, honest toasts, export refresh, busy state; Controls rename/retry/preview/example/multi-select/system import; Appearance storage toggles + size steps; Settings › Controllers alias; "Detected in this wrapper" empty panel (SimplePages non-Contents parts, DeckSettingsScreens, SimpleClassicEditor).
+- Then I merge the four into feat/lab-parity → CI → stage pubg → ASK install → user test → merge on go. Strings: English L(...) only; translation pass later.
+
+## 2026-11-09 — 🧪 Steam x64 (64-bit Windows client) set up next to Steam Latest (user test pending, NOT device-tested)
+- **User:** "switch us, make the shortcut, can you copy my login credentials also".
+- **Why it works without a Wine fix:** Valve's 64-bit starter (`steam_win64.zip`, steam.exe x86-64, 2026-10-21) always picks the win64 channel; only the 32-bit starter asks `GetMachineTypeAttributes`. That function is in no Proton tree we checked (Valve proton_11.0, bleeding-edge 11-07, experimental_11.0, proton_10.0; our DroidDeck 11.9, banner-proton/11.12, GE 11.9, CachyOS); upstream has it since wine-11.7.
+- **Done (21:46 EST):** `F:\Download\Steam-x64` with the x64 starter (zip sha256 = Valve's manifest), the account list and settings (`config/loginusers.vdf`, `config.vdf`, `userdata/<account>`), and a second library entry pointing at `F:\Download\Steam-latest` so FlatOut is reused. The sign-in token itself is in the container's Windows user folder (`AppData\Local\Steam\local.vdf`), shared by both installs; nothing secret was read or copied. New shortcut "Steam x64" cloned from Steam Latest (X11, same launch options and controller settings), owner/label set like the original. Steam Latest untouched as fallback.
+- **Next:** user starts Steam x64: first run downloads the 64-bit client; check sign-in, the banner, FlatOut in the library.
+- **Resume point / undo:** nothing running; undo = delete the "Steam x64" shortcut in Bannerlator and the `Steam-x64` folder.
+
+## 2026-11-09 — 🎮 FlatOut: pad works in menus, not in the race (driving still set to keyboard in the game); Steam 32-bit banner cause found
+- **Run 21:27–21:31 EST (user video, 264 s):** with Steam Input off for FlatOut the game sees Bannerlator's real pad (new button map `am…56781234.dat`, VID 1234 PID 5678; Steam log has no activation for 6220). Menus take the pad; in the race the car moves only with the touch-overlay arrow keys (3:36–3:44 in the video). FlatOut's options.cfg still has `Settings.Control.Controller = 0` with an empty controller GUID, so driving is most likely still on the keyboard. Next: FlatOut Options › Controls › Controller → the pad.
+- **"Steam no longer supports running on 32-bit Windows" (cause found, code read):** the starter steam.exe (function at 0x581d60) asks `IsWow64Process2`; when the native CPU is not x64 it asks `GetMachineTypeAttributes(AMD64)`, and if that function is missing on an ARM64 CPU it decides "not 64-bit" → frozen `steam_client_win32` (1769731672, 2026-01-29; win64 is at 1792618285, 2026-10-21). Our layer (`proton_11.11.9-DroidDeck` 8e2653cb) does not export `GetMachineTypeAttributes`; upstream added it 2026-04-06 (`3d17611f2a`). Fix = port it into the next layer (adapted to the layer's older system-info class); 64-bit Steam under emulation NOT tested.
+- **Proof level:** logs, video and disassembly only; nothing changed.
+- **Resume point:** Steam Latest (X11) running, FlatOut closed; Steam Input already off for FlatOut.
+
+## 2026-11-09 — 🎮 Steam Latest (X11): FlatOut downloads and runs; controller dead because Steam Input takes the pad (test pending)
+- **Run 21:09–21:19 EST (user):** signed in; FlatOut 6220 downloaded and installed on the new client (appmanifest StateFlags 4, build 20963611, 1.33 GB), so the old client's zstd download failure is solved. FlatOut.exe runs, the controller does nothing.
+- **Evidence:** Bannerlator's side works: BANNERIN XInput is loaded into steam.exe and FlatOut.exe, pad = VID 1234 PID 5678. Steam `logs/controller.txt`: "Steam Controller reserving XInput slot 0", activation for app 6220 with the Xbox gamepad template → Steam Input is on (account setting `SteamController_XBoxSupport "1"` in localconfig.vdf). The game sees Steam's virtual pad (Savegame `am…28de11ff…dat`, VID 28DE PID 11FF) and its control setting is still 0. This FlatOut (Zoom re-release) reads pads through SDL3 (fo_zoom.dll). Whether Steam's virtual pad can work under Wine at all: not verified.
+- **Next (user):** FlatOut › Properties › Controller › Disable Steam Input, restart FlatOut, pick the pad in Options › Controls if needed. Possible BL default later (user decides): Steam Input off for games run through the Windows Steam client.
+- **Proof level:** diagnosis from logs only; fix NOT device-tested.
+- **Resume point:** Steam Latest (X11) + FlatOut running; after the relaunch read controller.txt, Savegame/options.cfg and wine_debug.log. Peer session hands-off until "done".
+
+## 2026-11-09 — 📝 Steam on Wayland: what needs fixing in Wine and in Bannerlator (answer to the user, nothing built) + correction
+- **Correction:** the two entries below name the wrong proton-wine branch. The 11.0-11.9 layer (v16) was built from `proton_11.11.9-DroidDeck` @ `8e2653cb` (release build-bionic-layers-20261030-v16 notes; compare = identical), not `banner-proton/11.9` (a different winewayland, 41 ahead / 206 behind). Same mechanism on the right branch: `window.c:115-135` per-process `win_data_rb`; `window_surface.c:523` "use default surface"; `window.c:1080+` `set_client_surface` returns for another process's HWND; `wayland_surface.c:1140-1175` attach = `wl_subsurface` of the toplevel's own `wl_surface`. Upstream Wine master (wine-mirror 2af4506c, 11-09) has no cross-process support in winewayland either → nothing to port.
+- **Wine (layer) needs:** (1) cross-process drawing in winewayland, owner + foreign sides, Vulkan/GL client surfaces and GDI window surfaces (plan: memory bannerlator-wayland-cross-process); (2) `pin_icd_library` (`waylanddrv_main.c:107-132`) copies `library_path` raw, so `\/` breaks the dlopen → unescape it.
+- **Bannerlator needs:** (1) compositor side of the private protocol (new global, place a foreign surface inside a window by HWND, follow move/resize/z-order/unmap, frame callbacks, advertise only when supported); (2) until then: steam.exe shortcuts start on X11 (today only the per-game "Display system" row, XServerDisplayActivity.java:2921-2928; no per-exe default exists) — user's decision; (3) `WaylandAdapter.writeIcd` keeps `\/` on purpose on Adreno (WaylandAdapter.java:123-139, pin skipped since the adapter was proven unpinned) → write plain `/` on every GPU only after an Adreno A/B test; (4) minor, not investigated: a Wine IE + Gecko installer popped up when Steam opened a link (BL has no handler for Wine's winebrowser).
+- **Proof level:** code read only; nothing built or tested. Sign-in + FlatOut download on Steam Latest (X11) still pending.
+- **Resume point:** no Steam running (last run 18:54 EST); peer session hands-off until "done".
+
+## 2026-11-09 — ✅ Steam Latest shows its sign-in page on X11: Wayland cross-process limit proven as the cause
+- **Run 18:54 EST (user):** Steam Latest with the per-game Display system = X11, same Launch options → full sign-in page (account name/password + QR code; user screenshot 18:54:38).
+- **Same process layout as the black Wayland run:** webhelper.txt shows 1 gpu-process, 1 renderer, 4 utility processes. So the only difference is the display path: Wine's X11 driver lets one process draw into another's window, our winewayland does not (plan: bannerlator-wayland-cross-process, parked).
+- **Proof level:** device-proven for the sign-in page; sign-in and the FlatOut download on the new client not tested yet.
+- **Resume point:** Steam Latest running on X11 at the sign-in page; peer session hands-off until "done".
+
+## 2026-11-09 — 📝 Wayland cross-process drawing: fix plan saved (PARKED); Steam Latest X11 test running
+- **Why:** the 2026 Steam client draws from separate Chromium processes; our winewayland only knows its own process's windows (proton-wine banner-proton/11.9: `window.c:141-157` per-process table, `window_surface.c:1390` default surface, `wayland_surface.c:4873` no attach), so the window stays empty on Wayland.
+- **Plan saved (user: "save 3 to memory"):** private protocol in BL's compositor + winewayland patch — window owners register HWND↔surface; another process's drawing gets its own surface placed inside that window by the compositor (GPU and software paths), with fallback when unsupported. New layer (v17) + BL build; several days; not started. Memory: bannerlator-wayland-cross-process.
+- **Now (~19:00 EST):** user launches Steam Latest with Display system = X11 (per-shortcut), same Launch options.
+- **Resume point:** results in the newest screenshot, `Download/bannerlator/Steam Latest/` and the Steam-latest logs folder; peer session hands-off until "done".
+
+## 2026-11-09 — 🔍 Steam Latest (2026 client) updates fine but shows a black sign-in window on Wayland; X11 test next
+- **Run 18:40–18:45 EST (user):** the starter updated itself to client 1769731672 (2026-01-30; last build on the 32-bit channel); its steamclient DLLs now contain the zstd chunk marker `VSZa`, so game downloads should work. The updater window drew normally.
+- **Problem:** the sign-in window is black. This client ignores `-cef-single-process` / `-cef-in-process-gpu` (webhelper.txt starts separate gpu-process, renderer and utility processes) → 7 window redraws, then ~1 per 10 s. The logon "Try another CM" lines are only the idle anonymous connection being dropped.
+- **Refined cause (not proven):** Chromium's compositor process draws into a window owned by the browser process; with Wine's Wayland driver a process can only fill its own windows, so nothing shows. Wine's X11 driver draws through the X server, where this works (fits Bruno's X11-only Winlator running current Steam).
+- **Next:** user sets Steam Latest › Display system = X11 (per-game setting) and launches again.
+- **Resume point:** no Steam running; memory: bannerlator-steam-client-white.
+
+## 2026-11-09 — 🧪 Latest Windows Steam client set up next to the old one (user test pending, NOT device-tested)
+- **User:** "can you get me latest client to try instead?"
+- **Done (18:40 EST):** Valve's SteamSetup.exe from cdn.akamai.steamstatic.com (sha256 7d365453…, signed "Valve Corp."; full signature hash check not done), unpacked with 7z → bootstrapper Steam.exe + bin/SteamService.exe + public/ in `F:\Download\Steam-latest` (SD). No steam.cfg, so it updates itself to the current client on first run.
+- **Shortcut:** new "Steam Latest" in container 1 (owner u0_a193, mode 600, app_data_file label; cover = copy of Steam.png), Launch options = the same 1.bat list. The old Steam folder and its shortcut are untouched.
+- **Next:** user exits the old Steam session, starts Steam Latest: first run downloads the client, then sign-in. Watch for the white window again (newer CEF may not take `-cef-single-process`), then retry the FlatOut download.
+- **Resume point / undo:** delete the "Steam Latest" shortcut in Bannerlator and the `Steam-latest` folder on the SD card. Memory: bannerlator-steam-client-white.
+
+## 2026-11-09 — 🔍 Steam client (2024 copy) game download fails: client too old for zstd chunks (investigation)
+- **User (18:32 EST screenshot):** FlatOut download stops at 1.1 GB with "CONTENT SERVERS UNREACHABLE".
+- **Steam content_log:** 1170 of 1186 MB downloaded fine, then the SAME 26 chunks fail `Unpack failed` on all 6 servers (2 Valve caches, Akamai, Fastly, Alibaba, Google) → all marked bad → "No Download Source" → shown as "servers unreachable".
+- **Cause (strong evidence; the encrypted chunk bytes were not inspected):** the copied Nov 2024 steamclient(64).dll knows `VZa` (LZMA) but has no `VSZa` (zstd) marker; SteamKit added zstd depot chunks on 2025-05-09; FlatOut's public build 20963611 is from 2025-12-01. That Steam folder blocks its own updates (`steam.cfg`: `BootStrapperInhibitAll=Enable`).
+- **BL's own engine handles it:** `bl-steam-client/rust/src/depot_chunk.rs:43` (VSZa via ruzstd).
+- **Options given to the user:** (A) back up the Steam folder, turn off steam.cfg, let Steam update (the white-window options may need re-testing on the new client); (B) download the game through Bannerlator's Steam store. Nothing changed on the device.
+
+## 2026-11-09 — ✅ Steam client white window SOLVED with launch options (user-found; Elite, Wayland)
+- **Fix (user, run 18:27:47 EST):** shortcut Launch options = the Steam folder's 1.bat set: `-nocrashmonitor -noshaders -no-shared-textures -cef-single-process -cef-in-process-gpu -cef-disable-sandbox -disable-winh264 -no-cef-sandbox -vrdisable -cef-disable-breakpad -cef-disable-gpu`. Logged in; Store and Friends List draw (user screenshots 18:29:08 / 18:29:13). The 2024 client (1731433018) is still accepted.
+- **Evidence:** Wayland log shows ONE steamwebhelper (pid 17784) instead of three, and 735 window redraws in the first 10 s (30–50 fps of shared-memory frames) vs 5–17 per minute in the white runs.
+- **Cause (as far as proven):** in Chromium's normal multi-process layout the page is drawn in a separate renderer process and handed to the browser process; under Wine here that hand-off never fills the window. Single-process mode draws in the window's own process. The single required flag is NOT isolated (candidates `-cef-single-process`, `-no-cef-sandbox` / `-cef-disable-sandbox`).
+- **Open (user decides):** auto-add these options for steam.exe shortcuts; fix the icd.json pin-path bug; optional flag bisect.
+- **Cleanup:** the `.cef-enable-remote-debugging` file I created at 18:29 is removed (verified); the shortcut keeps the user's options. Steam left running in BL.
+
+## 2026-11-09 — 🔍 Steam client white window: `-cef-disable-gpu` run is still white (Elite, Wayland; investigation)
+- **Run (user launched 18:25–18:26 EST, Launch options `-cef-disable-gpu`):** still a white 705x440 box (user screenshot 18:26:48). The flag took effect (webhelper_gpu.txt: gpu_compositing / rasterization `disabled_software`, ANGLE_SWIFTSHADER).
+- **Wayland log:** 0 GPU frames (expected in software mode); window redraws 5 when the window opened + 17 at 18:26:30 (a 129x131 popup) — software frames reached the window and were still blank. webhelper: "Browser requested transparent background, but it is not supported". No page errors in Steam's logs.
+- **So:** the first guess (only the GPU path is broken) does not explain it. Open question: is the sign-in page itself blank (page/JS/2024 client), or does its content never reach the screen?
+- **Next:** empty `.cef-enable-remote-debugging` in the Steam folder → Steam's DevTools on 127.0.0.1:8080 → page screenshot + console from the proot while the white box is up; then maybe the X11 container.
+- **Resume point:** Steam not running; shortcut has Launch options `-cef-disable-gpu` (user set it); undo for the debug file: `rm /storage/6136-3230/Download/Steam.Ajay/Steam/.cef-enable-remote-debugging` (as root). Memory: bannerlator-steam-client-white.
+
+
+## 2026-11-09 — 🔍 Windows Steam client in a Proton container = white login window (Elite, Wayland; investigation, nothing changed)
+- **Why (user, ~18:15 EST):** Steam client in a Proton container shows only a white screen; asked to launch it together and find the cause, and to check Bruno's Winlator for ideas.
+- **Setup (verified):** container 1 "P11 Arm", Proton-11.0-11.9-arm64ec-16, Wayland display, Banners-AIO r3, DXVK 2.4.1 gplasync; shortcut Steam.desktop → `F:\Download\Steam.Ajay\Steam\steam.exe` (2024 client 1731433018, CEF Chrome/126, self-update suppressed), no Launch options. Installed APK base.apk 8058b273… .
+- **Evidence (07:51 EST run):** no crash; CEF GPU process on ANGLE→D3D11→DXVK, "Sign in to Steam" 705x440 opened + shown 07:51:32, a 705x440 wayland swapchain was created — but the Wayland log never has the `is presenting GPU frames through Wayland` line and counts **0 GPU frames from games** for the whole run (a working game has the line and ~19 fps of GPU frames). CEF's frames never reach the compositor; the window shows Wine's blank background.
+- **Hypothesis (not proven):** Chromium's GPU process draws into a child window of the browser process's window (cross-process); winewayland cannot attach another process's Vulkan surface there.
+- **Side bug (verified, not fixed):** `files/wayland_adapter/<id>/icd.json` writes `library_path` with JSON-escaped `\/`; winewayland's pin step uses the raw text → "could not pin …/\/data\/…: dlopen failed" on every Vulkan client (log noise; the loader still loads the ICD).
+- **Bruno's Winlator (brunodev85/winlator, winlator-app 2c33741):** no CEF flags in source; 11.1 "Fixed Steam client startup" has no named commit (rootfs/wine binaries, dll-override cleanup 222ff64, services change 3839846: winebus/winehid no longer disabled); "Steam (Legacy)" installer = closed winaddons.exe; X server XComposite/child-surface fixes (X11 only).
+- **Next (awaits user go):** Launch options `-cef-disable-gpu` → user taps Steam, watch window redraws; then `-cef-in-process-gpu` alone; optional X11 container run.
+- **Resume point:** nothing launched by me; shortcut unchanged; no background jobs. Memory: bannerlator-steam-client-white.
+
+## 2026-11-09 — ✅ MERGED fix/lab-badges-bugs → main 822ee6fb (user: "works, merge it to main", ~18:2x EST)
+- **Device-checked** by the user on the Pocket FIT (pubg 321d7aed): "works". Earlier proof: A on installed → actions menu (screenshot 165243); Home row pills removed on request.
+- Main had not moved since the branch base (cf471826) → no conflicts. Backup ref refs/backup/20261109/main-before-lab-badges-bugs = cf471826 (on GitHub, ls-remote checked). --no-ff merge 822ee6fb (parents cf471826 + 1b90d658), merged tree == branch tree; app code == tested 321d7aed.
+- Push note: the first pushes (backup ref + main) failed without a reason shown (flaky network); retried without -q: both OK. GitHub printed "3 of 3 required status checks are expected" (push accepted, as before).
+- Main push build: CI Build (artifacts only) 42718347021 (headSha 822ee6fb) running. No release / tag. Branch fix/lab-badges-bugs kept.
+- Still open from the Lab audit (memory bannerlator-lab-gaps): the "missing" list (Library sort/filter, multi-select, container layer/storage/restore, repo management + refresh, Controls extras, etc.) and smaller bugs (game page after remove, toasts, Controls rename/retry, cover picker).
+
+## 2026-11-09 — ✅ lab-badges-bugs 321d7aed INSTALLED on the Pocket FIT (pubg) 18:07:21 EST (pre-approved: "install it when it's done"; NOT device-tested yet)
+- Download resumed at home (18:06, 14 MB/s) from the kept partial; artifact zip 591,684,773 B OK. APK sha256 3a5a3504… staged /sdcard/Download/Bannerlator-lab-badges-bugs-321d7aed-pubg.apk (host == device), com.tencent.ig vc106, cert a40da80a.
+- Before: 1b4b1951 (8262ebfd…), no game running. `pm install -r` Success; installed base.apk 3a5a3504… == staged; crash buffer empty; peers root-66 / root-12 / root-8b told before + "done" after.
+- **User checks:** Home Library row without pills, Library page with pills, plus the earlier list (Contents after a download, Downloads tile, Y search, art after restart). Merge on the user's go.
+
+## 2026-11-09 — ⏸ lab-badges-bugs 321d7aed: CI 42707058358 GREEN ×4, download paused (user leaving Wi-Fi, 17:2x EST)
+- User pre-approved the install ("install it when it's done"), then: "stop then we will download it when I get home from work". Partial artifact zip kept at /root/work/bl-dl/lab-badges-bugs-321d7aed-pubg.zip.part (262.6 of ~591.7 MB; artifact 13714850979, expires 2026-11-16) for a curl -C - resume.
+- **Resume point:** Pocket FIT runs 1b4b1951 (8262ebfd…), no background jobs. When home: resume download → verify → stage /sdcard/Download/Bannerlator-lab-badges-bugs-321d7aed-pubg.apk → install (pre-approved) → hash + crash check → user checks the Home row → merge on go.
+
+## 2026-11-09 — 🔧 lab-badges-bugs 321d7aed: no store pills on the Home Library row (CI 42707058358 running)
+- **User check of 1b4b1951 (screenshots 165140 portrait Home, 165243 StevenMXZ source page, 16:51–16:52 EST):** pills on the Home row's small covers too big (EOS wraps vertically) → "remove them since it will show in the top larger tile" (big tile meta says the store, e.g. "Added by me"). A on installed v891.14 opened "Download and replace / Save the file only" = bug 3 fix DEVICE-PROVEN.
+- **321d7aed:** LabHome RecentTile back to plain cards (no LabBadged); Library page keeps the pills.
+- **Next:** green → stage pubg → ASK install → user checks → merge on go.
+
+## 2026-11-09 — ✅ lab-badges-bugs 1b4b1951 INSTALLED on the Pocket FIT (pubg) 16:47:28 EST (user: "yes install it"; NOT device-tested yet)
+- CI 42697428457 GREEN ×4 (headSha 1b4b1951). Staged /sdcard/Download/Bannerlator-lab-badges-bugs-1b4b1951-pubg.apk sha256 8262ebfd… (host == device), com.tencent.ig vc106, cert a40da80a.
+- Before: main 44d1ac3f (b1460b17…), no game running, Termux in front. `pm install -r` Success; installed base.apk 8262ebfd… == staged; crash buffer empty; peers root-66 / root-12 told before + "done" after. Undo: /sdcard/Download/Bannerlator-main-44d1ac3f-pubg.apk.
+- **User checks:** store badges on Library + Home cards (all card styles), Contents › Installed after a download finishes, A on an installed component (menu, no re-download), Home Downloads tile → Lab Contents, Y search → Lab game page, own-background game keeps logo/wide/preview after an app restart. Merge on the user's go.
+
+## 2026-11-09 — 🔧 fix/lab-badges-bugs 1b4b1951: Lab store badges + 6 bug fixes (CI 42697428457 running; NOT installed, NOT device-tested)
+- **Why:** user (~15:30 EST) noticed no store badges on Lab cards and asked what else Lab misses vs Classic; audit (code reading, 2 Explore agents + my checks) → memory bannerlator-lab-gaps. User: "yes fix the badges and bugs 1-6 on a new branch".
+- **Built 1b4b1951** (off main cf471826, worktree /root/src/Bannerlator-wt/lab-badges-bugs, sparse ui/simple + ui/deck + log), 5 files +47 −17:
+  1. Badges: LabBadged (LabArt.kt) draws XmbStoreBadges top left on Library (LabGridCard) and Home row cards, all 3 card styles; LabIconCard(badges = true).
+  2. LabHome: `LaunchedEffect(shortcuts) { launcher.resumePendingRelaunch(shortcuts) }` (SteamLite/Goldberg retry, Ubisoft set-up-then-launch).
+  3. LabContents: re-read lists when a ContentDownloadRegistry entry reaches DONE.
+  4. SimpleComponentSourcePage: onA = null when installed → A opens the actions sheet (Download and replace / Save the file only).
+  5. DeckShell SIMPLE_ALIASES: Screen.Contents + DeckRoutes.COMPONENTS → SimpleRoutes.DRIVERS (Lab Contents); Home Downloads tile → DRIVERS.
+  6. DeckShell DeckNav.open (Lab): deck_game?path= → lab_game?path= (Y search, Deck pages).
+  7. LabArt.resolve: own background → still look up the Steam app (findAppIdByName, cached on device), skip only the SteamGridDB background.
+- **Next / resume:** green → stage pubg → ASK install (not pre-approved) → user checks badges, Contents after a download, A on installed, Downloads tile, Y search → merge on go.
+
+## 2026-11-09 — ✅ main 44d1ac3f pubg INSTALLED on the Pocket FIT 15:21:19 EST (user: "install main pubg on the pocket fit")
+- `pm install -r` (via /data/local/tmp, removed) Success; installed base.apk sha256 b1460b17… == staged; crash buffer empty; peers root-66 / root-12 told before + "done" after. Not device-tested beyond the install.
+
+## 2026-11-09 — 📦 main 44d1ac3f pubg installing on the Pocket FIT (user: "install main pubg on the pocket fit", 15:2x EST)
+- Main build CI 42685308138 GREEN ×4 (headSha 44d1ac3f). Artifact Bannerlator-main-pubg, APK sha256 b1460b17… staged /sdcard/Download/Bannerlator-main-44d1ac3f-pubg.apk (host == device), com.tencent.ig vc106, cert a40da80a.
+- Before: Pocket FIT had lab-driver-list b1511471 (1b9d8143…); no game running. Undo: /sdcard/Download/Bannerlator-lab-driver-list-b1511471-pubg.apk.
+
+## 2026-11-09 — ✅ MERGED fix/lab-driver-list → main 44d1ac3f (user: "works, merge it to main, make sure it does not conflict with the new work already merged", ~14:4x EST)
+- **Device-proven** (user: "works") on the Pocket FIT, pubg b1511471: Container-2 (X11) Driver version lists the installed drivers.
+- Main had moved to 332ac9d6 (fix/driver-install-status merge 979ce857 from the other session: AdrenotoolsManager / DriverInstaller / Contents + strings_lab). Overlap with this branch: PROGRESS_LOG.md only (both added entries at the top) → kept both sides in full (merged log vs main's = +19 lines, 0 removed). No code file touched by both; main's enumarateInstalledDrivers change (null-safe, skips ".tmp-…" / "tmp") is compatible with GraphicsLists.reloadDrivers.
+- Backup ref refs/backup/20261109/main-before-lab-driver-list = 332ac9d6 (on GitHub, ls-remote checked). --no-ff merge 44d1ac3f (parents 332ac9d6 + c44c5afb). Merge vs main = GraphicsSettings.kt + SimpleClassicEditor.kt + log only; both files byte-identical to tested b1511471. App code vs tested build differs only by the driver-install-status work already on main.
+- Main push build: CI Build (artifacts only) 42685308138 (headSha 44d1ac3f) running. No release / tag. Branch fix/lab-driver-list kept.
+
+## 2026-11-09 — ✅ lab-driver-list b1511471 INSTALLED on the Pocket FIT (pubg) 14:31:32 EST (user: "install pubg on the pocket fit when green"; NOT device-tested yet)
+- `pm install -r` (copy via /data/local/tmp, removed) Success; installed base.apk sha256 1b9d8143… == staged; crash buffer empty after install; peers root-66 / root-12 / root-d7 told before + "done" after.
+- **User checks:** Container-2 (X11) › General › Driver settings › Driver version (expect all 10 installed drivers), DX wrapper settings › DXVK / VKD3D version lists. Undo: /sdcard/Download/Bannerlator-pubg-before-lab-driver-list-2bf91782.apk.
+- **Next:** merge to main on the user's go (backup ref refs/backup/20261109/main-before-lab-driver-list, --no-ff, merged tree == b1511471 code).
+
+## 2026-11-09 — 🔧 lab-driver-list b1511471: CI 42676522476 GREEN ×4, staged, installing pubg on the Pocket FIT (14:3x EST)
+- Artifact Bannerlator-lab-driver-list-b1511471-pubg (zip 591,665,039 B; `gh run download` refused it with "would result in path traversal" → API zip + curl resume over a dropping Wi-Fi). APK 597,168,575 B, sha256 1b9d8143… staged /sdcard/Download/Bannerlator-lab-driver-list-b1511471-pubg.apk (host == device); com.tencent.ig, versionCode 106 / 3.1.9-pre2 (dev build keeps release numbers), cert a40da80a….
+- Skipped CI steps = cache hits + main-only cache saves (normal for a branch build).
+- Before install: installed base.apk 2bf91782… (not the same file as Download/Bannerlator-3.1.9-pre2-pubg.apk 22c8ebb2…) backed up to /sdcard/Download/Bannerlator-pubg-before-lab-driver-list-2bf91782.apk. No Wine/Box64/FEX processes; Discord in front.
+- **Also checked (user: DXVK reports + Box64 / WOWBox64 / FEXCore / VKD3D):** DXVK, VKD3D, VEGAS, D7VK version rows read env.graphics (same lists) → covered by b1511471. Box64/WOWBox64 (vm.box64VersionEntries), FEXCore (vm.fexCoreVersionEntries), Box64EC are filled by ContainerDetailViewModel.init (syncContents, applyArch, loadFEXCoreVersions) on both the game and container routes → not affected by this bug (code read).
+
+## 2026-11-09 — 🔧 fix/lab-driver-list b1511471: Lab X11 "Driver version" lists only the stored driver (CI 42676522476 running; NOT installed, NOT device-tested)
+- **Why:** Telegram report (Nn, device V2352A: Lab container › Driver settings › Driver version = only "System"; Classic dialog lists System, v819, turnip-sdk36 + 3 imported). Reproduced by the user on the Pocket FIT 13:37 EST (3.1.9-pre2 pubg, Container-2 = X11 wrapper-original): picker shows only "Banners-AIO (all SoC) v27.0.0-20261105-r3" while files/contents/adrenotools holds 10 drivers. Wayland container (DD P11-11.9 Arm) not affected: its Graphics Driver row uses env.compositorChoices (SettingsModel.loadAsync).
+- **Cause:** the list = GraphicsLists.drivers + driversOther, filled only by GraphicsLists.load(), started by the invisible "graphics-probes" PageExtra (GraphicsSettings topItems → GraphicsProbes). Deck draws it at the top of its Graphics page; Lab's SimpleClassicEditor.resolve() filed it under "Wrapper settings and tools › Downloads and tools" (CExtra keys = all), composed only when that panel is opened. Until then versions() shows only the stored value. Same lists feed the DXVK / VKD3D / VEGAS / D7VK version rows.
+- **Fix b1511471** (branch off main 6bec6bc6, worktree /root/src/Bannerlator-wt/lab-driver-list, sparse): GRAPHICS_PROBES const; SimpleClassicEditor composes that extra while the editor is open; resolve() leaves it out of the panels. 2 files, +10 −2.
+- **CI:** build-artifacts 42676522476 (headSha b1511471). **User pre-approved:** "install pubg on the pocket fit when green".
+- **Next / resume:** green → download pubg artifact → stage /sdcard/Download/Bannerlator-lab-driver-list-b1511471-pubg.apk (sha256 host == device) → check no game running + peers → rootsh pm install -r → installed base.apk hash == staged, logcat -b crash → user opens Container-2 › General › Driver settings › Driver version (expect all 10 drivers) + DX wrapper version lists. Merge on the user's go (backup ref refs/backup/<date>/main-before-lab-driver-list).
+
+## 2026-11-09 — ✅ MERGED fix/driver-install-status → main 979ce857 (user: "merge it to main", ~14:1x EST)
+- Backup ref refs/backup/20261109/main-before-driver-install-status = 6bec6bc6 (pushed, ls-remote checked). Main had not moved (6bec6bc6 ancestor of the branch). --no-ff merge 979ce857 (parents 6bec6bc6 + ef687c73), tree == branch tip; diff vs the tested build 1fe0ddd6 = PROGRESS_LOG.md only. No workflow running before the push.
+- First push attempt failed harmlessly (zsh `$VAR:r…` modifier ate the refspec; nothing pushed); redone with `${VAR}`.
+- Proof level at merge: CI green (42675781398) + device-tested on the Elite (pubg 1fe0ddd6: same-name refusal message, record on refusal, Installed mark from the record). NOT device-tested: Download and replace / Replace, "-Linux" / "-Wayland" downloads, two installs at once, refusal reasons, Classic Contents UI. Branch fix/driver-install-status kept.
+
+## 2026-11-09 — 🧪 driver-install-status 1fe0ddd6: first device check (Lab › Contents › StevenMXZ, 14:06 EST)
+- User screenshot 14:06:22: v891.14 and v891.11 rows read Installed ✓, toast "891.11 is already installed"; v39 Gen8 V39 / R2-Oneui (installed before, not re-tapped) still show download, as expected (no record yet).
+- logcat 14:06:21.955 `DriverInstaller: install v891.11_891.11.zip: not installed (891.11 is already installed)`; shared_prefs/driver_install_records.xml holds both StevenMXZ URLs → ANDROID|891.11 / ANDROID|891.14; adrenotools folder unchanged (9 drivers, no ".tmp-" leftovers); crash buffer empty.
+- **Device-proven so far:** same-name refusal message, record on refusal, Installed mark from the record. **Not yet:** Download and replace, a "-Linux" / "-Wayland" download, Banners-Turnip plain "-r2" unmarked, two downloads at once, a refused zip's reason, Classic Contents UI.
+
+## 2026-11-09 — ✅ driver-install-status 1fe0ddd6 INSTALLED on the Elite main app (pubg) 13:50:01 EST (user: "install it when it's done, pubg"; NOT device-tested yet)
+- CI 42675781398 GREEN ×4 (headSha 64ca5162 = 1fe0ddd6 code + log; antutu built this time). Artifact Bannerlator-driver-status-1fe0ddd6-pubg 597,193,400 bytes; com.tencent.ig; DriverInstaller in classes4.dex; "Download and replace" in resources.arsc. Staged /sdcard/Download/Bannerlator-driver-status-1fe0ddd6.apk, sha256 8058b273… (host == device).
+- `pm install -r` done: installed base.apk sha256 8058b273… == staged; lastUpdateTime 2026-11-09 13:50:01; versionName 3.1.9-pre2 (dev build). Crash buffer empty after install. Before: 1b272bc5… (= ca31a4d9), no Wine processes, Termux in front.
+- **Mistake:** peer session root-ae (idle) was told only AFTER the install (ListAgents ran alongside the install, not before). Message sent at 13:50 EST. Next time: ListAgents + message first, then install.
+- **Next (device test):** Lab › Contents › StevenMXZ: tap download on an already installed one (891.14) → toast "891.14 is already installed", row then reads Installed, ⋯ menu offers "Download and replace"; Banners-Turnip: plain "Turnip-…-r2" no longer marked; a "-Linux" one → toast "Installed … · Linux runtime drivers"; download 2 at once → both install. Merge only on the user's go.
+
+## 2026-11-09 — 🔧 fix/driver-install-status 1fe0ddd6 built (CI 42674266114 running; NOT device-tested)
+- **Built (1fe0ddd6):** new `contents/DriverInstaller.kt` = the one way in for a driver zip (Contents + Lab download lists via ContentsInstaller, AdrenoTools download sheet, AdrenoTools / Lab / Contents install-from-file). Routes by meta.json kind (Graphics Driver / Linux runtime / Wayland game drivers) and says which list; refusals say why (no meta.json / unreadable / no library / "<lib> is not in the zip" / built-in name / "<name> is already installed"); records download URL → place|id (prefs `driver_install_records`) on install and on a same-name refusal. Installed mark (ContentsHubViewModel.isInstalled, AdrenoDriverDownloadSheet badge) = record still installed, else EXACT name (loose `contains` removed). Replace: Classic row button "Replace" after a same-name refusal; Lab row menu "Download and replace" when installed or refused. Lab row shows "Failed" after a failed install (was nothing). ContentDownloadState gains `note` (DONE text, e.g. "Installed X · Linux runtime drivers") and `replaceable`.
+- **AdrenotoolsManager.install(uri, replace):** one install at a time (static lock), own `.tmp-<nanos>` folder always deleted (was shared "tmp", non-recursive delete), zip-slip check, folders kept and a zip with one top folder taken from it (was IOException), bundled names refused, replace = delete + move. installDriver(uri) kept (= install(uri,false).id) for the other callers (ShortcutsScreen, DeckFirstContainer). enumarateInstalledDrivers skips "." folders and "tmp", null-safe.
+- **Lab strings:** 9 new (already installed / not in the zip / Download and replace / Failed / Install failed: / meta.json x3 / built-in), filled in 32 languages (missing = [] each); "That file is not a driver package" dropped; check 1799 up to date. Success text reuses "Installed %1$s" + "Linux runtime drivers" / "Wayland game drivers".
+- **Known limits:** drivers installed before this build have no record → their list entries show Installed only after a re-download / "Download and replace" (or when the entry name equals the driver name exactly). The AdrenoTools download sheet has no Replace (Contents / Lab lists do).
+- **CI 42674266114 (1fe0ddd6):** conclusion failure, but only because the antutu job was never created (GitHub side: no job, no check run; `gh run rerun --failed` → "cannot be rerun"). pubg / standard / ludashi: success, BUILD SUCCESSFUL 5m 9s – 6m 39s, no `e:` lines, no warnings on changed lines (only older Divider / LinearProgressIndicator deprecations). Fresh run **42675781398** dispatched on 64ca5162 (= 1fe0ddd6 + this log).
+- **Resume point:** CI 42675781398 (headSha 64ca5162); before it, CI 42674266114 (headSha 1fe0ddd6); check `gh run view 42674266114 -R The412Banner/Bannerlator --json conclusion,jobs`. Nothing installed yet; Elite runs ca31a4d9 (= main). Next: CI green → stage APK → ASK before install → device test (Lab StevenMXZ: download an installed one → "already installed" + Installed mark + Download and replace; a "-Linux" one → toast says Linux runtime drivers; Banners-Turnip plain "-r2" no longer marked).
+
+## 2026-11-09 — 🔧 fix/driver-install-status started (off main 6bec6bc6; user: "start the fix, one branch off main")
+- **Why:** (a) Contents "Installed" mark on GPU drivers is a name guess (ContentsHubViewModel.isInstalled: catalog name vs installed meta name, loose `contains`) → StevenMXZ 891.14 / 891.11 / Gen8 V39 / R2-Oneui and Banners-AIO r2 not marked, Banners-Turnip plain "-r2" falsely marked (user screenshots 12:31–12:32 EST; device adrenotools has all 7 imports; picker lists all 7 + turnip-sdk36; v819 hidden = bundled, fails the GPU probe by design). (b) Users report installed drivers missing from game/container pickers (no GitHub issue; Discord). Causes in code: "-Linux"/"-Wayland" zips install into the Linux runtime / Wayland game driver lists (never in the Wine pickers) with a plain "done"; AdrenotoolsManager.installDriver drops a zip whose meta name is already installed; refusals (meta.json in a subfolder, no libraryName, library missing) all say only "Install failed."; non-recursive tmpDir.delete() leaves junk for the next install.
+- **Plan:** remember which download became which driver (and in which list) → Installed mark from that record, exact-name fallback only; after install say which list it went to; on failure say why; offer Replace for a same-name driver; accept a zip whose files sit in one top-level folder; recursive tmp cleanup + zip path check. Both download lists (Contents and AdrenoTools). Short texts only (Kurt's rule).
+- **Resume point:** worktree /root/src/Bannerlator-wt/driver-status (sparse), branch fix/driver-install-status. Nothing built or installed yet. Elite runs ca31a4d9 (= main code).
+
+
+## 2026-11-09 — ✅ MERGED feat/touch-aim-mode → main 3bcc6128 (user: "merge it to main", ~12:3x EST)
+- Backup ref refs/backup/20261109/main-before-touch-aim-mode = a0d3abc1 (pushed, ls-remote checked). Main had not moved (a0d3abc1 ancestor of the branch). --no-ff merge 3bcc6128 (parents a0d3abc1 + 0f15f5b2), tree == branch tip; diff vs the tested build ca31a4d9 = PROGRESS_LOG.md only. No release workflow running; main push CI 42665817891 started.
+- Proof level at merge: CI green (42650998755) + device-tested on the Elite (pubg ca31a4d9: labels, Touch/Aim settings, per-game save; smooth aim in a Wayland pointer-lock game). NOT device-tested: Aim Auto warp detection, Direct while aiming, X11. Branch feat/touch-aim-mode kept (delete only on the user's word).
+
+## 2026-11-09 — ✅ touch-aim ca31a4d9: user check — labels right, aiming smooth (11:5x EST)
+- **User:** "labels look right, aiming felt smooth". Labels = device-proven (user saw them, ca31a4d9 pubg). Aiming smooth = A Game About Digging A Hole (Wayland, real pointer lock path) on 9864394d — the same aim code as ca31a4d9.
+- **Proof levels now:** Touch / Aim settings + per-game save + labels: device-proven on the Elite (Wayland, one game). Auto warp detection: NOT device-tested (no game that warps a visible cursor tried). Direct while aiming: NOT device-tested. X11: NOT device-tested.
+- **Next:** user's call — test Auto / X11 first, or merge (CI green 42650998755 + backup ref refs/backup/20261109/main-before-touch-aim-mode first).
+
+## 2026-11-09 — ✅ touch-aim ca31a4d9 INSTALLED on the Elite main app (pubg) 11:42:16 EST (user: "yes install it, pubg"; labels NOT seen on device yet)
+- Artifact Bannerlator-touch-aim-ca31a4d9-pubg (CI 42650998755), 597,168,798 bytes; manifest has com.tencent.ig; resources.arsc has "Touch gestures", no "Cursor to touch and its touch gestures". Staged /sdcard/Download/Bannerlator-touch-aim-ca31a4d9.apk, sha256 1b272bc5… (host == device).
+- Before: base.apk 0a5724b7… (= 9864394d), no Wine processes, launcher in front; no peer sessions. `pm install -r` Success (one permissive avc line from system_server reading the FUSE file, harmless); installed base.apk sha256 1b272bc5… == staged; lastUpdateTime 2026-11-09 11:42:16; versionName 3.1.9-pre2 (dev build keeps the release numbers). Crash buffer empty after install.
+- **Next:** user looks at Deck menu Controls › Mouse (save notes: Touch / Aim mode = this game, Touch gestures = all games) and the Classic drawer Steam client line (Steam (Linux) session only). Still open from the feature: the user's verdict on aiming, Auto warp path, Direct while aiming, X11. Merge only on the user's go.
+
+## 2026-11-09 — ✅ touch-aim ca31a4d9: in-game menu labels follow Touch / Aim mode (CI 42650998755 GREEN ×4; NOT installed, NOT device-tested)
+- **Why:** user asked "are these settings going to interfere with mouse/touch tabs in the ingame side drawer?" Code read on 4764bd6d: no clash (on-screen controls hand missed fingers to the touch layer; stick / mouse-area / gyro / Steam pad mouse follow Aim On, and on Wayland also Auto via externalRelativeMode; Disable Mouse still wins; Auto-hide Cursor and Aim only hide). Two labels still named the old switches. User: "yes fix both labels".
+- **Built (ca31a4d9):** DeckInGame.kt Controls › Mouse save notes: "Relative mouse" (this game) + "Cursor to touch and its touch gestures" (all games) → "Touch" + "Aim mode" (this game) + "Touch gestures" (all games; prefs gesture_*). XServerDrawer.kt Steam client help line: "Cursor to Touch (Controls > Touch)" → "Touch: Direct (Controls > Mouse)". Stale comment in XServerDisplayActivity Wayland listener updated. Lab strings: "Touch" / "Aim mode" reused; "Touch gestures" new, filled in all 32 languages (missing = [] each); two unused strings dropped; check: 1791 strings, up to date.
+- Left as is (told the user): the Classic drawer has a "Touch" sub-tab (on-screen controls) and a "Touch" row on the Mouse sub-tab; in a Steam (Linux) session the Classic drawer shows both the Steam client Touch picker and the Mouse tab one (the Deck menu hides the Mouse tab there).
+- **CI 42650998755:** all 4 jobs success, headSha ca31a4d9 == pushed; each job log BUILD SUCCESSFUL (4m 57s – 5m 58s), no `e:` / `error:` lines, no warnings on the changed lines.
+- **Resume point:** CI 42650998755 (headSha ca31a4d9) green; check `gh run view 42650998755 -R The412Banner/Bannerlator --json conclusion,jobs`. Installed on the Elite is still 9864394d (pubg). Install of ca31a4d9 only after the user says so.
+
+## 2026-11-09 — 🧪 touch-aim 9864394d: first user test, A Game About Digging A Hole (Wayland), 08:58–09:04 EST
+- **User:** "tested it in digging game" (no verdict given yet; asked).
+- **Logs:** wayland/wayland-2026-11-09_08-58-40.log: 60 fps; the game (UE, DiggingGame-WinGDK-Shipping.exe) uses a **real persistent pointer lock** for mouse-look (08:59:24.650 → 09:03:23.817, again 09:04:24.657 → exit) with a relative pointer; its SetCursorPos calls arrive as 50 position hints on the held lock, not as lock/unlock pairs. Early locks 08:59:03.369–04.445 (1.08 s) and 08:59:07.332–07.881 (0.55 s) are longer than 120 ms → treated as real locks. So Aim Auto's warp detector had nothing to detect here; aiming went through the lock path (deltas to the compositor).
+- Exit: EXIT_SELF code 0 at 09:04:44 (exit-reasons log), crash buffer empty. App Log.i lines (`input: …`) had rotated out of logcat (256 KiB buffer).
+- Saved on the shortcut at 09:04:09: `aimMode=off`, `relativeMouse=0`, `touchMode=touchpad` → the user changed Aim mode in the menu during the test (Off), and the per-game save works. Under a real lock Off still delivers deltas (by design: the lock is the game's request).
+- **Not yet proven:** the Auto warp path (needs a game that warps a visible cursor, like babizigames' MW3), Direct + aiming, X11.
+
+## 2026-11-09 — ✅ touch-aim 9864394d INSTALLED on the Elite main app (pubg) 08:57:14 EST (user: "install it when it's done, pubg"; NOT device-tested yet)
+- Artifact Bannerlator-touch-aim-9864394d-pubg (CI 42626866929), 597,171,783 bytes, has AimTracker / TouchAimSettings in classes4/5.dex. Staged /sdcard/Download/Bannerlator-touch-aim-9864394d.apk, sha256 0a5724b7… (host == device).
+- `pm install -r` Success; installed base.apk sha256 0a5724b7… == staged; lastUpdateTime 2026-11-09 08:57:14; versionName 3.1.9-pre2 (dev build keeps the release numbers). Crash buffer empty, no FATAL. Previous install was 5c18b9f1… (igart 906ae178). Peer session root-59 told before and "done" after. /data free 14 GB.
+- **Next:** the user tries a mouse-look game with on-screen controls (container 1: A Game About Digging A Hole, DOOM + DOOM II, Resident Evil 2). What to look for: Touchpad / Direct × Aim Auto / On / Off in the drawer (Controls › Mouse) or the Lab in-game menu; logcat `input: touch …, aim …` at launch and `input: aim auto on|off`. Merge only on the user's go.
+
+## 2026-11-09 — ✅ touch-aim CI 42626866929 GREEN ×4 (9864394d); installing pubg (user: "install it when it's done, pubg", 08:42 EST)
+- CI: all 4 jobs success (standard, ludashi, pubg, antutu); headSha 9864394d == pushed. pubg job log: BUILD SUCCESSFUL in 6m 20s; skipped steps are the cached / main-only ones; no compile warnings from the changed code (the Kotlin warnings in XServerDrawer.kt / DeckInGame.kt are older lines).
+- Before install (08:47 EST): installed com.tencent.ig 3.1.9-pre2 build, base.apk sha256 5c18b9f1… (= igart 906ae178, 11-08 21:27), app process 7623 open in the background, no Wine processes, Termux in front.
+- **Resume point:** pubg artifact Bannerlator-touch-aim-9864394d-pubg downloading to the scratchpad → stage /sdcard/Download/Bannerlator-touch-aim-9864394d.apk (sha256 host == device) → pm install (approved) → check installed sha + crash buffer. If the session dies after install: the new build is on the device, NOT device-tested; test = a mouse-look game (container 1: A Game About Digging A Hole, DOOM + DOOM II, Resident Evil 2) with on-screen controls, logcat `input: touch …, aim …` / `input: aim auto on|off`.
+
+## 2026-11-09 — 🔧 feat/touch-aim-mode: Touch + Aim mode built (9864394d; CI 42626866929 running; NOT device-tested)
+- **Built (9864394d):**
+  - **Touch:** Touchpad / Direct / Touchscreen. Direct = the old Cursor to Touch. Touchscreen = the old per-game "Touch acts as: Touchscreen" (simTouchScreen), folded in as a third choice instead of a second touch row (reuse; plan had only Touchpad / Direct). App setting (Touchpad / Direct) in Settings › Mouse & keyboard; per game in Mouse & touch (follows the app when unset); drawer Controls › Mouse and Lab in-game menu chips save for the game (else its container).
+  - **Aim mode:** Auto / On / Off. On = the old Relative Mouse (same code path). Auto = `AimTracker`: 3 game warps within 1 s (X11 WarpPointer; Wayland lock that ends within 120 ms = winewayland SetCursorPos) → on; ends after 48 px of player motion with no warp for 400 ms; idle never ends it. While on: arrow hidden (X11 renderer + Wayland overlay), touch drags are deltas, no jump under the finger, Direct gestures off; Wayland input goes to the compositor as deltas (externalRelativeMode, as under a lock). X11 Auto does NOT switch to the SendInput relative path (WindowRequests.warpPointer skips warps in relative mode, which would change how the game behaves); the touch path's injectPointerMoveDelta already follows the game's warps there.
+  - **Carry-over:** relativeMouse "1" → On (game, then container); move_cursor_to_touchpoint or touchscreen_toggle → Direct; relativeMouse still written ("1"/"0") for older builds.
+  - **Fixes:** touchscreen_toggle path removed (it sent the finger's screen position as a relative move; no UI wrote it); un-captured mouse in relative mode sent positions as deltas → now the change since the last position; Direct jumped the pointer on every touch under a lock / relative mode; Wayland: every SetCursorPos asked for pointer capture, released it and poked the arrow visible → warps now only re-sync the pointer (XServer.syncPointerPosition) and move the arrow without showing it.
+  - Steam (Linux) touch picker unchanged (still reads touchscreen_toggle as its app value). Mouse capture (DirectInput) unchanged.
+  - Lab strings: only "Aim mode" + "Direct" are new; filled in all 32 languages (missing = [] for each; check: 1792 strings, up to date).
+  - Credit in code + commit: Max (MaxsTechReview), DroidDeck gamescope patches 0127/0128/0131 (#2053, #2280); own code.
+- **Checks so far:** logic harness (javac 17, AimTracker + TouchAimSettings, scratchpad Check.java): **42 passed, 0 failed**. Kotlin JUnit tests added (app/src/test/.../AimTrackerTest.kt, TouchAimSettingsTest.kt) but CI does not run unit tests. Kotlin/Android code compiles only in CI.
+- **Mistakes caught before commit:** (1) Python text-mode edits turned WinHandler/XServer/WindowRequests (CRLF / mixed endings) into LF → whole-file diffs; rebuilt from HEAD bytes keeping per-line endings (diff now +26 lines). (2) lab_strings.py `fill` wants `pt-PT` / `zh-CN`, not `pt-rPT` (made values-pt-rrPT etc.; removed and refilled). (3) `appAim(null)` ambiguous overload → pure helper renamed appAimOf.
+- **Next:** CI green → read logs → stage APK in /sdcard/Download/Bannerlator-touch-aim-9864394d.apk (sha256 host == device) → ASK before install. Device test plan: Elite, a mouse-look game on X11 and on Wayland with on-screen controls; Touchpad / Direct × Auto / On / Off; logcat lines `input: touch …, aim …` and `input: aim auto on/off`; FATAL check.
+- **Resume point:** worktree /root/src/Bannerlator-wt/touch-aim (branch feat/touch-aim-mode, sparse checkout + cpp/res/tools added). Nothing installed. CI 42626866929 (headSha 9864394d) running; check with `gh run view 42626866929 -R The412Banner/Bannerlator --json conclusion,jobs`.
+
+## 2026-11-09 — 🚧 feat/touch-aim-mode STARTED (off main a0d3abc1; nothing built yet)
+- **User (07:59 EST):** "yes start it, fix and settings together on one branch off main". Plan = the one parked 11-08 (memory bannerlator-mouse-touch-plan).
+- **Why:** babizigames (Discord, Mali channel, 11-08): CoD MW3 on Wayland, touch aiming with on-screen controls snaps the view sky ↔ ground; arrow never hides; Relative Mouse did not help. Open issues on the same area: #504, #561, #575, #580, #604, #596.
+- **Bug confirmed on main a0d3abc1:** touchscreen mode + Relative Mouse sends the finger's screen position as a relative move (TouchpadView.java:535 handleTouchDown, :551 handleTouchMove) → huge spins, X11 and Wayland. `touchscreen_toggle` is read (TouchpadView:298, XServerDisplayActivity:10371) but no UI writes it.
+- **Plan:**
+  - Settings: **Touch: Touchpad / Direct** and **Aim mode: Auto / On / Off** (default Auto) in App settings › Mouse & keyboard; per game (Mouse & touch: Aim mode replaces the Relative mouse toggle, Touch adds App setting / Touchpad / Direct); drawer Mouse & Cursor: Touch + Aim chips replace Cursor to Touch + Relative Mouse. Disable Mouse, Auto-hide Cursor, Touch Gestures, OSC, Steam (Linux) touch picker, Mouse capture (DirectInput) unchanged.
+  - Migration: Relative Mouse on → Aim On; Cursor to Touch on or old touchscreen_toggle on → Touch Direct; else Touchpad + Aim Auto.
+  - Aim Auto: drags turn into movement and the arrow hides while the game locks or hides the cursor or keeps warping a visible cursor (X11: Java X server warps; Wayland: lock / position-hint pattern); back to a pointer when a normal cursor returns; taps never turn the camera.
+  - Fix the touchscreen + Relative bug in the same branch. Short labels only, no hint lines.
+  - Idea from Max's DroidDeck gamescope patches 0127/0128/0131 (#2053, #2280); own code, credit Max.
+- **Test plan:** Elite, a mouse-look game on X11 + Wayland with on-screen controls; ask before every install/launch.
+
 ## 2026-11-08 — ✅ igart soft edge device-proven + 🌐 translations (63aa55cb; CI 42552610139 running)
 - **Device test of 906ae178 (Elite, DiRT Showdown, screenshot 214255, 21:42 EST):**
   - The user: "looks good".

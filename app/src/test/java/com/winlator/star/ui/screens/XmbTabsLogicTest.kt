@@ -9,29 +9,29 @@ class XmbTabsLogicTest {
 
     private val delta = 0.001f
 
-    @Test fun tabs_allFourInBarOrder_friendsAlwaysThere() {
+    @Test fun tabs_allThreeInBarOrder_friendsAlwaysThere() {
         assertEquals(
-            listOf(XmbSteamTab.STORES, XmbSteamTab.DOWNLOADS, XmbSteamTab.FRIENDS, XmbSteamTab.COMMUNITY),
+            listOf(XmbSteamTab.STORES, XmbSteamTab.DOWNLOADS, XmbSteamTab.FRIENDS),
             XMB_PAGE_TABS,
         )
     }
 
     @Test fun step_wrapsRoundTheEnds() {
-        assertEquals(1, xmbTabStep(0, 1, 4, wrap = true))
-        assertEquals(3, xmbTabStep(0, -1, 4, wrap = true))
-        assertEquals(0, xmbTabStep(3, 1, 4, wrap = true))
-        assertEquals(2, xmbTabStep(0, -6, 4, wrap = true))
+        assertEquals(1, xmbTabStep(0, 1, 3, wrap = true))
+        assertEquals(2, xmbTabStep(0, -1, 3, wrap = true))
+        assertEquals(0, xmbTabStep(2, 1, 3, wrap = true))
+        assertEquals(2, xmbTabStep(0, -4, 3, wrap = true))
     }
 
     @Test fun step_stopsAtTheEndsWithoutWrap() {
-        assertEquals(0, xmbTabStep(0, -1, 4, wrap = false))
-        assertEquals(3, xmbTabStep(3, 1, 4, wrap = false))
-        assertEquals(2, xmbTabStep(1, 1, 4, wrap = false))
+        assertEquals(0, xmbTabStep(0, -1, 3, wrap = false))
+        assertEquals(2, xmbTabStep(2, 1, 3, wrap = false))
+        assertEquals(2, xmbTabStep(1, 1, 3, wrap = false))
     }
 
     @Test fun step_aStrayIndexOrNoTabsIsSafe() {
-        assertEquals(0, xmbTabStep(7, 1, 4, wrap = true))
-        assertEquals(3, xmbTabStep(7, 0, 4, wrap = false))
+        assertEquals(0, xmbTabStep(7, 1, 3, wrap = true))
+        assertEquals(2, xmbTabStep(7, 0, 3, wrap = false))
         assertEquals(0, xmbTabStep(0, 1, 0, wrap = true))
     }
 

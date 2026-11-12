@@ -173,12 +173,12 @@ class XmbDownloadsLogicTest {
         val lines = xmbDlLines(twoSections(), 2)
         assertEquals(4, xmbTwoColVertical(lines, 4, down = true, wantCol = 1))
         assertEquals(3, xmbTwoColVertical(lines, 3, down = true, wantCol = 0))
-        assertEquals(XMB_DL_TO_BAR, xmbTwoColVertical(lines, 0, down = false, wantCol = 0))
-        assertEquals(XMB_DL_TO_BAR, xmbTwoColVertical(lines, 1, down = false, wantCol = 1))
+        assertEquals(XMB_TWO_COL_TO_BAR, xmbTwoColVertical(lines, 0, down = false, wantCol = 0))
+        assertEquals(XMB_TWO_COL_TO_BAR, xmbTwoColVertical(lines, 1, down = false, wantCol = 1))
         // One column: along the cards as before.
         val one = xmbDlLines(twoSections(), 1)
         assertEquals(1, xmbTwoColVertical(one, 0, down = true, wantCol = 0))
-        assertEquals(XMB_DL_TO_BAR, xmbTwoColVertical(one, 0, down = false, wantCol = 0))
+        assertEquals(XMB_TWO_COL_TO_BAR, xmbTwoColVertical(one, 0, down = false, wantCol = 0))
     }
 
     @Test fun cursor_staysOnItsCardWhenTheListMoves() {
@@ -258,6 +258,16 @@ class XmbDownloadsLogicTest {
         assertEquals(40, p.percent)
         assertFalse(p.hasBytes)
         assertEquals("", xmbDlSizeText(entry("g", DownloadState.DOWNLOADING).copy(installTotal = 1000, pct = 40)))
+    }
+
+    @Test fun innerClamp_keepsAButtonThatStillExists_dropsOneThatWentWithItsCard() {
+        // Downloading (pause, cancel, details) -> failed (details, dismiss): the cursor on Details (2) lands on the last button.
+        assertEquals(1, xmbDlInnerClamp(2, 2))
+        assertEquals(1, xmbDlInnerClamp(1, 3))
+        assertEquals(0, xmbDlInnerClamp(0, 1))
+        // Not in the buttons stays out of them; a card with none lets go.
+        assertEquals(-1, xmbDlInnerClamp(-1, 3))
+        assertEquals(-1, xmbDlInnerClamp(2, 0))
     }
 
     @Test fun progress_clampedToTheBar() {

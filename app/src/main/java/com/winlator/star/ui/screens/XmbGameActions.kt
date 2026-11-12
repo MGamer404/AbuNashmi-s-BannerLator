@@ -38,6 +38,9 @@ import com.winlator.star.store.EaSupport
  * [openSettings] opens a game's settings outside the XMB: always for the Linux Steam entry (the XMB
  * settings columns are Wine rows), and for every game when [settingsAsColumns] is false (the Deck,
  * whose own settings editor is the one place a game's settings live).
+ *
+ * [communityThird] puts a Wine game's Community configs right after Settings (the XMB Home's order: Play, Settings, Community configs,
+ * Game Details, ...) instead of after the saves actions.
  */
 internal fun xmbGameActions(
     context: Context,
@@ -45,6 +48,7 @@ internal fun xmbGameActions(
     host: XmbGameHost,
     openSettings: (Shortcut) -> Unit,
     settingsAsColumns: Boolean = true,
+    communityThird: Boolean = false,
 ): List<XmbAction> = buildList {
     // An Android game has no Wine side: no settings, saves, configs, logs or container moves.
     if (AndroidGames.isAndroidEntry(shortcut)) {
@@ -70,6 +74,9 @@ internal fun xmbGameActions(
     } else {
         add(XmbAction("Settings", Icons.Filled.Settings, "Display, graphics, controller…") { openSettings(shortcut) })
     }
+    if (communityThird) {
+        add(XmbAction("Community configs", Icons.Filled.Public, "Shared settings for this game", menu = { xmbCommunityConfigsMenu(it, shortcut) }))
+    }
     add(XmbAction("Game Details", Icons.Filled.Edit, "Name, genres, year, description", menu = { xmbGameDetailsMenu(it, shortcut) }))
     if (isSteamOriginShortcut(shortcut)) {
         add(XmbAction("Cloud Saves", Icons.Filled.CloudSync, "Steam Cloud sync — opens its own screen") { launchSaveManager(context, steamAppIdOf(shortcut)) })
@@ -78,7 +85,9 @@ internal fun xmbGameActions(
         add(XmbAction("Back up saves", Icons.Filled.Archive, menu = { xmbBackupSavesMenu(it, shortcut) }))
         add(XmbAction("Restore saves", Icons.Filled.Unarchive, menu = { xmbRestoreSavesMenu(it, shortcut) }))
     }
-    add(XmbAction("Community configs", Icons.Filled.Public, "Shared settings for this game", menu = { xmbCommunityConfigsMenu(it, shortcut) }))
+    if (!communityThird) {
+        add(XmbAction("Community configs", Icons.Filled.Public, "Shared settings for this game", menu = { xmbCommunityConfigsMenu(it, shortcut) }))
+    }
     add(XmbAction("Scrape cover", Icons.Filled.Search, menu = { xmbScrapeCoverMenu(it, shortcut) }))
     add(XmbAction("View logs", Icons.Filled.Description, menu = { xmbLogsMenu(it, shortcut) }))
     add(XmbAction("Share logs", Icons.Filled.Share) { shareGameLogs(context, shortcut.name) })
@@ -105,6 +114,7 @@ internal fun XmbStoreBadges(shortcut: Shortcut) {
         showCustom = remember(shortcut) { isCustomOriginShortcut(shortcut) },
         showLinux = remember(shortcut) { LinuxShortcuts.isLinuxEntry(shortcut) },
         showAndroid = remember(shortcut) { AndroidGames.isAndroidEntry(shortcut) },
+        showWindowsSteam = remember(shortcut) { com.winlator.star.store.WindowsSteamClient.isWindowsSteamShortcut(shortcut) },
     )
 }
 

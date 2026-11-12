@@ -144,6 +144,7 @@ public class VulkanRenderer implements WindowManager.OnWindowModificationListene
     /** Native frame-gen engine kinds (mirror VulkanRendererContext). */
     public static final int FG_ENGINE_LSFG  = 0;
     public static final int FG_ENGINE_WINFG = 1;
+    public static final int FG_ENGINE_WFG   = 2;
 
     private static volatile boolean gpuImageChecked = false;
 
@@ -452,6 +453,7 @@ public class VulkanRenderer implements WindowManager.OnWindowModificationListene
 
     private void collectWindows(ArrayList<RenderableWindow> list, Window window, int x, int y) {
         if (!window.attributes.isMapped()) return;
+        if (xServer.hideTransparentWindows && window.isFullyTransparent()) return;
         if (window != xServer.windowManager.rootWindow) {
             boolean viewable = true;
             if (unviewableWMClasses != null) {

@@ -5,8 +5,8 @@ import com.winlator.star.communityconfigs.CommunityConfigRef
 import com.winlator.star.communityconfigs.GameMatcher
 import com.winlator.star.communityconfigs.WorkerConfigEntry
 
-// The non-UI rules of the community configs browser, shared by its two faces: the dialog (CommunityCatalogBrowser in ShortcutsScreen.kt)
-// and the XMB Home's Community configs page (ui/deck/XmbCommunityPage.kt). Kept free of Compose and Android so they can be unit-tested.
+// The non-UI rules of the community configs browser (the dialog, CommunityCatalogBrowser in ShortcutsScreen.kt). Kept free of Compose and
+// Android so they can be unit-tested.
 
 /** The old dialog's store filter: every game, the Steam ones (a numeric identity) or the rest (a "name:" title key). */
 internal enum class CatalogStoreFilter { ALL, STEAM, TITLE }

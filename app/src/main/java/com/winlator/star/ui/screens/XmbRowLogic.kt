@@ -4,7 +4,7 @@ import kotlin.math.roundToInt
 
 // The index maths of the XMB games row and of the All Games page, kept free of Compose and Android so it can be unit-tested.
 
-/** The games row on Home shows this many of the most recent games; the rest are on the All Games page. */
+/** The Classic (and the Deck's full-screen) XMB's games row shows this many of the most recent games; the rest are on the All Games page. The Deck Home shows the whole library. */
 internal const val XMB_ROW_LIMIT = 6
 
 /** The All Games page's grid view shows this many games per row (fewer only when the screen is too narrow, see [xmbGridColumns]). */
@@ -34,15 +34,6 @@ internal fun xmbSlotOf(paths: List<String>, path: String?, hasAll: Boolean): Int
  */
 internal fun xmbGridColumns(avail: Float, gap: Float, minCell: Float, wanted: Int = XMB_GRID_COLS, minCols: Int = 3): Int =
     ((avail + gap) / (minCell + gap)).toInt().coerceIn(minCols, wanted)
-
-/**
- * Where a Home row is drawn from: the card position its strip is anchored on (the card at the cross is the one at this
- * position). [pos] is the row's remembered position (the card it is on), [active] how much the row is the one in use, 0..1
- * (1 = in use, 0 = the other row is). An active row is anchored on [pos]; a row that is not in use rests at [rest] (the first
- * card, so its small cards start at the left edge) whatever [pos] is, and the anchor glides between the two as [active] animates.
- * [pos] itself is never changed, so the row finds its card again when it becomes the active one.
- */
-internal fun xmbRowAnchor(pos: Float, active: Float, rest: Float = 0f): Float = rest + (pos - rest) * active.coerceIn(0f, 1f)
 
 internal enum class XmbMove { LEFT, RIGHT, UP, DOWN, PAGE_UP, PAGE_DOWN }
 

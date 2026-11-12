@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Save
@@ -42,6 +43,7 @@ import com.winlator.star.ui.screens.LogManagerScreen
 import com.winlator.star.ui.screens.WrapperManagerScreen
 import com.winlator.star.ui.screens.contents.ContentsHubScreen
 import com.winlator.star.ui.screens.contents.ContentsHubViewModel
+import com.winlator.star.ui.theme.AppThemeState
 
 /*
  * The Components, Controls and Tools tabs. Each is a Deck header and tab strip around the classic
@@ -59,51 +61,62 @@ internal object DeckComponentsTabs {
     /** The Components tab index waiting to be shown, or null. The page clears it once it has switched. */
     var requested by mutableStateOf<Int?>(null)
 
-    /** The Components tab a classic [route] stands for, or null when the route is not one of them. */
-    fun tabFor(route: String): Int? = when (route) {
-        Screen.Wrappers.route -> WRAPPERS
-        Screen.AdrenoTools.route -> ADRENOTOOLS
-        else -> null
+    /**
+     * The Components tab a classic [route] stands for, or null when the route is not one of them. XMB only: the plain Deck has
+     * no such tabs (Wrappers and Adrenotools are tiles on Tools > More there, as upstream), so it gets null for every route.
+     */
+    fun tabFor(route: String): Int? {
+        if (!AppThemeState.deckXmbHome.value) return null
+        return when (route) {
+            Screen.Wrappers.route -> WRAPPERS
+            Screen.AdrenoTools.route -> ADRENOTOOLS
+            else -> null
+        }
     }
 }
 
 /**
- * Components: Deck header, then Browse / Installed / Saved archives / Linux runtime / Wrappers /
- * Adrenotools on the Deck tab strip (L2/R2). The first four are the Contents hub's own tab content,
- * hosted without its rail or TabRow, so installs, the install-progress popup and the source manager
- * are unchanged. Wrappers and Adrenotools host the wrapper manager and the GPU driver manager screens.
+ * Components: Deck header, then Browse / Installed / Saved archives / Linux runtime on the Deck tab
+ * strip (L2/R2). Each is the Contents hub's own tab content, hosted without its rail or TabRow, so
+ * installs, the install-progress popup and the source manager are unchanged. XMB only: Wrappers and
+ * Adrenotools follow as two more tabs that host the wrapper manager and the GPU driver manager screens
+ * (the plain Deck reaches them from Tools > More, as it always has).
  */
 @Composable
 internal fun DeckComponentsPage() {
+    val xmb = rememberXmbHome()
     val vm: ContentsHubViewModel = viewModel()
     var tab by rememberSaveable { mutableIntStateOf(0) }
     val wanted = DeckComponentsTabs.requested
     LaunchedEffect(wanted) {
         if (wanted != null) {
-            tab = wanted
+            if (xmb) tab = wanted
             DeckComponentsTabs.requested = null
         }
     }
-    val tabs = listOf(
-        DeckTabItem("Browse", Icons.Filled.Download),
-        DeckTabItem("Installed", Icons.Filled.CheckCircle),
-        DeckTabItem("Saved archives", Icons.Filled.Folder),
-        DeckTabItem("Linux runtime", Icons.Filled.DeveloperBoard),
-        DeckTabItem("Wrappers", Icons.Filled.Layers),
-        DeckTabItem("Adrenotools", Icons.Filled.Memory),
-    )
+    val tabs = buildList {
+        add(DeckTabItem("Browse", Icons.Filled.Download))
+        add(DeckTabItem("Installed", Icons.Filled.CheckCircle))
+        add(DeckTabItem("Saved archives", Icons.Filled.Folder))
+        add(DeckTabItem("Linux runtime", Icons.Filled.DeveloperBoard))
+        if (xmb) {
+            add(DeckTabItem("Wrappers", Icons.Filled.Layers))
+            add(DeckTabItem("Adrenotools", Icons.Filled.Memory))
+        }
+    }
     DeckHostedPage(
         icon = Icons.Filled.Extension,
         title = "Components",
-        description = "Wine and Proton builds, graphics translation layers, wrappers, drivers and x86 translators. Install once, use in any container.",
+        description = if (xmb) "Wine and Proton builds, graphics translation layers, wrappers, drivers and x86 translators. Install once, use in any container."
+        else "Wine and Proton builds, graphics translation layers, drivers and x86 translators. Install once, use in any container.",
         tabs = tabs,
         selected = tab,
         onSelect = { tab = it },
         tabLabel = "View",
     ) {
-        when (tab) {
-            DeckComponentsTabs.WRAPPERS -> WrapperManagerScreen()
-            DeckComponentsTabs.ADRENOTOOLS -> AdrenoToolsScreen()
+        when {
+            xmb && tab == DeckComponentsTabs.WRAPPERS -> WrapperManagerScreen()
+            xmb && tab == DeckComponentsTabs.ADRENOTOOLS -> AdrenoToolsScreen()
             else -> ContentsHubScreen(vm = vm, hostTab = tab)
         }
     }
@@ -139,15 +152,20 @@ internal object DeckToolsTabs {
 }
 
 /**
- * Tools: Files / Saves / Logs. They are the File Manager, Save Manager and Log Manager screens hosted
- * in place. In the XMB interface they have no page header of their own (just the Files / Saves / Logs rail or strip), Files
- * uses its slim one-row toolbar, and Logs carries every recording option (a collapsible "Recording options" section) with
- * nothing about them in Settings. The plain Deck keeps the header, the full toolbar and a viewer-only Logs (what gets recorded is
- * set in Settings > Storage & data there). Unpacking an archive starts from a file's menu in the File Manager, since it needs a
- * picked archive.
+ * Tools: Files / Saves / Logs (plus More in the plain Deck). Files, Saves and Logs are the File Manager, Save Manager and Log
+ * Manager screens hosted in place. In the XMB interface they have no page header of their own (just the Files / Saves / Logs
+ * rail or strip), there is no More tab (Wrappers / Adrenotools are Components tabs, the rest lives in Settings), Files uses its
+ * slim one-row toolbar, and Logs carries every recording option (a collapsible "Recording options" section) with nothing about
+ * them in Settings. The plain Deck keeps the header, the full toolbar, the whole Logs screen and More, which holds the drawer's
+ * leftovers and "Run setup again" ([DeckMoreTools]); its three callbacks are the shell's. Unpacking an archive starts from a
+ * file's menu in the File Manager, since it needs a picked archive.
  */
 @Composable
-internal fun DeckToolsPage() {
+internal fun DeckToolsPage(
+    onNavigate: (String) -> Unit = {},
+    onMyAccount: () -> Unit = {},
+    onAbout: () -> Unit = {},
+) {
     val xmb = rememberXmbHome()
     var tab by rememberSaveable { mutableIntStateOf(0) }
     val wanted = DeckToolsTabs.requested
@@ -157,11 +175,13 @@ internal fun DeckToolsPage() {
             DeckToolsTabs.requested = null
         }
     }
-    val tabs = listOf(
-        DeckTabItem("Files", Icons.Filled.FolderOpen),
-        DeckTabItem("Saves", Icons.Filled.Save),
-        DeckTabItem("Logs", Icons.Filled.Description),
-    )
+    val tabs = buildList {
+        add(DeckTabItem("Files", Icons.Filled.FolderOpen))
+        add(DeckTabItem("Saves", Icons.Filled.Save))
+        add(DeckTabItem("Logs", Icons.Filled.Description))
+        // Plain Deck only: the drawer's leftovers.
+        if (!xmb) add(DeckTabItem("More", Icons.Filled.GridView))
+    }
     DeckHostedPage(
         icon = Icons.Filled.Build,
         title = "Tools",
@@ -179,9 +199,9 @@ internal fun DeckToolsPage() {
         when (tab) {
             0 -> FileManagerScreen(compactToolbar = xmb)
             1 -> SaveManagerScreen()
-            // XMB: every recording option lives here (collapsible), in two-column tiles. Plain Deck: the viewer only, as before (the
-            // recording options are rows in Settings > Storage & data there).
-            else -> LogManagerScreen(onClose = { tab = 0 }, showOptions = xmb, inDeckTools = xmb)
+            // XMB: every recording option lives here (collapsible), in two-column tiles. Plain Deck: the whole screen as it always was.
+            2 -> LogManagerScreen(onClose = { tab = 0 }, inDeckTools = xmb)
+            else -> DeckMoreTools(onNavigate = onNavigate, onMyAccount = onMyAccount, onAbout = onAbout)
         }
     }
 }

@@ -67,6 +67,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import coil.compose.AsyncImage
+import kotlinx.coroutines.delay
 import com.winlator.star.R
 import com.winlator.star.store.FriendAvatar
 import com.winlator.star.store.SteamFriendsStore
@@ -85,10 +86,12 @@ import com.winlator.star.store.openSteamProfileInBrowser
 import com.winlator.star.store.rememberFriendsAvailable
 import com.winlator.star.store.rememberSteamLoggedIn
 import com.winlator.star.store.rememberSteamOnlineFriends
-import com.winlator.star.ui.screens.XMB_FRIENDS_TO_BAR
+import com.winlator.star.ui.screens.XMB_ARMED_MS
 import com.winlator.star.ui.screens.XMB_TWO_COL_GAP_DP
 import com.winlator.star.ui.screens.XMB_TWO_COL_MAX_WIDTH_DP
+import com.winlator.star.ui.screens.XMB_TWO_COL_TO_BAR
 import com.winlator.star.ui.screens.XmbFriendAction
+import com.winlator.star.ui.screens.XmbFriendsCursor
 import com.winlator.star.ui.screens.XmbFriendsRow
 import com.winlator.star.ui.screens.xmbClick
 import com.winlator.star.ui.screens.xmbFriendActions
@@ -96,6 +99,7 @@ import com.winlator.star.ui.screens.xmbFriendsButtonCount
 import com.winlator.star.ui.screens.xmbFriendsEmpty
 import com.winlator.star.ui.screens.xmbFriendsIsCard
 import com.winlator.star.ui.screens.xmbFriendsLines
+import com.winlator.star.ui.screens.xmbFriendsNormalise
 import com.winlator.star.ui.screens.xmbFriendsSideIsButtons
 import com.winlator.star.ui.screens.xmbFriendsVertical
 import com.winlator.star.ui.screens.xmbFriendsResolve
@@ -118,6 +122,9 @@ import com.winlator.star.ui.screens.xmbTwoColSide
 
 /** The widest the list gets (dp): a block in the middle on a wide screen, as the Steam Deck's friends page. */
 private val XMB_FR_MAX_WIDTH = XMB_TWO_COL_MAX_WIDTH_DP.dp
+
+/** How long the roster shows "Loading" while it is empty, in ms: Steam sends the list a moment after the session is up. */
+private const val XMB_FR_ROSTER_WAIT_MS = 6000L
 
 /** The online-friends count for the pill bar's Friends badge (XmbTabsPageHost's badges): 0 while signed out or the friends feature is off. */
 @Composable
@@ -258,6 +265,31 @@ private fun XmbFriendsRoster(focus: XmbTabsPageFocus) {
     val selIdx = xmbFriendsResolve(rows, selKey, lastIndex[0])
     SideEffect { lastIndex[0] = selIdx }
     val selRow = rows[selIdx]
+    // The row the cursor was on can go (the last friend removed, a request answered): [selIdx] is then the row it fell to, and the key and the
+    // button state are put on that row, else the button number (the toolbar's Settings, say) would carry over to a row that has others.
+    LaunchedEffect(rows, selKey, selIdx, sub, openKey, confirmRemove) {
+        val now = XmbFriendsCursor(selKey, sub, openKey, confirmRemove)
+        val fixed = xmbFriendsNormalise(rows, now, selIdx)
+        if (fixed != now) {
+            selKey = fixed.key
+            sub = fixed.sub
+            openKey = fixed.openKey
+            confirmRemove = fixed.confirmRemove
+        }
+    }
+    // Remove asked for a second press: it gives up waiting.
+    LaunchedEffect(confirmRemove) {
+        if (confirmRemove) {
+            delay(XMB_ARMED_MS)
+            confirmRemove = false
+        }
+    }
+    // The roster is not known to be empty until Steam has had time to send it (the store has no "loaded" signal).
+    var rosterWaited by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        delay(XMB_FR_ROSTER_WAIT_MS)
+        rosterWaited = true
+    }
 
     var showAdd by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
@@ -301,7 +333,10 @@ private fun XmbFriendsRoster(focus: XmbTabsPageFocus) {
                     confirmRemove = false
                 } else {
                     val actions = xmbFriendActions(f)
-                    when (actions[button.coerceIn(0, actions.lastIndex)]) {
+                    val action = actions[button.coerceIn(0, actions.lastIndex)]
+                    // Pressing anything but Remove gives up a Remove that was waiting for its second press.
+                    if (action != XmbFriendAction.REMOVE) confirmRemove = false
+                    when (action) {
                         XmbFriendAction.MESSAGE -> { openKey = null; chatFriend = f }
                         XmbFriendAction.GAME -> openSteamGameDetail(ctx, f.gameAppId)
                         XmbFriendAction.PROFILE -> profileFriend = f
@@ -337,7 +372,7 @@ private fun XmbFriendsRoster(focus: XmbTabsPageFocus) {
                 // Along the lines (the cards two to a line, a heading across both), on the column the cursor last chose.
                 Key.DirectionUp, Key.DirectionDown -> {
                     val to = xmbFriendsVertical(rows, lines, selIdx, down = e.key == Key.DirectionDown, wantCol = wantCol)
-                    if (to == XMB_FRIENDS_TO_BAR) focus.toBar() else if (to != selIdx) select(to)
+                    if (to == XMB_TWO_COL_TO_BAR) focus.toBar() else if (to != selIdx) select(to)
                     true
                 }
                 // Between the columns; on the toolbar, and on a card whose buttons A has stepped into, between the buttons instead.
@@ -392,7 +427,7 @@ private fun XmbFriendsRoster(focus: XmbTabsPageFocus) {
             val on = row.key == selectedKey
             when (row) {
                 is XmbFriendsRow.Toolbar -> XmbFriendsToolbar(
-                    summary = stringResource(R.string.xmb_fr_summary, online, friends.size),
+                    summary = ctx.resources.getQuantityString(R.plurals.xmb_fr_summary, friends.size, online, friends.size),
                     sub = if (on) sub else -1,
                     ss = ss,
                     onAdd = { pick(index); act(row, 0) },
@@ -476,14 +511,22 @@ private fun XmbFriendsRoster(focus: XmbTabsPageFocus) {
                         modifier = Modifier.xmbFriendsRow().padding(vertical = ss.dp(36f)),
                     ) {
                         val cs = MaterialTheme.colorScheme
-                        Text(
-                            stringResource(R.string.xmb_fr_empty_title), color = cs.onSurface, fontSize = ss.sp(15f), fontWeight = FontWeight.Bold,
-                            textAlign = TextAlign.Center,
-                        )
-                        Text(
-                            stringResource(R.string.xmb_fr_empty_sub), color = cs.onSurfaceVariant, fontSize = ss.sp(13f),
-                            textAlign = TextAlign.Center, modifier = Modifier.padding(top = ss.dp(4f)),
-                        )
+                        if (!rosterWaited) {
+                            // Steam has not had the time to send the list yet: not "no friends" until it has.
+                            Text(
+                                stringResource(R.string.xmb_fr_loading), color = cs.onSurfaceVariant, fontSize = ss.sp(13f),
+                                textAlign = TextAlign.Center,
+                            )
+                        } else {
+                            Text(
+                                stringResource(R.string.xmb_fr_empty_title), color = cs.onSurface, fontSize = ss.sp(15f), fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center,
+                            )
+                            Text(
+                                stringResource(R.string.xmb_fr_empty_sub), color = cs.onSurfaceVariant, fontSize = ss.sp(13f),
+                                textAlign = TextAlign.Center, modifier = Modifier.padding(top = ss.dp(4f)),
+                            )
+                        }
                     }
                 }
             }

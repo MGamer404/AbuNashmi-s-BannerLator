@@ -4,17 +4,16 @@ import com.winlator.star.ui.simple.L
 import com.winlator.star.ui.simple.T
 
 /*
- * The XMB / Deck editor's tabs for the container pages: New container, Defaults for new containers (DEFAULTS), Edit
+ * The XMB editor's tabs for the container pages: New container, Defaults for new containers (DEFAULTS), Edit
  * container (CONTAINER) and a game (GAME). One function, [ContainerLayout.forScope], builds the [EditorLayout] for all
  * four, so they share the same seven tabs (General, Graphics, Performance, Controls, Windows, Win components, Advanced); a
  * game adds "Game" first and, for the Linux Steam client entry only, "Linux runtime" before Advanced.
  *
- * XMB ONLY: every function takes `xmb`. In the plain Deck (xmb = false) there is no Win components tab: the components.* and
- * codec rows are on Windows (after its other rows, rank 1) and their install lists follow the Windows extras, as before.
- * The table below is the XMB one.
+ * XMB ONLY: the plain Deck, Lab and Classic do not use this layout; they show the registry's own categories (Display, Graphics,
+ * Visual effects, ..., Windows components, Expert) as they always did.
  *
- * The registries keep their own categories (the Classic screens and the Lab style read them), so this file is a pure
- * mapping from a row's id (and old category) to its tab. THE TABLE (old category / ids -> tab, rank inside the tab):
+ * The registries keep their own categories (the Classic screens, the plain Deck and the Lab style read them), so this file is a
+ * pure mapping from a row's id (and old category) to its tab. THE TABLE (old category / ids -> tab, rank inside the tab):
  *
  *   old category / ids                                                   tab               rank
  *   -------------------------------------------------------------------  ----------------  ----
@@ -35,12 +34,17 @@ import com.winlator.star.ui.simple.T
  *               desktopColor, wallpaperScope                             tab.windows        0
  *   components.* (direct3d ... vcrun2010), windows.codecBackend,
  *               windows.softwareDecoding                                 tab.wincomp        0
- *       (these rows map to Win components but [ContainerLayout.forScope] hides them from the row list: WinComponentsPage.kt
- *        draws them itself, with a search bar, the first five and "Show more")
+ *       (these rows are the tab's, but [ContainerLayout.forScope] leaves them out of its row list (EditorLayout.unlisted):
+ *        WinComponentsPage.kt draws them itself, with a search bar, the first five and "Show more"; they still count in the
+ *        tab's override badge and Reset, and the editor's search finds them)
  *   expert.env (the environment variables' hidden row)                   tab.advanced       0
- *   game.name, game.arguments, launch.* (10 rows)                        tab.game           0
+ *   game.name, game.arguments, launch.* (11 rows)                        tab.game           0
  *   linux.*                                                              tab.linux          0
  *   anything else: by its old category, with the same rules; an unknown category is hidden (see [HIDDEN]).
+ *
+ * A few rows read differently here than in the registry (the layout's labelOf / hintOf): the Turnip present mode row says
+ * "Turnip driver present mode" (the Wayland game driver row of the same tab is the other "present mode") and the Wine / Proton
+ * version row has no "Download more below" (it has a "Get more" button instead).
  *
  * Page extras (the non-row items), by the OLD category the section returns them under ([extraTargets]):
  *
@@ -68,69 +72,65 @@ internal object ContainerLayoutMap {
     val HIDDEN: Set<String> = setOf("hud.enabled")
 
     /** The tab of the registry row [id] (old category [category]), or null when the layout hides it. */
-    fun tabFor(id: String, category: String, xmb: Boolean): String? {
+    fun tabFor(id: String, category: String): String? {
         if (id in HIDDEN) return null
         return when {
             id == ID_CONTAINER_NAME || id == ID_WINE_VERSION -> EditorTabs.GENERAL
             // The codec rows are declared with the Windows components category and a "windows." id.
-            id == "windows.codecBackend" || id == "windows.softwareDecoding" -> if (xmb) EditorTabs.WINCOMP else EditorTabs.WINDOWS
+            id == "windows.codecBackend" || id == "windows.softwareDecoding" -> EditorTabs.WINCOMP
             id == "display.renderScale" || id == "display.hdrOutput" -> EditorTabs.GRAPHICS
             id.startsWith("game.") || id.startsWith("launch.") -> EditorTabs.GAME
             id.startsWith("display.") || id.startsWith("audio.") -> EditorTabs.GENERAL
             id.startsWith("graphics.") || id.startsWith("visuals.") -> EditorTabs.GRAPHICS
             id.startsWith("performance.") || id.startsWith("hud.") -> EditorTabs.PERFORMANCE
             id.startsWith("input.") -> EditorTabs.CONTROLS
-            id.startsWith("components.") -> if (xmb) EditorTabs.WINCOMP else EditorTabs.WINDOWS
+            id.startsWith("components.") -> EditorTabs.WINCOMP
             id.startsWith("windows.") -> EditorTabs.WINDOWS
             id.startsWith("linux.") -> EditorTabs.LINUX
             id.startsWith("expert.") -> EditorTabs.ADVANCED
-            else -> tabForCategory(category, xmb)
+            else -> tabForCategory(category)
         }
     }
 
     /** The fallback for an id none of the prefix rules knows: its old category. */
-    private fun tabForCategory(category: String, xmb: Boolean): String? = when (category) {
+    private fun tabForCategory(category: String): String? = when (category) {
         "game", "launch" -> EditorTabs.GAME
         "display", "audio" -> EditorTabs.GENERAL
         "graphics", "visuals" -> EditorTabs.GRAPHICS
         "performance", "hud" -> EditorTabs.PERFORMANCE
         "input" -> EditorTabs.CONTROLS
         "windows" -> EditorTabs.WINDOWS
-        SettingsRegistry.CAT_COMPONENTS -> if (xmb) EditorTabs.WINCOMP else EditorTabs.WINDOWS
+        SettingsRegistry.CAT_COMPONENTS -> EditorTabs.WINCOMP
         "linux" -> EditorTabs.LINUX
         "expert" -> EditorTabs.ADVANCED
         else -> null
     }
 
     /** The order of an old category inside its tab (the stable sort keeps the registry order within one rank). */
-    fun rankOf(id: String, xmb: Boolean): Int = when {
+    fun rankOf(id: String): Int = when {
         // General: name and Wine version first (needed to create a container), then display, then audio.
         id == ID_CONTAINER_NAME || id == ID_WINE_VERSION -> 0
         id.startsWith("audio.") -> 2
-        // Graphics: the graphics rows first, then supersampling / HDR output, then the visual effects.
-        id == "display.renderScale" || id == "display.hdrOutput" -> 1
+        // display.* is rank 1 in both of its tabs: General (after the name and Wine version) and Graphics (after the graphics rows,
+        // with supersampling / HDR output); then the visual effects.
         id.startsWith("display.") -> 1
         id.startsWith("visuals.") -> 2
         // Performance: the performance rows, then the overlay.
         id.startsWith("hud.") -> 1
-        // Plain Deck, Windows: the session / desktop rows, then the Windows components (DLL rows and codecs).
-        !xmb && (id.startsWith("components.") || id == "windows.codecBackend" || id == "windows.softwareDecoding") -> 1
-        // XMB, Win components: the DLL rows, then the two codec rows (the registry order; the page draws them itself).
+        // Win components: the DLL rows, then the two codec rows (the registry order; the page draws them itself).
         else -> 0
     }
 
     /** The tabs the extras of the old category [old] may feed. */
-    fun extraTargets(old: String, xmb: Boolean): Set<String> = when (old) {
+    fun extraTargets(old: String): Set<String> = when (old) {
         "game" -> setOf(EditorTabs.GAME)
         "graphics", "visuals" -> setOf(EditorTabs.GRAPHICS)
         "performance", "hud" -> setOf(EditorTabs.PERFORMANCE)
         "audio" -> setOf(EditorTabs.GENERAL)
         "input" -> setOf(EditorTabs.CONTROLS)
         "windows" -> setOf(EditorTabs.WINDOWS, EditorTabs.ADVANCED)
-        // The install lists of DeckComponentsState (XMB: Win components; plain Deck: Windows), and the Win components page of
-        // WinComponentsSection (XMB only: the plain Deck has no such source).
-        SettingsRegistry.CAT_COMPONENTS -> setOf(if (xmb) EditorTabs.WINCOMP else EditorTabs.WINDOWS)
-        WinComponentsLogic.EXTRAS_KEY -> if (xmb) setOf(EditorTabs.WINCOMP) else emptySet()
+        // The install lists of DeckComponentsState, and the Win components page of WinComponentsSection.
+        SettingsRegistry.CAT_COMPONENTS, WinComponentsLogic.EXTRAS_KEY -> setOf(EditorTabs.WINCOMP)
         "linux" -> setOf(EditorTabs.LINUX)
         "expert" -> setOf(EditorTabs.ADVANCED)
         else -> emptySet()
@@ -144,12 +144,11 @@ internal object ContainerLayoutMap {
     }
 
     /** The order of the merged extra sources inside a tab (one rank per old category). */
-    fun extraRank(old: String, xmb: Boolean): Int = when (old) {
+    fun extraRank(old: String): Int = when (old) {
         "expert" -> 0
         "visuals", "hud", "windows" -> 1
-        // XMB, Win components: its own page (search, first five, Show more) above the install lists. Plain Deck: the install
-        // lists come after the Windows extras.
-        SettingsRegistry.CAT_COMPONENTS -> if (xmb) 1 else 2
+        // Win components: its own page (search, first five, Show more) above the install lists.
+        SettingsRegistry.CAT_COMPONENTS -> 1
         else -> 0
     }
 }
@@ -158,24 +157,30 @@ internal object ContainerLayoutMap {
 internal object ContainerLayout {
     /**
      * The layout for an editor of [scope]: DEFAULTS, CONTAINER (also a new container) and GAME. [world] only matters for a
-     * game (its tab list: Android game = Game only, the Linux Steam client entry adds Linux runtime). [xmb] is true in the XMB
-     * interface (the Win components tab) and false in the plain Deck (the six tabs it always had). Remember the result.
+     * game (its tab list: Android game = Game only, the Linux Steam client entry adds Linux runtime). XMB only. Remember the result.
      */
-    fun forScope(scope: EditorScope, world: World = World.WINE, xmb: Boolean): EditorLayout = EditorLayout(
-        tabs = EditorTabs.tabsFor(scope, world, xmb),
-        // XMB: the component rows are on Win components in the map, but that tab draws them itself (WinComponentsPage.kt): not as
-        // rows. Plain Deck: they are ordinary rows of the Windows tab.
-        tabOf = { d -> if (xmb && WinComponentsLogic.isComponentRow(d.id)) null else ContainerLayoutMap.tabFor(d.id, d.category, xmb) },
-        rank = { d -> ContainerLayoutMap.rankOf(d.id, xmb) },
+    fun forScope(scope: EditorScope, world: World = World.WINE): EditorLayout = EditorLayout(
+        tabs = EditorTabs.tabsFor(scope, world),
+        tabOf = { d -> ContainerLayoutMap.tabFor(d.id, d.category) },
+        // The component rows are on Win components, but that tab draws them itself (WinComponentsPage.kt: search, the first five,
+        // Show more), not as list rows. They still count for its override badge and Reset, and the editor's search finds them.
+        unlisted = { d -> WinComponentsLogic.isComponentRow(d.id) },
+        rank = { d -> ContainerLayoutMap.rankOf(d.id) },
         groupOf = { d -> groupOf(d) },
         // The Wine version is needed to create a container, so it shows at Simple (it was Advanced).
         levelOf = { d -> if (d.id == ContainerLayoutMap.ID_WINE_VERSION) SettingLevel.SIMPLE else d.level },
+        labelOf = { d -> if (d.id == ID_TURNIP_PRESENT_MODE) L("Turnip driver present mode") else d.label },
+        // The Wine / Proton version row has a "Get more" button here instead of the registry's "Download more below".
+        hintOf = { d -> if (d.id == ContainerLayoutMap.ID_WINE_VERSION) L("The Wine layer this container runs.") else d.hint },
         handoffTab = { old, _ -> if (old == "game") EditorTabs.GAME else null },
-        extraTargets = { old -> ContainerLayoutMap.extraTargets(old, xmb) },
+        extraTargets = { old -> ContainerLayoutMap.extraTargets(old) },
         extraTab = { old, key -> ContainerLayoutMap.extraTab(old, key) },
-        extraRank = { old -> ContainerLayoutMap.extraRank(old, xmb) },
+        extraRank = { old -> ContainerLayoutMap.extraRank(old) },
         extraLevel = { old, tab -> extraLevelOf(scope, old, tab) },
     )
+
+    /** The Turnip driver's "present mode" row (registry label "Driver present mode"). */
+    private const val ID_TURNIP_PRESENT_MODE = "graphics.gdc.presentMode"
 
     /** The group header a row sits under in its tab. */
     private fun groupOf(d: SettingDef): String = when {

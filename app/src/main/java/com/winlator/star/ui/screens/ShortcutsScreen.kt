@@ -2932,7 +2932,7 @@ private fun SmartDriverInstallRow(
     }
 }
 
-// The filter/sort enums and the list rules the browser shares with the XMB Home's page are in CommunityBrowserLogic.kt.
+// The filter/sort enums and the list rules of the browser are in CommunityBrowserLogic.kt.
 
 // Full-catalog browser (Part A) — a catalog-first entry from the header. Lists every game in the
 // community index with search / device + store filters / sort; a tapped game opens its per-device
@@ -4165,6 +4165,7 @@ private fun ShortcutItemLayoutL(
                     showCustom = remember(shortcut) { isCustomOriginShortcut(shortcut) },
                                     showLinux = remember(shortcut) { LinuxShortcuts.isLinuxEntry(shortcut) },
                                     showAndroid = remember(shortcut) { AndroidGames.isAndroidEntry(shortcut) },
+                    showWindowsSteam = remember(shortcut) { com.winlator.star.store.WindowsSteamClient.isWindowsSteamShortcut(shortcut) },
                     modifier = Modifier.padding(start = 6.dp),
                 )
             }
@@ -4472,6 +4473,7 @@ private fun ShortcutGridItem(
             showCustom = remember(shortcut) { isCustomOriginShortcut(shortcut) },
             showLinux = remember(shortcut) { LinuxShortcuts.isLinuxEntry(shortcut) },
             showAndroid = remember(shortcut) { AndroidGames.isAndroidEntry(shortcut) },
+            showWindowsSteam = remember(shortcut) { com.winlator.star.store.WindowsSteamClient.isWindowsSteamShortcut(shortcut) },
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .padding(6.dp),
@@ -5215,7 +5217,7 @@ private fun DpCheck(dp: SettingsDpad, id: String, checked: Boolean, onCheckedCha
  * placed in the game folder right away (GameMods.remove, for Special K also its logs; the launch does the
  * same). Lives outside the settings screen (D8 8.8.18 crashed dexing it with state inline).
  */
-private class GameModsSetting(
+internal class GameModsSetting(
     val mods: List<GameMods.Mod>, val machine: Int, val imports: Set<String>,
     initialOn: Map<String, Boolean>, initialSkDll: String, initialStartWith: String,
     private val gameDir: File?,
@@ -5266,7 +5268,7 @@ private class GameModsSetting(
 }
 
 @Composable
-private fun rememberGameModsSetting(shortcut: Shortcut): GameModsSetting = remember(shortcut) {
+internal fun rememberGameModsSetting(shortcut: Shortcut): GameModsSetting = remember(shortcut) {
     val exe = runCatching { WinePath.resolveAndroidPath(shortcut.container, shortcut.path) }.getOrNull()
     val machine = GameMods.peMachine(exe)
     val mods = GameMods.ALL.filter { GameMods.supports(it, shortcut.path, machine) }
@@ -5450,6 +5452,19 @@ private fun LinuxHelp(show: Boolean, textResId: Int, onOpen: (Int) -> Unit) {
     }
 }
 
+/** The game dialog's version lists: Box64 (WOWBox64 on arm64ec), FEXCore and Box64EC, built-in ones first. */
+private fun translatorVersionLists(context: Context, cm: ContentsManager, arm64ec: Boolean): Triple<List<String>, List<String>, List<String>> {
+    val res = context.resources
+    fun installed(type: ContentProfile.ContentType) = (cm.getProfiles(type) ?: emptyList()).map {
+        val n = ContentsManager.getEntryName(it)
+        n.substring(n.indexOf('-') + 1)
+    }
+    val b64 = res.getStringArray(if (arm64ec) R.array.wowbox64_version_entries else R.array.box64_version_entries).toList() +
+        installed(if (arm64ec) ContentProfile.ContentType.CONTENT_TYPE_WOWBOX64 else ContentProfile.ContentType.CONTENT_TYPE_BOX64)
+    val fex = res.getStringArray(R.array.fexcore_version_entries).toList() + installed(ContentProfile.ContentType.CONTENT_TYPE_FEXCORE)
+    return Triple(b64, fex, installed(ContentProfile.ContentType.CONTENT_TYPE_BOX64EC))
+}
+
 @Composable
 internal fun ShortcutSettingsDialogScreen(
     shortcut: Shortcut,
@@ -5489,6 +5504,8 @@ internal fun ShortcutSettingsDialogScreen(
     // Epic Friends Overlay (Phase 3) — provision Epic's real EOS overlay into the prefix so the game's
     // own EOS SDK renders friends/notifications on Shift+F3. Default OFF (opt-in per game).
     var epicOverlayEnabled by remember { mutableStateOf(shortcut.getExtra("epicOverlay", "0") == "1") }
+    // Windows Steam client: start in Big Picture. null = not a Windows Steam shortcut.
+    var steamBigPicture by remember { mutableStateOf(if (com.winlator.star.store.WindowsSteamClient.isWindowsSteamShortcut(shortcut)) shortcut.getExtra(com.winlator.star.store.WindowsSteamClient.EXTRA_BIG_PICTURE) == "1" else null) }
     // Xbox game whose install ships Microsoft's xgameruntime.dll: use the app's (Xodus Nexus) instead. Default ON.
     val xboxShipsRuntime = remember {
         shortcut.getExtra("storeSource") == "xbox" && shortcut.getExtra("xboxProductId").let { id ->
@@ -5862,7 +5879,7 @@ internal fun ShortcutSettingsDialogScreen(
     // Frame Generation engine (off / bionic / lsfg) — per-game override.
     // lsfg-vk retired from the list (see ContainerDetailScreen); a legacy "lsfg" override
     // shows and saves as LSFG Native.
-    val fgEngines = remember { listOf("off", "bionic", "lsfg-native") }
+    val fgEngines = remember { listOf("off", "bionic", "lsfg-native", "wfg") }
     var frameGenEngine by remember {
         mutableStateOf(shortcut.getExtra("frameGenEngine", shortcut.container.frameGenEngine)
             .let { if (it == "lsfg") "lsfg-native" else it })
@@ -6212,6 +6229,20 @@ internal fun ShortcutSettingsDialogScreen(
     }
     var showIconPickMenu by remember { mutableStateOf(false) }
 
+    // A Box64 / WOWBox64 / FEXCore / Box64EC download from this dialog: re-read only those lists, so a new
+    // version can be picked at once and unsaved edits stay.
+    var translatorListsKey by remember { mutableIntStateOf(0) }
+    LaunchedEffect(translatorListsKey) {
+        if (translatorListsKey == 0 || !archLoaded) return@LaunchedEffect
+        val (b64Arr, fexList, ecList) = withContext(Dispatchers.IO) {
+            translatorVersionLists(context, ContentsManager(context).apply { syncContents() }, isArm64EC)
+        }
+        box64Versions = b64Arr
+        fexCoreVersions = fexList
+        box64ECVersions = ecList
+        box64ECInstalled = ecList.isNotEmpty()
+    }
+
     // Load async data
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
@@ -6220,28 +6251,9 @@ internal fun ShortcutSettingsDialogScreen(
             val wineInfo = WineInfo.fromIdentifier(context, cm, shortcut.container.wineVersion)
             val arm64ec = wineInfo.isArm64EC()
 
-            val b64Type = if (arm64ec) ContentProfile.ContentType.CONTENT_TYPE_WOWBOX64
-                          else ContentProfile.ContentType.CONTENT_TYPE_BOX64
-            val b64Arr = if (arm64ec) res.getStringArray(R.array.wowbox64_version_entries).toMutableList()
-                         else res.getStringArray(R.array.box64_version_entries).toMutableList()
-            for (p in cm.getProfiles(b64Type)) {
-                val n = ContentsManager.getEntryName(p)
-                b64Arr.add(n.substring(n.indexOf('-') + 1))
-            }
-
-            val fexList = res.getStringArray(R.array.fexcore_version_entries).toMutableList()
-            for (p in cm.getProfiles(ContentProfile.ContentType.CONTENT_TYPE_FEXCORE)) {
-                val n = ContentsManager.getEntryName(p)
-                fexList.add(n.substring(n.indexOf('-') + 1))
-            }
-
+            val (b64Arr, fexList, ecList) = translatorVersionLists(context, cm, arm64ec)
             val b64Presets = Box64PresetManager.getPresets("box64", context)
             val fexPresets = FEXCorePresetManager.getPresets(context)
-            val ecList = mutableListOf<String>()
-            for (p in cm.getProfiles(ContentProfile.ContentType.CONTENT_TYPE_BOX64EC) ?: emptyList()) {
-                val n = ContentsManager.getEntryName(p)
-                ecList.add(n.substring(n.indexOf('-') + 1))
-            }
             val ecInstalled = ecList.isNotEmpty()
             val profiles = InputControlsManager(context).getProfiles(true)
 
@@ -6313,6 +6325,7 @@ internal fun ShortcutSettingsDialogScreen(
             if (isEpicShortcut) putExtra("epicOvtForce", if (epicOvtForce) "1" else "0")
             if (isEpicShortcut) putExtra("epicOffline", if (epicOffline) "1" else "0")
             if (isEpicShortcut) putExtra("epicOverlay", if (epicOverlayEnabled) "1" else "0")
+            steamBigPicture?.let { putExtra(com.winlator.star.store.WindowsSteamClient.EXTRA_BIG_PICTURE, if (it) "1" else "0") }
             if (xboxShipsRuntime) putExtra(com.winlator.star.store.xbox.XboxRuntime.NEXUS_RUNTIME_EXTRA, if (xboxNexusRuntime) "1" else "0")
             putExtra("screenSize", screenSize)
             // #413: "" (Container Default) -> null -> putExtra removes the key, so launch re-inherits the
@@ -6770,6 +6783,7 @@ internal fun ShortcutSettingsDialogScreen(
                             isEpicShortcut, epicEosEnabled, { epicEosEnabled = it }, epicOvtForce, { epicOvtForce = it },
                             epicOffline, { epicOffline = it }, epicOverlayEnabled, { epicOverlayEnabled = it },
                             xboxShipsRuntime, xboxNexusRuntime, { xboxNexusRuntime = it },
+                            steamBigPicture, { steamBigPicture = it },
                         )
 
                         // Screen size
@@ -7811,7 +7825,8 @@ internal fun ShortcutSettingsDialogScreen(
                             val fgLabels = listOf(
                                 stringResource(R.string.frame_generation_off),
                                 stringResource(R.string.frame_generation_bionic),
-                                stringResource(R.string.frame_generation_lsfg_native)
+                                stringResource(R.string.frame_generation_lsfg_native),
+                                stringResource(R.string.frame_generation_wfg)
                             )
                             val fgIdx = fgEngines.indexOf(frameGenEngine).coerceAtLeast(0)
                             // FG's mailbox/present-mode delivery only exists on the Vulkan host renderer, so
@@ -8718,21 +8733,21 @@ internal fun ShortcutSettingsDialogScreen(
                 else
                     com.winlator.star.contents.ContentProfile.ContentType.CONTENT_TYPE_BOX64,
                 onDismiss = { showBox64DownloadSheet = false },
-                onContentChanged = {}
+                onContentChanged = { translatorListsKey++ }
             )
         }
         if (showFexCoreDownloadSheet) {
             ContentDownloadSheet(
                 contentType = com.winlator.star.contents.ContentProfile.ContentType.CONTENT_TYPE_FEXCORE,
                 onDismiss = { showFexCoreDownloadSheet = false },
-                onContentChanged = {}
+                onContentChanged = { translatorListsKey++ }
             )
         }
         if (showBox64ECDownloadSheet) {
             ContentDownloadSheet(
                 contentType = com.winlator.star.contents.ContentProfile.ContentType.CONTENT_TYPE_BOX64EC,
                 onDismiss = { showBox64ECDownloadSheet = false },
-                onContentChanged = {}
+                onContentChanged = { translatorListsKey++ }
             )
         }
         if (showDxvkDownloadSheet) {
@@ -10157,6 +10172,24 @@ private fun GogBadge(modifier: Modifier = Modifier) {
     }
 }
 
+/** Valve's Windows Steam client (storeSource=windows_steam): Steam's navy, sized like the other pills. */
+@Composable
+private fun WindowsSteamBadge(modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(Color(0xFF1B2838))
+            .padding(horizontal = 5.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "WINDOWS STEAM",
+            color = Color.White,
+            style = MaterialTheme.typography.labelSmall,
+        )
+    }
+}
+
 /**
  * Marks a shortcut whose store source is Steam (storeSource=steam, or — for untagged legacy Steam
  * installs — an exec path under `steam_games`; see [isSteamOriginShortcut]). Steam-brand dark navy
@@ -10328,7 +10361,7 @@ private val AMAZON_ROOT_RE = Regex("""(^|[\\/])Amazon[\\/]""")
 // The stages of the "Copy to Drive C" flow, in order: confirm the source root, resolve a
 // destination collision, run the background copy, then offer to delete the original.
 // The two "+" imports that run in a Wine container, and so ask for one after being picked.
-internal enum class ImportKind { EXE, FOLDER }
+internal enum class ImportKind { EXE, FOLDER, WINDOWS_STEAM }
 
 /** Shown when the game's container is the only one. */
 private const val NO_OTHER_CONTAINER = "There's no other container. Create one in Containers first."
@@ -10950,12 +10983,18 @@ internal fun ShortcutBadgeOverlay(
     showEa: Boolean = false,
     showLinux: Boolean = false,
     showAndroid: Boolean = false,
+    showWindowsSteam: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     // An Android game is only ever that: its package name can look like a store path to the
     // path-based rules above it, so it gets its own pill and nothing else.
     if (showAndroid) {
         Row(modifier = modifier) { AndroidBadge() }
+        return
+    }
+    // Valve's Windows Steam client ("Add games" → Add Windows Steam client x64): its own pill only.
+    if (showWindowsSteam) {
+        Row(modifier = modifier) { WindowsSteamBadge() }
         return
     }
     if (!showSteam && !showEpic && !showEos && !showGog && !showAmazon && !showXbox && !showCustom && !showEa
@@ -11285,7 +11324,26 @@ private fun StoreOptionRows(
     epicOffline: Boolean, onEpicOffline: (Boolean) -> Unit,
     epicOverlayEnabled: Boolean, onEpicOverlay: (Boolean) -> Unit,
     xboxShipsRuntime: Boolean, xboxNexusRuntime: Boolean, onXboxNexusRuntime: (Boolean) -> Unit,
+    steamBigPicture: Boolean?, onSteamBigPicture: (Boolean) -> Unit,
 ) {
+    // Windows Steam client: start in Big Picture (-gamepadui).
+    if (steamBigPicture != null) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Start in Big Picture", fontSize = 14.sp)
+                Text(
+                    "Opens Steam in Big Picture mode",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            Switch(checked = steamBigPicture, onCheckedChange = onSteamBigPicture)
+        }
+    }
     // Epic Online Services (EOS) auth toggle — only for Epic-origin shortcuts.
     // When ON, the launcher injects real-Epic auth args (-EpicPortal + a fresh
     // exchange code) so EOS-requiring titles authenticate against the user's

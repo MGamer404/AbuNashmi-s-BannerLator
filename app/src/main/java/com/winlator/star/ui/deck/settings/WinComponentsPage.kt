@@ -26,6 +26,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -112,6 +113,8 @@ internal class WinComponentsSection(
     /** The ids the "Show more" popup lists (the rest when it was opened); null while it is closed. */
     var popupIds by mutableStateOf<List<String>?>(null)
     var helpFor by mutableStateOf<SettingDef?>(null)
+    /** What Y on the page runs (the editor's [CategoryExtra.focusSearch]): focus the search bar and start typing. Set by the bar itself. */
+    private var openSearch: () -> Unit = {}
 
     private val prefs by lazy { PreferenceManager.getDefaultSharedPreferences(env.context) }
     private val all: List<SettingDef> by lazy { SettingsRegistry.defs.filter { WinComponentsLogic.isComponentRow(it.id) } }
@@ -131,7 +134,15 @@ internal class WinComponentsSection(
     /** The page's extras for the editor: a Wine container, All containers or Wine game with a container form. */
     fun extras(): Map<String, CategoryExtra> {
         if (env.vm == null || env.world != World.WINE) return emptyMap()
-        return mapOf(WinComponentsLogic.EXTRAS_KEY to CategoryExtra(top = ::topItems, level = SettingLevel.ADVANCED))
+        // searchKey / focusSearch: Y on this tab goes to this page's search bar, not to the install lists' search (DeckComponentsState).
+        return mapOf(
+            WinComponentsLogic.EXTRAS_KEY to CategoryExtra(
+                top = ::topItems,
+                searchKey = SEARCH_ITEM_KEY,
+                focusSearch = { openSearch() },
+                level = SettingLevel.ADVANCED,
+            ),
+        )
     }
 
     private fun topItems(): List<PageExtra> {
@@ -153,6 +164,7 @@ internal class WinComponentsSection(
                     onQuery = { query = it },
                     placeholder = L("Search components"),
                     modifier = Modifier.padding(bottom = 10.dp),
+                    onOpenSearch = { openSearch = it },
                 )
             })
             if (matching.isEmpty()) {
@@ -267,10 +279,16 @@ private fun WinComponentsSearchBar(
     placeholder: String,
     modifier: Modifier = Modifier,
     autoFocus: Boolean = false,
+    /** Hands the page what Y runs to open this bar (the page, not the popup, passes it). */
+    onOpenSearch: ((() -> Unit) -> Unit)? = null,
 ) {
     val xmbHome = rememberXmbHome()
     // Only the XMB home has a typing state; the other Deck modes keep the plain focus.
     val edit = if (xmbHome) rememberXmbEdit() else null
+    // Y opens the bar: it takes focus and starts typing, as A on it would.
+    if (onOpenSearch != null) {
+        SideEffect { onOpenSearch(if (edit != null) ({ runCatching { edit.outer.requestFocus() }; edit.start() }) else ({})) }
+    }
     if (autoFocus && edit != null) {
         LaunchedEffect(edit) {
             withFrameNanos { }

@@ -15,6 +15,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.horizontalScroll
@@ -40,10 +41,12 @@ import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -66,6 +69,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -87,7 +91,7 @@ import com.winlator.star.ui.screens.xmbClick
 import com.winlator.star.ui.screens.xmbTabStep
 
 // The XMB Home's tabs page, in the look of the Steam Deck's What's New / Friends / Recommended pages. Down from the games row pushes the
-// Home up and out and brings the page up from the bottom: a pill bar of tabs (Stores, Downloads, Friends, Community configs) under the
+// Home up and out and brings the page up from the bottom: a pill bar of tabs (Stores, Downloads, Friends) under the
 // shell's floating header, the tab's page under it, and the shell's Back / Search hints (and Start Add Game on the Stores tab) over it.
 // B, or Up from the pill bar, or a swipe down slides it back down onto the Home, whose focused game has not moved. The rules (the
 // order of the tabs, the Stores grid) are in screens/XmbTabsLogic.kt; what a page gets from the host is XmbTabsPageFocus.kt.
@@ -104,10 +108,7 @@ private val XMB_TABS_INK = Color.White.copy(alpha = 0.78f)
 /** The selected tab's pill: dark, see-through. */
 private val XMB_TABS_PILL = Color.Black.copy(alpha = 0.5f)
 
-/** The thin light outline of the cursor, as on the Steam Home's cards. */
-private val XMB_TABS_OUTLINE = Color.White.copy(alpha = 0.92f)
-
-/** The green of a count badge (the same green as the A hint). */
+/** The green of the Friends tab's count badge (the same green as the A hint). */
 private val XMB_TABS_BADGE = Color(0xFF3DDC84)
 
 /**
@@ -121,7 +122,6 @@ private fun XmbSteamTab.labelRes(): Int = when (this) {
     XmbSteamTab.STORES -> R.string.xmb_tab_stores
     XmbSteamTab.DOWNLOADS -> R.string.xmb_tab_downloads
     XmbSteamTab.FRIENDS -> R.string.xmb_tab_friends
-    XmbSteamTab.COMMUNITY -> R.string.xmb_tab_community
 }
 
 /**
@@ -152,7 +152,12 @@ internal fun XmbTabsPageHost(
     Box(Modifier.fillMaxSize()) {
         // Read in the graphics layers, so the slide re-draws without recomposing.
         Box(Modifier.fillMaxSize().graphicsLayer { translationY = -progress.value * size.height }) { home() }
-        if (shown) XmbTabsPageBody(open, progress, tab, onTab, onClose, signedIn, games, onStore, onAddGame, badges)
+        if (shown) {
+            // Under the page and over the Home: while the page rises or sinks, a strip of the Home still shows above it, and a tap on that
+            // must not reach the games (a cover would open its options under the page).
+            Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { } })
+            XmbTabsPageBody(open, progress, tab, onTab, onClose, signedIn, games, onStore, onAddGame, badges)
+        }
     }
 }
 
@@ -195,7 +200,8 @@ private fun XmbTabsPageBody(
     val gutterStart = ss.dp(16f) + cutoutSide
     val gutterEnd = ss.dp(16f) + cutoutSide
     val pad = PaddingValues(start = gutterStart, top = ss.dp(8f), end = gutterEnd, bottom = LocalXmbHintInset.current + ss.dp(8f))
-    if (focus.contentPadding != pad) focus.contentPadding = pad
+    // Handed to the pages after this composes (not written during it); the page is still sliding in on its first frame.
+    SideEffect { if (focus.contentPadding != pad) focus.contentPadding = pad }
 
     // L2 / R2 step the tab, wrapping: through the shell, which also turns an analog trigger into the button.
     DisposableEffect(open, deckActions) {
@@ -264,7 +270,8 @@ private fun XmbTabsPageBody(
         when (e.key) {
             Key.DirectionLeft -> { onTabNow(xmbTabStep(selNow, -1, tabs.size, wrap = false)); true }
             Key.DirectionRight -> { onTabNow(xmbTabStep(selNow, 1, tabs.size, wrap = false)); true }
-            Key.DirectionDown, Key.ButtonA, Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> { focus.contentFocused = true; true }
+            // Into the page on a fresh press only: a held Down that opened the page would otherwise carry on into it with its repeats.
+            Key.DirectionDown, Key.ButtonA, Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> { if (first) focus.contentFocused = true; true }
             Key.DirectionUp, Key.ButtonB, Key.Escape -> { if (first) onCloseNow(); true }
             else -> false
         }
@@ -308,7 +315,6 @@ private fun XmbTabsPageBody(
                         XmbSteamTab.STORES -> XmbStoresPage(focus, signedIn, games, onStore)
                         XmbSteamTab.DOWNLOADS -> XmbDownloadsPage(focus)
                         XmbSteamTab.FRIENDS -> XmbFriendsPage(focus)
-                        XmbSteamTab.COMMUNITY -> XmbCommunityPage(focus)
                     }
                 }
                 // No floating hints on a phone: the same hint, in the page's corner.
@@ -320,13 +326,15 @@ private fun XmbTabsPageBody(
                 }
             }
         }
+        // Sliding away: the page takes no taps (a tap on a store tile or a friend while it sinks would act on a page that is leaving).
+        if (!open) Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { } })
     }
 }
 
 /**
  * The pill bar: L2, the tabs, R2, centred (a row wider than the screen scrolls, and keeps the selected tab in view). The selected tab is
  * a dark see-through pill with white bold text, ringed in the thin light outline while the bar holds the cursor; the others are bold
- * light text. A tab's [badges] count shows as a small green badge after its name.
+ * light text. A tab's [badges] count shows as a small badge after its name (see [XmbTabBadge]).
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -372,7 +380,7 @@ private fun XmbTabsBar(
                         modifier = Modifier
                             .clip(shape)
                             .background(if (on) XMB_TABS_PILL else Color.Transparent)
-                            .then(if (on && barFocused) Modifier.border(1.5.dp, XMB_TABS_OUTLINE, shape) else Modifier)
+                            .then(if (on && barFocused) Modifier.border(1.5.dp, XMB_FOCUS_OUTLINE, shape) else Modifier)
                             .padding(horizontal = ss.dp(14f), vertical = ss.dp(7f)),
                     ) {
                         Text(
@@ -383,20 +391,35 @@ private fun XmbTabsBar(
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                         )
-                        // The slot for a count (the Friends tab's, later).
-                        if (count > 0) {
-                            Box(
-                                Modifier.defaultMinSize(minWidth = ss.dp(16f), minHeight = ss.dp(16f)).clip(CircleShape).background(XMB_TABS_BADGE).padding(horizontal = ss.dp(4f)),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(count.toString(), color = Color.Black, fontSize = ss.sp(9f), fontWeight = FontWeight.ExtraBold, maxLines = 1)
-                            }
-                        }
+                        XmbTabBadge(t, count, ss)
                     }
                 }
             }
         }
         XmbBarBumper("R2") { onStep(1) }
+    }
+}
+
+/**
+ * A tab's count badge, a small pill after its name (the pill bar's and the Home peek's): Friends' online count in Steam's green, the
+ * other tabs' (active downloads) in the accent. Nothing for a count of zero.
+ */
+@Composable
+internal fun XmbTabBadge(tab: XmbSteamTab, count: Int, ss: ScreenScale) {
+    if (count <= 0) return
+    val friends = tab == XmbSteamTab.FRIENDS
+    Box(
+        Modifier
+            .defaultMinSize(minWidth = ss.dp(16f), minHeight = ss.dp(16f))
+            .clip(CircleShape)
+            .background(if (friends) XMB_TABS_BADGE else MaterialTheme.colorScheme.primary)
+            .padding(horizontal = ss.dp(4f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            count.toString(), color = if (friends) Color.Black else MaterialTheme.colorScheme.onPrimary,
+            fontSize = ss.sp(9f), fontWeight = FontWeight.ExtraBold, maxLines = 1,
+        )
     }
 }
 

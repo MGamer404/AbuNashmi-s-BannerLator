@@ -43,6 +43,7 @@ import androidx.compose.material.icons.outlined.Cast
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.DesktopWindows
+import androidx.compose.material.icons.outlined.Extension
 import androidx.compose.material.icons.outlined.FlipToFront
 import androidx.compose.material.icons.outlined.Keyboard
 import androidx.compose.material.icons.outlined.Layers
@@ -551,7 +552,7 @@ private fun FrameLimitRow(state: XServerDrawerState, compactHint: Boolean = fals
         state.setFpsLimit(value)
         state.onFpsLimitChange?.run()
     }
-    val nativeFgName = if (fgEngine == "lsfg-native") L("LSFG Native") else L("Win-FG Native")
+    val nativeFgName = when (fgEngine) { "lsfg-native" -> L("LSFG Native"); "wfg" -> "WFG"; else -> L("Win-FG Native") }
     val lsfgVkMultiplying = fgEngine == "lsfg" && fgEnabled && fgMult >= 2
     val hint = when {
         nativeFgLocks -> L("Caps the game's real frames. Locked on while %1\$s is generating; you'll see up to %2\$s × %3\$s = %4\$s.", nativeFgName, limit, fgMult, limit * fgMult)
@@ -731,21 +732,21 @@ private fun BrightnessRow() {
     }
 }
 
-/** Relative mouse and Cursor to Touch: the same toggles as the Classic Controls › Mouse chips. */
+/** Touch and Aim mode: the same choices as the Classic Controls › Mouse chips, saved for this game. */
 @Composable
 private fun MouseQuickRows(state: XServerDrawerState) {
-    val relative by state.isRelativeMouseMovement.collectAsState()
-    val cursorToTouch by state.moveCursorToTouchpoint.collectAsState()
-    val wayland by state.isWaylandMode.collectAsState()
-    // The same Wayland note the Classic Mouse chips carry.
-    val relativeHint = if (wayland) L("Wayland: mouse deltas go to the compositor; a game that locks the pointer receives them as relative motion.")
-        else L("For games that lock the pointer (camera look).")
-    IgRow(L("Relative mouse"), hint = relativeHint, scopes = listOf(igGameScope())) {
-        IgSwitch(relative) { state.onRelativeMouseMovement?.run() }
+    val touch by state.touchMode.collectAsState()
+    val aim by state.aimMode.collectAsState()
+    IgRow(L("Touch"), scopes = listOf(igGameScope()), wideControl = true) {
+        IgSegmented(listOf("touchpad" to L("Touchpad"), "direct" to L("Direct"), "touchscreen" to L("Touchscreen")), touch) {
+            state.onTouchMode?.accept(it)
+        }
     }
     IgDivider()
-    IgRow(L("Cursor to touch"), hint = L("The pointer jumps to where you touch."), scopes = listOf(SaveScope.ALL)) {
-        IgSwitch(cursorToTouch) { state.onMoveCursorToTouchpoint?.run() }
+    IgRow(L("Aim mode"), scopes = listOf(igGameScope()), wideControl = true) {
+        IgSegmented(listOf("auto" to L("Auto"), "on" to L("On"), "off" to L("Off")), aim) {
+            state.onAimMode?.accept(it)
+        }
     }
 }
 
@@ -784,7 +785,7 @@ private fun QuickTools(kind: InGameSessionKind) {
             add(Triple(L("Switch window"), Icons.Outlined.ViewCarousel) { closeThen(state.onActiveWindows) })
             add(Triple(L("Run a program"), Icons.Outlined.Terminal) {
                 XServerDialogState.onTmDismissed?.run()
-                XServerDialogState.onTmNewTask?.run()
+                (XServerDialogState.onRunProgramPicker ?: XServerDialogState.onTmNewTask)?.run()
             })
             add(Triple(L("Task manager"), Icons.Outlined.ListAlt) { DeckInGameState.openMenuAt(MenuTab.TOOLS) })
         }
@@ -868,6 +869,7 @@ private fun menuTabTitle(t: MenuTab) = when (t) {
     MenuTab.STEAM -> "Steam"
     MenuTab.TV -> "TV"
     MenuTab.FRIENDS -> L("Friends")
+    MenuTab.MODS -> L("Mods")
     MenuTab.TOOLS -> L("Tools")
 }
 
@@ -885,6 +887,7 @@ private fun menuTabDesc(t: MenuTab, kind: InGameSessionKind) = when (t) {
     MenuTab.STEAM -> L("The Linux Steam client session.")
     MenuTab.TV -> L("Play on a TV or cast to one.")
     MenuTab.FRIENDS -> L("Steam friends and chat.")
+    MenuTab.MODS -> L("This game's mods and their menus.")
     MenuTab.TOOLS -> if (kind.isWine) L("Magnifier, windows, logs and running programs.") else L("Magnifier, picture-in-picture, keyboard and performance.")
 }
 
@@ -898,6 +901,7 @@ private fun menuTabIcon(t: MenuTab): ImageVector = when (t) {
     MenuTab.STEAM -> Icons.Outlined.Storefront
     MenuTab.TV -> Icons.Outlined.Tv
     MenuTab.FRIENDS -> Icons.Outlined.People
+    MenuTab.MODS -> Icons.Outlined.Extension
     MenuTab.TOOLS -> Icons.Outlined.Build
 }
 
@@ -913,10 +917,12 @@ private fun DeckInGameMenu(modifier: Modifier, onExit: () -> Unit) {
     val tvConnected by state.tvConnected.collectAsState()
     val castSupported by state.castSupported.collectAsState()
     val friendsSource by InGameFriendsSource.state.collectAsState()
+    val mods by state.mods.collectAsState()
     val tabs = DeckInGameState.availableMenuTabs(
         kind,
         FeatureFlags.TV_OUTPUT_ENABLED && (tvConnected || castSupported),
         friendsSource.tabVisible,
+        mods.isNotEmpty(),
     )
     // A page that stops applying (the friends source dropped) falls back to the first page rather than an empty one.
     val shown = if (tab in tabs) tab else tabs.first()
@@ -996,6 +1002,7 @@ private fun DeckInGameMenu(modifier: Modifier, onExit: () -> Unit) {
                             MenuTab.AUDIO -> AudioPage(state)
                             MenuTab.STEAM -> SteamPage(state)
                             MenuTab.TV -> TvPage(state)
+                            MenuTab.MODS -> ModsPage(state, mods)
                             MenuTab.TOOLS -> ToolsPage(state, kind)
                             MenuTab.FRIENDS -> Unit
                         }
@@ -1078,7 +1085,8 @@ private fun LabInGameMenu(modifier: Modifier, onExit: () -> Unit) {
     val tvConnected by state.tvConnected.collectAsState()
     val castSupported by state.castSupported.collectAsState()
     val friendsSource by InGameFriendsSource.state.collectAsState()
-    val tabs = DeckInGameState.availableMenuTabs(kind, FeatureFlags.TV_OUTPUT_ENABLED && (tvConnected || castSupported), friendsSource.tabVisible)
+    val mods by state.mods.collectAsState()
+    val tabs = DeckInGameState.availableMenuTabs(kind, FeatureFlags.TV_OUTPUT_ENABLED && (tvConnected || castSupported), friendsSource.tabVisible, mods.isNotEmpty())
     val shown = if (tab in tabs) tab else tabs.first()
     val accent = MaterialTheme.colorScheme.primary
     val stripFocus = remember { FocusRequester() }
@@ -1227,6 +1235,7 @@ private fun LabInGameMenu(modifier: Modifier, onExit: () -> Unit) {
                         MenuTab.AUDIO -> AudioPage(state)
                         MenuTab.STEAM -> SteamPage(state)
                         MenuTab.TV -> TvPage(state)
+                        MenuTab.MODS -> ModsPage(state, mods)
                         MenuTab.TOOLS -> ToolsPage(state, kind)
                         MenuTab.FRIENDS -> Unit
                     }
@@ -1485,8 +1494,9 @@ private fun ControlsPage(state: XServerDrawerState, kind: InGameSessionKind) {
                 L("Controls accent") to listOf(SaveScope.other(L("Saved in the controls profile"))),
             )
             1 -> SaveNotes(
-                L("Relative mouse") to listOf(game),
-                L("Cursor to touch and its touch gestures") to listOf(SaveScope.ALL),
+                L("Touch") to listOf(game),
+                L("Aim mode") to listOf(game),
+                L("Touch gestures") to listOf(SaveScope.ALL),
                 L("Disable mouse") to listOf(SaveScope.SESSION),
             )
             2 -> SaveNotes(
@@ -1670,7 +1680,7 @@ private fun RunningPrograms(state: XServerDrawerState) {
         IgRow(L("Run a program"), hint = L("Start another program in this session.")) {
             IgButton(L("Run…"), Icons.Outlined.Terminal, {
                 XServerDialogState.onTmDismissed?.run()
-                XServerDialogState.onTmNewTask?.run()
+                (XServerDialogState.onRunProgramPicker ?: XServerDialogState.onTmNewTask)?.run()
             })
         }
     }

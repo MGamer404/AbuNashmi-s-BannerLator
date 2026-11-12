@@ -220,7 +220,7 @@ internal fun DeckHome(
     onOpenContainer: (Int) -> Unit,
     onAddGame: () -> Unit,
     onBigPicture: () -> Unit,
-    /** The XMB home's store cards open a store's own screen (its sign-in while signed out). */
+    /** The Stores tab of the XMB home's tabs page opens a store's own screen (its sign-in while signed out). */
     onLaunchStore: (Screen) -> Unit,
     vm: ShortcutsViewModel = viewModel(),
 ) {
@@ -237,8 +237,8 @@ internal fun DeckHome(
 
     // XMB mode (Appearance > Interface Style > XMB): Home is the XMB, whatever view was last picked. The picked view is kept for turning it off.
     val xmbHome by AppThemeState.deckXmbHome.collectAsState()
-    // The XMB home's store cards say whether each store is signed in, and the Friends card shows only while signed in
-    // to Steam; re-read on resume, so coming back from a store's sign-in updates them. Read only in that mode, and off the
+    // The Stores tab of the XMB home's tabs page says whether each store is signed in (its cards), and the Friends tab asks to sign in;
+    // re-read on resume, so coming back from a store's sign-in updates them. Read only in that mode, and off the
     // main thread (it reads each store's credentials): Home starts from the last result, so nothing waits on the read.
     val readSignedIn = { DeckStore.entries.associateWith { isSignedIn(context, it) } }
     var signedIn by remember {
@@ -295,9 +295,9 @@ internal fun DeckHome(
     val visible = remember(shortcuts, stats, filter, xmbOrder) {
         applyFilter(shortcuts, if (xmbOrder) filter.copy(sort = LibrarySort.RECENT) else filter, stats)
     }
-    // The XMB's games row holds only the latest XMB_ROW_LIMIT games, the rest are on its All Games page. A filter in use
-    // shows its matches in full.
-    val xmbRow = remember(visible, filter, xmbOrder) { xmbRowOf(visible, enabled = xmbOrder && filter.activeCount == 0) }
+    // The full-screen XMB's games row holds only the latest XMB_ROW_LIMIT games, the rest are on its All Games page. A filter in use
+    // shows its matches in full. The XMB home shows the whole library in its one row (no cap, no All Games page).
+    val xmbRow = remember(visible, filter, xmbHome) { if (xmbHome) visible else xmbRowOf(visible, enabled = filter.activeCount == 0) }
     val storeShelves = remember(visible) {
         STORE_SHELVES.map { (label, test) -> label to visible.filter(test) }
             .filter { (_, list) -> list.isNotEmpty() && list.size < visible.size }
@@ -381,12 +381,15 @@ internal fun DeckHome(
     )
     val xmbActionsFor: (Shortcut) -> List<XmbAction> = { s ->
         // The full-screen XMB keeps a game's settings inside it, as nested columns like the Classic XMB; only the
-        // Steam (Linux) entry, whose settings aren't XMB rows, opens the Deck editor.
-        xmbGameActions(context, s, xmbHost, openSettings = { actions.perform(GameMenuAction.SETTINGS, it) }, settingsAsColumns = true)
+        // Steam (Linux) entry, whose settings aren't XMB rows, opens the Deck editor. The XMB Home lists Community configs third.
+        xmbGameActions(
+            context, s, xmbHost, openSettings = { actions.perform(GameMenuAction.SETTINGS, it) }, settingsAsColumns = true,
+            communityThird = xmbHome,
+        )
     }
     // XMB home: the plain text tabs under the focused game's title are the peek of the tabs page (XmbTabsPage.kt): Down from the covers, or a
-    // tap on a tab, pushes Home up and brings the page up on the last used tab (or the tapped one). Stores, Downloads, Friends and Community
-    // configs are its tabs; the tabs here only say which one to open. The callbacks the page calls are tracked separately so the remembered
+    // tap on a tab, pushes Home up and brings the page up on the last used tab (or the tapped one). Stores, Downloads and Friends are its
+    // tabs; the tabs here only say which one to open. The callbacks the page calls are tracked separately so the remembered
     // tabs never hold a stale one.
     val launchStore by rememberUpdatedState(onLaunchStore)
     val addGame by rememberUpdatedState(onAddGame)
@@ -402,9 +405,15 @@ internal fun DeckHome(
                 XmbSteamTab.STORES -> XmbAction(context.getString(R.string.xmb_tab_stores), Icons.Filled.Storefront, onClick = open)
                 XmbSteamTab.DOWNLOADS -> XmbAction(context.getString(R.string.xmb_tab_downloads), Icons.Filled.Download, onClick = open)
                 XmbSteamTab.FRIENDS -> XmbAction(context.getString(R.string.xmb_tab_friends), Icons.Filled.People, onClick = open)
-                XmbSteamTab.COMMUNITY -> XmbAction(context.getString(R.string.xmb_tab_community), Icons.Filled.Public, onClick = open)
             }
         }
+    }
+    // The counts on the tabs, shown on the page's pill bar and on the Home's peek: downloads under way or waiting (an accent badge) and
+    // friends online (Steam's green). Nothing shows for a zero. Collected only in the XMB home, so no other mode watches them.
+    val downloadsActive = if (xmbHome) xmbDownloadsActiveFlow().collectAsState().value else 0
+    val friendsOnline = if (xmbHome) rememberXmbFriendsBadge() else 0
+    val xmbBadges: Map<XmbSteamTab, Int> = remember(downloadsActive, friendsOnline) {
+        mapOf(XmbSteamTab.DOWNLOADS to downloadsActive, XmbSteamTab.FRIENDS to friendsOnline)
     }
     // The store logos on the covers' marks are big PNGs: decode them now, off the main thread, so the first frame finds them ready.
     LaunchedEffect(xmbHome) {
@@ -547,10 +556,11 @@ internal fun DeckHome(
                 games = shortcuts,
                 onStore = { store -> launchStore(store.screen) },
                 onAddGame = { addGame() },
+                badges = xmbBadges,
             ) {
                 ShortcutsXmbView(
                     // The XMB home runs the whole library, recent first, in one row with no All Games card.
-                    shortcuts = if (xmbHome) visible else xmbRow,
+                    shortcuts = xmbRow,
                     allShortcuts = if (xmbHome) null else visible,
                     selectionMode = false,
                     selectedPaths = emptySet(),
@@ -572,6 +582,7 @@ internal fun DeckHome(
                     showHints = !xmbHome,
                     steamHome = xmbHome,
                     homeTabs = xmbTabs,
+                    homeBadges = xmbBadges,
                     centeredHome = xmbHome,
                     takeFocus = { !xmbHome || (!deckActions.navHold.value && !tabsPageOpen) },
                     focusTick = if (xmbHome) deckActions.enterTick.intValue + tabsPageClosed else 0,

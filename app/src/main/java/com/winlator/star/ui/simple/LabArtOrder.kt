@@ -35,3 +35,9 @@ internal fun labSteamSources(appId: Int?, slot: String, pics: LabSteamPics?, sgd
  * app (or renamed) is therefore looked up again instead of keeping the picture found for what it used to be.
  */
 internal fun labHeroKey(name: String, appId: Int?): String = if (appId != null && appId > 0) "$name#$appId" else name
+
+/**
+ * A fingerprint of the pictures a backdrop tries (their models, in order), part of its identity: art that arrives later (Steam's
+ * published art, a found Steam app, a SteamGridDB hero) changes it, so the backdrop swaps to it instead of keeping the old pictures.
+ */
+internal fun labPicsKey(models: List<Any>): String = models.joinToString("\n") { it.toString() }.hashCode().toString()

@@ -61,7 +61,6 @@ import com.winlator.star.SettingsFragment
 import com.winlator.star.contentdialog.ContentDialog
 import com.winlator.star.core.AppUtils
 import com.winlator.star.core.FileUtils
-import com.winlator.star.core.LogLocation
 import com.winlator.star.core.PreloaderDialog
 import com.winlator.star.core.UpdateManager
 import com.winlator.star.core.WinFgCapture
@@ -78,27 +77,23 @@ import com.winlator.star.ui.components.ColorPicker
 import com.winlator.star.ui.deck.DeckSetup
 import com.winlator.star.ui.screens.OutlinedAlertDialog
 import com.winlator.star.ui.screens.PerformanceSettingsScreen
-import com.winlator.star.ui.screens.WineChannelGroup
 import com.winlator.star.ui.theme.AppThemeState
 import com.winlator.star.util.InAppFilePicker
 import com.winlator.star.xenvironment.ImageFsInstaller
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
-// The page items (not rows) of the XMB / Deck Settings tab: everything the Classic Settings screen did with a button, a picker or a
+// The page items (not rows) of the XMB Settings tab (the plain Deck and Lab have none of these): everything the Classic Settings screen did with a button, a picker or a
 // dialog, ported as real in-page items. The registry's rows can't be these (they are a control and a stored value), so they come
 // as page extras, keyed by TAB id (AppSettingsLayout feeds each source to the tab of its own key):
 //   General      Version (installed / latest, Check for updates, Download and install), About and help (About, Help, My account, Run setup again)
-//   Appearance   XMB: (top) the Theme preset line, which opens a popup grid of themes with their colour squares; (bottom) the custom accent colour picker
-//                (plain Deck: only the accent picker, the Theme preset is a row)
-//   Library      XMB: (top, the first item of the tab) Steam library locations; (bottom) Steam connection tests (regions, network)
-//                (plain Deck: Steam connection tests, then Steam library locations, at the bottom)
+//   Appearance   (top) the Theme preset line, which opens a popup grid of themes with their colour squares; (bottom) the custom accent colour picker
+//   Library      (top, the first item of the tab) Steam library locations; (bottom) Steam connection tests (regions, network)
 //   Performance  Root controls and heat safety (the Performance screen in a dialog), Lossless.dll for LSFG Native
 //   Storage      Space used, Folders (app data, shortcut export, reinstall the base system), Sound banks, Backup and restore
-//                (plain Deck also: the Log folder action and, at the bottom, the Wine debug channels)
 //   Advanced     Frame-gen training capture (consent dialog, resolution, extra logging, diagnostic log)
-// XMB only: nothing about logs is here (what is recorded, where it goes and how long it is kept are in Tools > Logs). The plain Deck
-// keeps the logs rows, the Log folder action and the Wine channel chooser in Settings > Storage & data, as before.
+// Nothing about logs is here (what is recorded, where it goes and how long it is kept are in Tools > Logs). The plain Deck keeps
+// the logs rows and the Wine channel chooser in its own Settings > Storage & data, which does not use this file.
 // Every action writes the same preference / runs the same code as the classic screen, at once. The dialogs and the activity-result
 // launchers live in [Dialogs], which DeckAppSettings composes beside the editor (a dialog inside a scrolling item would close with it).
 
@@ -134,8 +129,6 @@ internal class AppSettingsExtras(
     private val onAbout: () -> Unit,
     /** Null hides the My account line (the host has no account page to open). */
     private val onMyAccount: (() -> Unit)?,
-    /** True in the XMB interface: the new arrangement (theme popup, library locations first, logs only in Tools). False: the plain Deck's. */
-    private val xmb: Boolean,
 ) : DeckSection {
 
     private val prefs = PreferenceManager.getDefaultSharedPreferences(context)
@@ -194,10 +187,10 @@ internal class AppSettingsExtras(
 
     override fun extras(): Map<String, CategoryExtra> = mapOf(
         EditorTabs.APP_GENERAL to CategoryExtra(bottom = { generalBottom() }),
-        EditorTabs.APP_APPEARANCE to CategoryExtra(top = { if (xmb) appearanceTop() else emptyList() }, bottom = { appearanceBottom() }),
-        EditorTabs.APP_LIBRARY to CategoryExtra(top = { if (xmb) libraryTop() else emptyList() }, bottom = { libraryBottom() }, level = SettingLevel.ADVANCED),
+        EditorTabs.APP_APPEARANCE to CategoryExtra(top = { appearanceTop() }, bottom = { appearanceBottom() }),
+        EditorTabs.APP_LIBRARY to CategoryExtra(top = { libraryTop() }, bottom = { libraryBottom() }, level = SettingLevel.ADVANCED),
         EditorTabs.APP_PERFORMANCE to CategoryExtra(bottom = { performanceBottom() }, level = SettingLevel.ADVANCED),
-        EditorTabs.APP_STORAGE to CategoryExtra(top = { storageTop() }, bottom = { if (xmb) emptyList() else storageBottom() }),
+        EditorTabs.APP_STORAGE to CategoryExtra(top = { storageTop() }),
         EditorTabs.APP_ADVANCED to CategoryExtra(bottom = { advancedBottom() }, level = SettingLevel.ADVANCED),
     )
 
@@ -319,12 +312,11 @@ internal class AppSettingsExtras(
         DeckAction("libraries", Icons.Filled.Folder, context.getString(R.string.steam_lib_title), context.getString(R.string.steam_lib_settings_subtitle)) { showSteamLibraries = true },
     ))
 
-    // XMB: the locations are in [libraryTop]; the plain Deck keeps them as the last action of the connection tests.
-    private fun libraryBottom(): List<PageExtra> = actionItems("steam-conn", L("Steam connection tests"), buildList<DeckAction> {
-        add(DeckAction("regions", Icons.Filled.Refresh, if (regionProbing) L("Testing regions...") else L("Test regions"), regionHint(), enabled = !regionProbing) { testRegions() })
-        add(DeckAction("network", Icons.Filled.Speed, if (netProbing) L("Testing network...") else L("Test network"), networkHint(), enabled = !netProbing) { testNetwork() })
-        if (!xmb) add(DeckAction("libraries", Icons.Filled.Folder, context.getString(R.string.steam_lib_title), context.getString(R.string.steam_lib_settings_subtitle)) { showSteamLibraries = true })
-    })
+    // The locations are in [libraryTop].
+    private fun libraryBottom(): List<PageExtra> = actionItems("steam-conn", L("Steam connection tests"), listOf(
+        DeckAction("regions", Icons.Filled.Refresh, if (regionProbing) L("Testing regions...") else L("Test regions"), regionHint(), enabled = !regionProbing) { testRegions() },
+        DeckAction("network", Icons.Filled.Speed, if (netProbing) L("Testing network...") else L("Test network"), networkHint(), enabled = !netProbing) { testNetwork() },
+    ))
 
     // ── Performance ─────────────────────────────────────────────────────────────────────────────
 
@@ -559,16 +551,6 @@ internal class AppSettingsExtras(
         val folders = buildList<DeckAction> {
             add(DeckAction("data", Icons.Filled.Folder, L("App data folder"), dataPath) { pickTree("winlator_path_uri") { dataPath = readTreePath("winlator_path_uri", SettingsFragment.DEFAULT_WINLATOR_PATH) } })
             add(DeckAction("export", Icons.Filled.Folder, L("Shortcut export folder"), exportPath) { pickTree("shortcuts_export_path_uri") { exportPath = readTreePath("shortcuts_export_path_uri", SettingsFragment.DEFAULT_SHORTCUT_EXPORT_PATH) } })
-            // Plain Deck only: the log settings stay in Settings there (in the XMB interface they are in Tools > Logs).
-            if (!xmb) add(DeckAction("logs", Icons.Filled.Description, L("Log folder"),
-                (LogLocation.resolveLogDir(context)?.absolutePath ?: "-") + "\n" + L("Pick a folder of your own: the Log location row below then reads Custom folder.")) {
-                startInApp(InAppFilePicker.buildDirIntent(context, L("Select log folder"))) { data ->
-                    InAppFilePicker.pickedPath(data)?.let { path ->
-                        prefs.edit().putString(LogLocation.PREF_CUSTOM_PATH, path).putString(LogLocation.PREF_MODE, LogLocation.MODE_CUSTOM).apply()
-                        toast(L("Logs go to") + " " + path)
-                    }
-                }
-            })
             add(DeckAction("imagefs", Icons.Filled.Storage, L("Reinstall the base system (ImageFS)"),
                 L("Restores the system files. Your containers are not changed.")) {
                 ContentDialog.confirm(context, R.string.do_you_want_to_reinstall_imagefs) {
@@ -598,36 +580,6 @@ internal class AppSettingsExtras(
         ) + actionItems("folders", L("Folders"), folders) +
             cardItems("banks", L("Sound banks"), soundLines) +
             actionItems("backup", L("Backup and restore"), backup)
-    }
-
-    // Plain Deck only (the XMB interface has no Wine channel chooser here: it is in Tools > Logs).
-    private fun storageBottom(): List<PageExtra> = listOf(
-        PageExtra("wine-label") { GroupLabel(L("Wine debug channels")) },
-        PageExtra("wine-channels") { GroupCard(first = true, last = true, highlight = false) { WineChannelsCard() } },
-    )
-
-    @Composable
-    private fun WineChannelsCard() {
-        var channels by remember {
-            mutableStateOf(
-                (prefs.getString("wine_debug_channels", SettingsFragment.DEFAULT_WINE_DEBUG_CHANNELS) ?: SettingsFragment.DEFAULT_WINE_DEBUG_CHANNELS)
-                    .split(",").filter { it.isNotBlank() }
-            )
-        }
-        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp)) {
-            Text(
-                L("Which Wine channels are recorded while Wine debug is on (Logs, above)."),
-                color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.5.sp,
-            )
-            Spacer(Modifier.height(6.dp))
-            WineChannelGroup(
-                selected = channels,
-                onChange = { list ->
-                    channels = list
-                    prefs.edit().putString("wine_debug_channels", list.joinToString(",")).apply()
-                },
-            )
-        }
     }
 
     // ── Advanced: frame-gen training capture ───────────────────────────────────────────────────

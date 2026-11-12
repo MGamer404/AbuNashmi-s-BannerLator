@@ -21,6 +21,7 @@ import androidx.preference.PreferenceManager
 import com.winlator.star.box64.Box64Preset
 import com.winlator.star.container.Container
 import com.winlator.star.contents.ContentsManager
+import com.winlator.star.core.TouchAimSettings
 import com.winlator.star.core.UpdateManager
 import com.winlator.star.fexcore.FEXCorePreset
 import com.winlator.star.inputcontrols.SteamControllerBackend
@@ -44,8 +45,8 @@ import java.util.Locale
 // App-wide settings for the Deck Settings tab. Each one reads and writes the same preference the
 // classic screen that owns it uses (Settings, Performance, Input Controls › Device, the Save Manager,
 // Contents, Steam Friends), with the same side effects, and applies the moment it changes (there is
-// nothing to save). The lists below (categories, handoffs, TARGET_*) are what Lab and the Classic shell read and must stay as
-// they are; the XMB / Deck Settings tab re-files these rows into its own six tabs (AppSettingsLayout), adds the rows of
+// nothing to save). The lists below (categories, handoffs, TARGET_*) are what Lab, the plain Deck and the Classic shell read and must stay as
+// they are; the XMB Settings tab re-files these rows into its own six tabs (AppSettingsLayout), adds the rows of
 // AppSettingsRows and the page items of AppSettingsExtras, and does not use the hand-offs.
 
 internal object AppSettingsRegistry {
@@ -97,9 +98,12 @@ internal object AppSettingsRegistry {
         "app.advanced" to listOf(Handoff(T("Frame-gen training capture"), T("Contributing captures and the win-fg diagnostic log (classic Settings)."), TARGET_CLASSIC)),
     )
 
-    // The legacy rows (Classic / Lab categories above) plus the rows only the XMB / Deck Settings tab has: they sit in "app.x.*"
-    // categories that are not in [categories], so Lab ignores them, and AppSettingsLayout files all of them into its tabs.
-    val defs: List<SettingDef> by lazy { buildDefs() + AppSettingsRows.defs() }
+    /** The rows of the categories above: what the plain Deck, Lab and Classic list, exactly as before. */
+    val legacyDefs: List<SettingDef> by lazy { buildDefs() }
+
+    // [legacyDefs] plus the rows only the XMB Settings tab has: they sit in "app.x.*" categories that are not in [categories],
+    // and AppSettingsLayout files all of them into its tabs. Only the XMB editor is given this list.
+    val defs: List<SettingDef> by lazy { legacyDefs + AppSettingsRows.defs() }
 
     private fun prefs(c: Context) = PreferenceManager.getDefaultSharedPreferences(c)
     private fun onOff(b: Boolean) = if (b) "1" else "0"
@@ -222,6 +226,23 @@ internal object AppSettingsRegistry {
             ),
         ),
 
+        // Touch and Aim mode for games that have none of their own (TouchAimSettings).
+        app(
+            "app.controllers.touch", "app.controllers", T("Mouse & keyboard (Wine games)"), T("Touch"), ADVANCED, tech = TouchAimSettings.PREF_TOUCH,
+            control = { Control.Segmented(listOf(Opt(TouchAimSettings.TOUCHPAD, T("Touchpad")), Opt(TouchAimSettings.DIRECT, T("Direct")))) },
+            binding = AppBinding(
+                get = { c -> TouchAimSettings.appTouch(prefs(c)) },
+                set = { c, v -> prefs(c).edit().putString(TouchAimSettings.PREF_TOUCH, v).apply() },
+            ),
+        ),
+        app(
+            "app.controllers.aim", "app.controllers", T("Mouse & keyboard (Wine games)"), T("Aim mode"), ADVANCED, tech = TouchAimSettings.PREF_AIM,
+            control = { Control.Segmented(listOf(Opt(TouchAimSettings.AUTO, T("Auto")), Opt(TouchAimSettings.ON, T("On")), Opt(TouchAimSettings.OFF, T("Off")))) },
+            binding = AppBinding(
+                get = { c -> TouchAimSettings.appAim(prefs(c)) },
+                set = { c, v -> prefs(c).edit().putString(TouchAimSettings.PREF_AIM, v).apply() },
+            ),
+        ),
         app(
             "app.controllers.cursorSpeed", "app.controllers", T("Mouse & keyboard (Wine games)"), T("Cursor speed"), ADVANCED, tech = "cursor_speed",
             control = { Control.Slider(0.1f, 2.0f, 0.05f, { "${(it * 100).toInt()}%" }, { String.format(Locale.ENGLISH, "%.2f", it) }) },

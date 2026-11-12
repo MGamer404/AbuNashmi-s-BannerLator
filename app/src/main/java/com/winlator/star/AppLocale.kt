@@ -51,12 +51,19 @@ object AppLocale {
     /**
      * [base] with the English locale and a left-to-right layout direction, for `attachBaseContext`. Falls back
      * to [base] untouched if the system refuses the configuration, so start-up can never fail here.
+     *
+     * The override is a fresh [Configuration] that sets only the locale and the layout direction (what AppCompat does too):
+     * a copy of the whole base configuration would pin orientation, screen size and UI mode of this moment as overrides, and
+     * the activities that handle those changes themselves (the manifest's configChanges) would then keep reading the old
+     * values from their resources. A new Configuration has every field "undefined" (unset), and Android merges only the fields an
+     * override sets, so everything else keeps following the system; `fontScale = 0` says so explicitly for the font scale.
      */
     @JvmStatic
     fun wrap(base: Context): Context {
         applyDefault()
         return try {
-            val config = Configuration(base.resources.configuration)
+            val config = Configuration()
+            config.fontScale = 0f
             config.setLocale(UI)
             config.setLayoutDirection(UI)
             base.createConfigurationContext(config)

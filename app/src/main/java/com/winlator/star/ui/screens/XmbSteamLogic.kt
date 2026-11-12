@@ -18,6 +18,12 @@ internal const val XMB_STEAM_FOCUS_SCALE = 1.06f
 /** While a game's options are open its card is drawn this many times its size (a lifted, larger card, from its bottom left corner). */
 internal const val XMB_STEAM_OPTS_SCALE = 1.14f
 
+/** The Home backdrop's bottom gradient starts this far (dp, on a 412 dp phone) above the top edge of the tabs' band. */
+internal const val XMB_STEAM_FADE_LEAD = 40f
+
+/** The margin (dp, on a 412 dp phone) at the row's left end, where the first game sits, and on the other side of the screen at its right end. */
+internal const val XMB_STEAM_EDGE = 56f
+
 /** The text tabs are this tall (dp): the touch target. */
 internal const val XMB_STEAM_TABS_H = 48f
 
@@ -33,21 +39,21 @@ internal const val XMB_STEAM_TABS_GAP = 4f
 /** The tabs' text with its padding is about this tall (dp, on a 412 dp phone). */
 internal const val XMB_STEAM_TAB_TEXT_H = 26f
 
-// The title block used to be 34 dp tall with 8 dp above the tabs' text and 6 dp under the covers: the covers' top edge is still
-// worked out from those (see XmbSteamLayout.cardTop), so it stays where it was while the covers now reach down to the tighter title.
-private const val XMB_STEAM_OLD_TITLE_H = 34f
-private const val XMB_STEAM_OLD_TITLE_GAP = 6f
-private const val XMB_STEAM_OLD_TABS_GAP = 8f
+/**
+ * The room (dp, on a 412 dp phone) between the tabs' centre and the bottom edge the covers are sized to when working out where their
+ * top edge is (the title block, its gaps and half the tabs' text). The covers themselves reach lower, down to the tighter title (see
+ * XmbSteamLayout.cardBottom), so this only decides where their tops sit.
+ */
+private const val XMB_STEAM_COVER_ROOM = 61f
+
+/** The tabs sit with their centre this share of the screen's height down (a narrow screen lifts them above the hints). */
+private const val XMB_STEAM_TABS_AT = 0.92f
 
 /** How far (dp, on a 412 dp phone) the covers lift while a game's options are open, at most. */
 private const val XMB_STEAM_LIFT = 120f
 
-/** The text tabs under the focused game's title. */
-internal enum class XmbSteamTab { STORES, DOWNLOADS, FRIENDS, COMMUNITY }
-
-/** The tabs with Friends only while signed in to Steam. The Home's peek and its tabs page list all four now (see [XMB_PAGE_TABS]). */
-internal fun xmbSteamTabs(steamSignedIn: Boolean): List<XmbSteamTab> =
-    XmbSteamTab.entries.filter { it != XmbSteamTab.FRIENDS || steamSignedIn }
+/** The text tabs under the focused game's title: the peek of the tabs page, which lists all three (see [XMB_PAGE_TABS]). */
+internal enum class XmbSteamTab { STORES, DOWNLOADS, FRIENDS }
 
 /** The pictures the first game's wide card tries: its landscape art, then its background art, each once; the caller falls back to the cover. */
 internal fun <T> xmbSteamWideOrder(wide: List<T>, background: List<T>): List<T> = (wide + background).distinct()
@@ -160,26 +166,20 @@ internal class XmbSteamLayout(
     rowH: Float,
     extra: Float,
 ) {
-    val port = h > w * 1.05f
-
     /** The margin the row is pinned to at its ends, and the left margin of the lifted card (and its options column) while they are open. */
-    val edge = (w * 0.055f).coerceIn(40f * k, 44f * k)
+    val edge = (w * 0.055f).coerceIn(XMB_STEAM_EDGE * k, (XMB_STEAM_EDGE + 4f) * k)
 
     /** The tabs are centred (their text, in a band [XMB_STEAM_TABS_H] tall); a narrow screen, where they would meet the hints, lifts them above those. */
-    val tabsCentre = if (w >= 640f) h * 0.92f else min(h * 0.92f, h - bottomClear - XMB_STEAM_TABS_H / 2f)
+    val tabsCentre = if (w >= 640f) h * XMB_STEAM_TABS_AT else min(h * XMB_STEAM_TABS_AT, h - bottomClear - XMB_STEAM_TABS_H / 2f)
     val tabsTop = tabsCentre - XMB_STEAM_TABS_H / 2f
 
-    // Where the covers' top edge is: the same place as before the title block was tightened (the covers were about a third of the screen
-    // tall, their tops at half of it, or higher on a short screen where the old, taller title block had to fit under them).
-    private val oldTabsCentre = if (w >= 640f) h * 0.915f else min(h * 0.915f, h - bottomClear - XMB_STEAM_TABS_H / 2f)
-    private val oldBottomMax = oldTabsCentre - XMB_STEAM_TAB_TEXT_H * k / 2f - XMB_STEAM_OLD_TABS_GAP * k -
-        XMB_STEAM_OLD_TITLE_H * k - XMB_STEAM_OLD_TITLE_GAP * k
-    private val oldWantH = min(h * 0.32f, w * 0.35f)
-    private val oldBottom = min(oldBottomMax, h * 0.50f + oldWantH)
-    private val oldH = min(oldWantH, oldBottom - clipTop - 8f * k).coerceAtLeast(72f)
+    // The covers are about a third of the screen tall with their bottoms at most that far below half of it, or higher on a short screen
+    // where the title block and the tabs have to fit under them; that sets where their top edge is.
+    private val wantH = min(h * 0.32f, w * 0.35f)
+    private val coverBottom = min(tabsCentre - XMB_STEAM_COVER_ROOM * k, h * 0.50f + wantH)
 
     /** The top edge every cover shares (it does not move when the covers grow). */
-    val cardTop = oldBottom - oldH
+    val cardTop = coverBottom - min(wantH, coverBottom - clipTop - 8f * k).coerceAtLeast(72f)
 
     // The title block ends 4 dp above the tabs' text and the covers 5 dp above the title: that is how low the covers can reach.
     private val cardBottomMax = tabsCentre - XMB_STEAM_TAB_TEXT_H * k / 2f - XMB_STEAM_TABS_GAP * k - XMB_STEAM_TITLE_H * k -
@@ -192,7 +192,7 @@ internal class XmbSteamLayout(
     val fH = min(cardBottomMax - cardTop, widthCap).coerceAtLeast(72f)
     val fW = fH * 2f / 3f
     val wideW = fH * XMB_STEAM_WIDE_RATIO
-    val gap = 6f
+    val gap = 6f * k
 
     /** The bottom edge every cover shares. */
     val cardBottom = cardTop + fH
@@ -207,7 +207,7 @@ internal class XmbSteamLayout(
     val lift = min(XMB_STEAM_LIFT * k, cardTop - clipTop - 4f * k - fH * (XMB_STEAM_OPTS_SCALE - 1f)).coerceAtLeast(0f)
 
     /** The options column starts right under the lifted focused card. */
-    val colTop = cardBottom - lift + 12f
+    val colTop = cardBottom - lift + 12f * k
     val nVis = ((h - bottomClear - colTop - extra) / rowH).toInt().coerceIn(2, 8)
 
     /** The row for a library of [games] (all of them: there is no All Games card here). */
@@ -219,3 +219,114 @@ internal class XmbSteamLayout(
     /** The title's left edge: the focused card's, but never so far right that the title leaves the screen. */
     fun titleX(row: XmbSteamRow, target: Int, pos: Float): Float = min(row.x(target, pos), w - edge - titleW).coerceAtLeast(0f)
 }
+
+// ── Touch: swipes and taps on the Home ──
+
+/** Which way a vertical swipe on the Home went once it travelled far enough (see [xmbVSwipe]). */
+internal enum class XmbVSwipe { NONE, UP, DOWN }
+
+/** The swipe's direction from its summed vertical travel [acc] (px, down is positive): none until it passed [thresholdPx] either way. */
+internal fun xmbVSwipe(acc: Float, thresholdPx: Float): XmbVSwipe = when {
+    acc <= -thresholdPx -> XmbVSwipe.UP
+    acc >= thresholdPx -> XmbVSwipe.DOWN
+    else -> XmbVSwipe.NONE
+}
+
+/** What a vertical swipe does on the Home. */
+internal enum class XmbSwipeAction { NONE, OPEN_TABS, CLOSE_OPTIONS }
+
+/**
+ * An upward swipe opens the tabs page (when there are tabs to open and the options are not showing); a downward one closes the options
+ * that are showing and does nothing otherwise (the tabs page closes with a downward swipe on its own page).
+ */
+internal fun xmbHomeSwipeAction(swipe: XmbVSwipe, optsOpen: Boolean, tabsAvailable: Boolean): XmbSwipeAction = when {
+    swipe == XmbVSwipe.DOWN && optsOpen -> XmbSwipeAction.CLOSE_OPTIONS
+    swipe == XmbVSwipe.UP && !optsOpen && tabsAvailable -> XmbSwipeAction.OPEN_TABS
+    else -> XmbSwipeAction.NONE
+}
+
+/**
+ * With the options open, a tap that no control took closes them only when it landed higher on the screen than the options column's top
+ * edge ([optionsTop], in the same space as [tapY]); one at the column's height or lower is left alone (beside the column, the details
+ * panel, the empty space under it: more likely a stray touch).
+ */
+internal fun xmbTapClosesOptions(tapY: Float, optionsTop: Float): Boolean = tapY < optionsTop
+
+/** Two taps that open and close the options are at least this far (ms) apart; a quicker one is a double-tap bounce and is dropped. */
+internal const val XMB_TAP_GAP_MS = 250L
+
+/** False while [nowMs] is still within [gapMs] of the last toggling tap at [lastMs] (a clock that went backwards counts as open). */
+internal fun xmbTapGateOpen(lastMs: Long, nowMs: Long, gapMs: Long = XMB_TAP_GAP_MS): Boolean = nowMs < lastMs || nowMs - lastMs >= gapMs
+
+/** The least height (dp) of a row of the options column on the Home: a touch target. */
+internal const val XMB_STEAM_MIN_ROW = 48f
+
+// ── The details panel beside the options ──
+
+// Line heights (dp, at the default font scale) and the gap above each block of the compact details panel (XmbSteamInfo.kt).
+private const val XMB_INFO_HEADER_LINE = 19f
+private const val XMB_INFO_DOTS_LINE = 14f
+private const val XMB_INFO_FACTS_LINE = 17f
+private const val XMB_INFO_DESC_LINE = 15f
+private const val XMB_INFO_DOTS_GAP = 5f
+private const val XMB_INFO_FACTS_GAP = 6f
+private const val XMB_INFO_DESC_GAP = 5f
+private const val XMB_INFO_WRAP_GAP = 4f
+
+/** What the compact details panel shows: the header line (store tag and pills), the dots line, the facts row and [descLines] lines of description. */
+internal class XmbInfoPlan(val header: Boolean, val dots: Boolean, val facts: Boolean, val descLines: Int)
+
+private fun xmbInfoBlockH(lines: Int, lineH: Float, topGap: Float, k: Float): Float =
+    topGap + lines * lineH * k + (lines - 1).coerceAtLeast(0) * XMB_INFO_WRAP_GAP
+
+/**
+ * Which blocks of the details panel fit in [availH] dp (at font scale [fontScale]), given how many lines each needs ([headerLines] for the
+ * store tag and pills, [dotsLines] for the driver / VKD3D / backend dots, [factsLines] for playtime, genre, year and score; 0 = nothing
+ * to show) and how many description lines are wanted at most. The facts row is the last to go and the description the first: blocks are
+ * taken in the order facts, header, dots, description and the first that does not fit ends the list, so nothing is ever half shown.
+ * The description takes as many of its lines as are left (none when not even one fits).
+ */
+internal fun xmbInfoPlan(availH: Float, fontScale: Float, headerLines: Int, dotsLines: Int, factsLines: Int, descWanted: Int): XmbInfoPlan {
+    val k = fontScale.coerceIn(0.8f, 2f)
+    var left = availH
+    var ok = true
+    var facts = false
+    var header = false
+    var dots = false
+    var desc = 0
+    if (factsLines > 0) {
+        val cost = xmbInfoBlockH(factsLines, XMB_INFO_FACTS_LINE, XMB_INFO_FACTS_GAP, k)
+        ok = cost <= left
+        if (ok) { left -= cost; facts = true }
+    }
+    if (ok && headerLines > 0) {
+        val cost = xmbInfoBlockH(headerLines, XMB_INFO_HEADER_LINE, 0f, k)
+        ok = cost <= left
+        if (ok) { left -= cost; header = true }
+    }
+    if (ok && dotsLines > 0) {
+        val cost = xmbInfoBlockH(dotsLines, XMB_INFO_DOTS_LINE, XMB_INFO_DOTS_GAP, k)
+        ok = cost <= left
+        if (ok) { left -= cost; dots = true }
+    }
+    if (ok && descWanted > 0) {
+        desc = floor((left - XMB_INFO_DESC_GAP) / (XMB_INFO_DESC_LINE * k)).toInt().coerceIn(0, descWanted)
+    }
+    return XmbInfoPlan(header, dots, facts, desc)
+}
+
+/** How many lines a wrapping row of items [widths] wide, [gap] apart, takes in [avail] (an item wider than that takes a line to itself); 0 for no items. */
+internal fun xmbFlowLines(widths: List<Float>, gap: Float, avail: Float): Int {
+    if (widths.isEmpty()) return 0
+    var lines = 1
+    var x = 0f
+    for (w in widths) {
+        if (x == 0f) { x = w; continue }
+        val next = x + gap + w
+        if (next > avail) { lines++; x = w } else x = next
+    }
+    return lines
+}
+
+/** A rough width (dp) of [chars] characters of text [sizeSp] sp tall at font scale [fontScale]: a little over half an em each, kept on the wide side. */
+internal fun xmbTextWidth(chars: Int, sizeSp: Float, fontScale: Float): Float = chars * sizeSp * 0.6f * fontScale.coerceIn(0.8f, 2f)

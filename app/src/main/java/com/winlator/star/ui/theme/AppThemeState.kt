@@ -104,7 +104,7 @@ object AppThemeState {
         }
 
     /** Dim accent paired with [colorScheme]. For real presets it's the preset's own
-     *  accentDim (AMOLED = exact #002277 so the default is unchanged); for a custom accent
+     *  accentDim (so every preset keeps its own look, Charcoal the default one); for a custom accent
      *  it's derived from the live accent so dim fills/borders follow the picker too. */
     val accentDim: kotlinx.coroutines.flow.Flow<Color> =
         combine(_presetIndex, _customAccent) { index, accent ->
@@ -117,9 +117,6 @@ object AppThemeState {
         return if (index == CUSTOM_PRESET_INDEX) lerp(_customAccent.value, Color(0xFF000000), 0.55f)
                else themePresets.getOrElse(index) { themePresets.first() }.accentDim
     }
-
-    /** The theme a fresh install starts with (updates keep theirs; AMOLED when none was ever picked). */
-    private const val NEW_INSTALL_PRESET = "Carbon & Ember"
 
     fun init(context: Context) {
         themePrefs = context.getSharedPreferences("winlator_theme", Context.MODE_PRIVATE)
@@ -134,7 +131,8 @@ object AppThemeState {
             themePrefs.edit().putBoolean("preset_schema_v2", true).apply()
         }
 
-        // No saved style yet: a fresh install starts in Lab with Carbon & Ember at 100 % sizes; an update keeps Classic, its theme and sizes.
+        // No saved style yet: a fresh install starts in Lab at 100 % sizes; an update keeps Classic and its sizes. Neither saves a
+        // theme: anyone who never picked a preset (a fresh install or an update) gets DEFAULT_PRESET_NAME, see below.
         if (!themePrefs.contains("ui_style")) {
             val fresh = runCatching {
                 val pi = context.packageManager.getPackageInfo(context.packageName, 0)
@@ -143,9 +141,6 @@ object AppThemeState {
             val edit = themePrefs.edit()
                 .putString("ui_style", if (fresh) UI_STYLE_DECK else UI_STYLE_CLASSIC)
                 .putBoolean("simple_home", fresh)
-            val ember = themePresets.indexOfFirst { it.name == NEW_INSTALL_PRESET }
-            // Presets are saved by name now, so a fresh install saves Carbon & Ember by its name (not by a list position).
-            if (fresh && ember >= 0 && !themePrefs.contains("preset_index") && !themePrefs.contains("preset_name")) edit.putString("preset_name", NEW_INSTALL_PRESET)
             // Sizes: a fresh install starts at 100 %; an update keeps its own (90 % when never changed).
             if (fresh && !themePrefs.contains("ui_scale")) edit.putFloat("ui_scale", 1f)
             if (fresh && !themePrefs.contains("font_scale")) edit.putFloat("font_scale", 1f)

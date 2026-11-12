@@ -2,6 +2,7 @@ package com.winlator.star.ui.deck
 
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -85,12 +86,22 @@ private fun XmbFriendsPanel(
     onDismiss: () -> Unit,
     fullHeight: Boolean,
     onKey: (KeyEvent) -> Boolean = { false },
+    takeFocus: Boolean = true,
     content: @Composable () -> Unit,
 ) {
     val shape = deckShape(22.dp)
     val fill = MaterialTheme.colorScheme.surfaceContainerHigh
+    // A key reaches the panel's handler only while something inside the dialog holds the focus: the panel's root takes it once, so B / Esc
+    // close the window from the first press (a window whose content takes the focus itself, as the profile's first button, passes [takeFocus] false).
+    val rootFocus = remember { FocusRequester() }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         DeckDialogBars()
+        if (takeFocus) {
+            LaunchedEffect(Unit) {
+                withFrameNanos { }
+                runCatching { rootFocus.requestFocus() }
+            }
+        }
         DeckDialogScaled {
             Box(
                 Modifier
@@ -104,7 +115,8 @@ private fun XmbFriendsPanel(
                         } else {
                             onKey(e)
                         }
-                    },
+                    }
+                    .then(if (takeFocus) Modifier.focusRequester(rootFocus).focusable() else Modifier),
                 contentAlignment = Alignment.Center,
             ) {
                 Box(
@@ -164,6 +176,8 @@ internal fun XmbFriendProfileDialog(
                 else -> false
             }
         },
+        // Its first button takes the focus (below).
+        takeFocus = false,
     ) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Column(

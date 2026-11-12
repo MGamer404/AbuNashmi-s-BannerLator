@@ -62,6 +62,7 @@ import com.winlator.star.container.ContainerManager
 import com.winlator.star.container.Shortcut
 import com.winlator.star.contents.AdrenotoolsManager
 import com.winlator.star.store.download.ContentDownloadRegistry
+import com.winlator.star.store.xbox.XboxCloudShortcuts
 import com.winlator.star.ui.deck.LibrarySort
 import com.winlator.star.ui.deck.LocalDeckActions
 import com.winlator.star.ui.deck.SoraFamily
@@ -69,7 +70,6 @@ import com.winlator.star.ui.deck.gameSortKeyOf
 import com.winlator.star.ui.deck.lastPlayedLabel
 import com.winlator.star.ui.deck.playtimeLabel
 import com.winlator.star.ui.deck.readPlayStats
-import com.winlator.star.ui.deck.setupSummary
 import com.winlator.star.ui.deck.sortGames
 import com.winlator.star.ui.deck.storeLabelOf
 import com.winlator.star.ui.screens.GameMenuAction
@@ -109,7 +109,7 @@ private fun LabDashTile(
     )
 }
 
-/** A text button the controller can reach: the accent one for the main action. */
+/** A text button the controller can reach: the accent one for the main action, red text and icon when it removes something. */
 @Composable
 internal fun LabButton(
     label: String,
@@ -117,9 +117,11 @@ internal fun LabButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
     requester: FocusRequester? = null,
     modifier: Modifier = Modifier,
+    danger: Boolean = false,
     onClick: () -> Unit,
 ) {
     val accent = MaterialTheme.colorScheme.primary
+    val red = MaterialTheme.colorScheme.error
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
@@ -129,8 +131,8 @@ internal fun LabButton(
             .labTile(onClick = onClick, requester = requester, onAccent = primary)
             .padding(horizontal = 16.dp),
     ) {
-        if (icon != null) Icon(icon, contentDescription = null, tint = if (primary) Color.White else SimpleInk, modifier = Modifier.size(18.dp))
-        Text(label, color = if (primary) Color.White else SimpleStrong, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1)
+        if (icon != null) Icon(icon, contentDescription = null, tint = if (primary) Color.White else if (danger) red else SimpleInk, modifier = Modifier.size(18.dp))
+        Text(label, color = if (primary) Color.White else if (danger) red else SimpleStrong, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1)
     }
 }
 
@@ -155,6 +157,8 @@ internal fun LabHome(
     val shortcuts by vm.shortcuts.collectAsState(initial = SimpleSession.lastShortcuts)
     LaunchedEffect(shortcuts) { if (shortcuts.isNotEmpty()) SimpleSession.lastShortcuts = shortcuts }
     val launcher = rememberShortcutLauncher()
+    // A SteamLite retry / Goldberg relaunch or a Ubisoft set-up-then-launch waits for the restarted app's library, as on the Deck and Games screens.
+    LaunchedEffect(shortcuts) { launcher.resumePendingRelaunch(shortcuts) }
     val actions = rememberShortcutActions(vm)
     val deckActions = LocalDeckActions.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -165,6 +169,7 @@ internal fun LabHome(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     val stats = remember(shortcuts, resumeTick) { readPlayStats(context, shortcuts) }
+    LaunchedEffect(shortcuts) { LabTitles.refresh(context, shortcuts) }
     val recent = remember(shortcuts, stats) { sortGames(shortcuts, LibrarySort.RECENT) { gameSortKeyOf(it, stats) } }
     val dev = rememberLabDevice()
     val downloads by ContentDownloadRegistry.states.collectAsState()
@@ -179,6 +184,20 @@ internal fun LabHome(
     }
     var menuFor by remember { mutableStateOf<Shortcut?>(null) }
     var selPath by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
+    // The game launched last: the big tile's game until another is picked. The row's first entry is not it when the
+    // Windows Steam client is listed (it is pinned first in every order).
+    val lastGame = remember(recent, stats) {
+        recent.filter { (stats[it.file.path]?.lastPlayed ?: 0L) > 0L }.maxByOrNull { stats[it.file.path]?.lastPlayed ?: 0L } ?: recent.firstOrNull()
+    }
+    // A game played since the last look takes the tile back from an earlier pick.
+    val lastAt = lastGame?.let { stats[it.file.path]?.lastPlayed } ?: 0L
+    var seenLastAt by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(0L) }
+    LaunchedEffect(lastAt) {
+        if (lastAt != seenLastAt) {
+            if (seenLastAt != 0L) selPath = null
+            seenLastAt = lastAt
+        }
+    }
     val playFocus = remember { FocusRequester() }
     val enterTick = deckActions.enterTick.intValue
     LaunchedEffect(resumeTick, enterTick, recent.isNotEmpty()) {
@@ -198,7 +217,7 @@ internal fun LabHome(
         val pad = if (portrait) 12.dp else 18.dp
         val rowH: Dp = if (portrait) 140.dp else ((maxHeight - pad * 2 - gap * 2 - 30.dp) / 3).coerceIn(118.dp, 200.dp)
         // The game in the big tile: the one picked in the library row (a tap, or the controller resting on it), else the last played.
-        val game = recent.firstOrNull { it.file.path == selPath } ?: recent.firstOrNull()
+        val game = recent.firstOrNull { it.file.path == selPath } ?: lastGame
         // Its art goes behind the page (Appearance › Game art background).
         LaunchedEffect(game?.file?.path) { LabArt.selected = game }
         // Games without a Steam link: find their art by name (once per game).
@@ -221,13 +240,19 @@ internal fun LabHome(
             // tile took the whole row (the library row and the tiles beside it had no room left).
             androidx.compose.animation.Crossfade(targetState = game, modifier = m, animationSpec = androidx.compose.animation.core.tween(220), label = "labContinue") { game ->
             val st = stats[game.file.path]
+            // The setup as Classic's list card and the launch screen read it (the driver's version, Wayland only when it really runs on it).
+            val chips = remember(game.file.path, LabArt.tick, resumeTick) { labSetupChips(context, game) }
+            val meta = listOfNotNull(
+                if (XboxCloudShortcuts.isNotInstalled(game)) L("Not installed") else null,
+                playtimeLabel(st?.ms ?: 0L), lastPlayedLabel(context, st?.lastPlayed ?: 0L), storeLabelOf(game),
+            ).joinToString(" · ")
             // Art and previews: the tile becomes the game's art with its trailer behind the logo, info and buttons.
             if (LabArt.hasClips(LabArt.gameMode(game))) {
                 LabHeroTile(
                     game,
-                    label = if (game == recent.firstOrNull()) L("Continue") else L("Selected"),
-                    meta = listOfNotNull(playtimeLabel(st?.ms ?: 0L), lastPlayedLabel(context, st?.lastPlayed ?: 0L), storeLabelOf(game)).joinToString(" · "),
-                    chips = setupSummary(game).split(" · ").filter { it.isNotBlank() },
+                    label = if (game == lastGame) L("Continue") else L("Selected"),
+                    meta = meta,
+                    chips = chips,
                     playFocus = playFocus,
                     onPlay = { launcher.requestLaunch(game) },
                     onPage = { onNavigate(LabRoutes.game(game.file.path)) },
@@ -238,14 +263,12 @@ internal fun LabHome(
             Row(Modifier.fillMaxSize().labPanel().padding(14.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 SimpleCover(game, Modifier.width(if (portrait) 150.dp else 170.dp).fillMaxHeight(), title = false)
                 Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    LabTileLabel(if (game == recent.firstOrNull()) L("Continue") else L("Selected"))
+                    LabTileLabel(if (game == lastGame) L("Continue") else L("Selected"))
                     LabTitle(game, 56.dp, 22.sp)
-                    Text(
-                        listOfNotNull(playtimeLabel(st?.ms ?: 0L), lastPlayedLabel(context, st?.lastPlayed ?: 0L), storeLabelOf(game)).joinToString(" · "),
-                        color = SimpleMuted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    )
+                    Text(meta, color = SimpleMuted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    LabRuntimeStatus(game, fontSize = 12.sp, color = SimpleMuted)
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        setupSummary(game).split(" · ").filter { it.isNotBlank() }.take(4).forEach { LabChip(it) }
+                        chips.take(4).forEach { LabChip(it) }
                     }
                     Spacer(Modifier.weight(1f))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -278,6 +301,7 @@ internal fun LabHome(
                         ) {
                             val inner = Modifier.fillMaxSize().padding(if (sel) 3.dp else 0.dp)
                             when (style) {
+                                // No store pills on these small covers: the big tile above names the selected game's store.
                                 LabArt.WIDE -> LabWideCard(s, inner, title = false)
                                 LabArt.ICONS -> LabIconCard(s, inner, Modifier.fillMaxWidth().aspectRatio(1f))
                                 else -> SimpleCover(s, inner, title = false)
@@ -329,7 +353,7 @@ internal fun LabHome(
 
         @Composable
         fun DriverTile(m: Modifier) {
-            LabDashTile(m, onClick = { onNavigate(SimpleRoutes.DRIVERS) }) {
+            LabDashTile(m, onClick = { onNavigate(SimpleRoutes.contents("installed")) }) {
                 LabTileLabel(L("GPU drivers"))
                 val list = drivers
                 Text(if (list == null) "…" else L("%1\$s installed", list.size), color = SimpleStrong, fontWeight = FontWeight.Bold, fontSize = 18.sp)
@@ -339,7 +363,7 @@ internal fun LabHome(
 
         @Composable
         fun DownloadTile(m: Modifier) {
-            LabDashTile(m, onClick = { onNavigate(SimpleRoutes.COMPONENTS) }) {
+            LabDashTile(m, onClick = { onNavigate(SimpleRoutes.DRIVERS) }) {
                 LabTileLabel(L("Downloads"))
                 if (active != null) {
                     Text(active.title, color = SimpleStrong, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -490,6 +514,7 @@ internal fun LabHeroTile(
         Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(label.uppercase(), color = Color.White.copy(alpha = 0.72f), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.2.sp, maxLines = 1)
             Text(meta, color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            LabRuntimeStatus(game, fontSize = 12.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 chips.take(4).forEach {
                     Text(it, color = Color.White, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.background(Color.Black.copy(alpha = 0.38f), SimpleShape).padding(horizontal = 9.dp, vertical = 5.dp))

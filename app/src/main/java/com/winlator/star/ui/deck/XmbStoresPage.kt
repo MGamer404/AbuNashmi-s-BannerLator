@@ -49,9 +49,6 @@ import com.winlator.star.ui.screens.xmbStoresGrid
 import com.winlator.star.ui.screens.xmbStoresMove
 import com.winlator.star.ui.simple.storeLogo
 
-/** The thin light outline of the card under the cursor, as on the Steam Home's covers. */
-private val XMB_STORES_OUTLINE = Color.White.copy(alpha = 0.92f)
-
 /** The card under the cursor is drawn this many times its size (the Steam Home's cards lift the same way, a touch less than its covers). */
 private const val XMB_STORES_FOCUS_SCALE = 1.04f
 
@@ -148,7 +145,7 @@ private fun XmbStoreCard(
             }
             .clip(shape)
             .background(Brush.verticalGradient(colors))
-            .border(if (focused) 1.5.dp else 1.dp, if (focused) XMB_STORES_OUTLINE else Color.White.copy(alpha = 0.10f), shape)
+            .border(if (focused) 1.5.dp else 1.dp, if (focused) XMB_FOCUS_OUTLINE else Color.White.copy(alpha = 0.10f), shape)
             .xmbClick(src, onClick),
         contentAlignment = Alignment.Center,
     ) {
