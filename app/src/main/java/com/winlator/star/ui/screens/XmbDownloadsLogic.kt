@@ -61,37 +61,46 @@ internal fun xmbDlGroups(entries: List<DownloadEntry>): List<XmbDlGroup> {
 internal fun xmbDlCards(groups: List<XmbDlGroup>): List<DownloadEntry> = groups.flatMap { it.entries }
 
 /**
- * Where a card sits in the page's list, which has a heading item before each section's cards: [header] is the index of its section's
- * heading, [item] its own, and [first] says it is the first of its section (so the heading is to be shown with it).
+ * Where a card sits in the page's list, which has a heading item before each section's cards and then one item per line of cards: [header]
+ * is the index of its section's heading, [item] the index of the line it is on, and [first] says that line is the first of its section
+ * (so the heading is to be shown with it).
  */
 internal class XmbDlSlot(val header: Int, val item: Int, val first: Boolean)
 
-/** The slot of the card with index [card] along [xmbDlCards]; null for an index off the list. */
-internal fun xmbDlSlot(groups: List<XmbDlGroup>, card: Int): XmbDlSlot? {
+/** The slot of the card with index [card] along [xmbDlCards], the cards [columns] to a line; null for an index off the list. */
+internal fun xmbDlSlot(groups: List<XmbDlGroup>, card: Int, columns: Int): XmbDlSlot? {
     if (card < 0) return null
+    val cols = columns.coerceAtLeast(1)
     var index = 0
     var left = card
     for (g in groups) {
         val header = index
         index++
-        if (left < g.entries.size) return XmbDlSlot(header, index + left, first = left == 0)
-        index += g.entries.size
+        if (left < g.entries.size) return XmbDlSlot(header, index + left / cols, first = left < cols)
+        index += (g.entries.size + cols - 1) / cols
         left -= g.entries.size
     }
     return null
 }
 
-/** [xmbDlMove]'s answer for Up from the first card: the focus goes to the pill bar. */
-internal const val XMB_DL_TO_BAR = -1
-
 /**
- * The cursor after a step of [delta] cards from [cursor] along [count] cards: stopping at the last card, and
- * [XMB_DL_TO_BAR] for a step up past the first.
+ * The lines of cards of the page, top to bottom: each section's cards [columns] to a line (the last line of a section may be shorter),
+ * each line the indexes along [xmbDlCards] of its cards. The headings between the sections are not on a line: the cursor skips them.
  */
-internal fun xmbDlMove(count: Int, cursor: Int, delta: Int): Int {
-    val to = cursor + delta
-    return if (to < 0) XMB_DL_TO_BAR else to.coerceAtMost(count - 1)
+internal fun xmbDlLines(groups: List<XmbDlGroup>, columns: Int): List<List<Int>> {
+    val cols = columns.coerceAtLeast(1)
+    val lines = ArrayList<List<Int>>()
+    var next = 0
+    for (g in groups) {
+        val ids = (next until next + g.entries.size).toList()
+        for (chunk in ids.chunked(cols)) lines.add(chunk)
+        next += g.entries.size
+    }
+    return lines
 }
+
+/** [xmbTwoColVertical]'s answer for Up from the first line of cards: the focus goes to the pill bar. */
+internal const val XMB_DL_TO_BAR = XMB_TWO_COL_TO_BAR
 
 /**
  * Where the cursor is on the new list of card [keys]: on the card it was on ([key]) wherever that has moved to (a download finishing

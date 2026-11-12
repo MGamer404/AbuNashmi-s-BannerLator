@@ -99,35 +99,86 @@ class XmbDownloadsLogicTest {
         assertEquals(listOf("d", "q", "i"), xmbDlCards(groups).map { it.id })
     }
 
-    @Test fun slot_countsTheHeadingBeforeEachSection() {
-        val groups = xmbDlGroups(
-            listOf(
-                entry("d", DownloadState.DOWNLOADING),
-                entry("q1", DownloadState.QUEUED, queuePosition = 1),
-                entry("q2", DownloadState.QUEUED, queuePosition = 2),
-            ),
-        )
-        // Items: 0 heading, 1 d, 2 heading, 3 q1, 4 q2.
-        val d = xmbDlSlot(groups, 0)!!
-        assertEquals(0, d.header); assertEquals(1, d.item); assertTrue(d.first)
-        val q1 = xmbDlSlot(groups, 1)!!
-        assertEquals(2, q1.header); assertEquals(3, q1.item); assertTrue(q1.first)
-        val q2 = xmbDlSlot(groups, 2)!!
-        assertEquals(2, q2.header); assertEquals(4, q2.item); assertFalse(q2.first)
+    // Sections of 3 (d1..d3 downloading) and 2 (q1, q2 queued): cards 0..2 and 3..4.
+    private fun twoSections(): List<XmbDlGroup> = xmbDlGroups(
+        listOf(
+            entry("d1", DownloadState.DOWNLOADING, name = "a"),
+            entry("d2", DownloadState.DOWNLOADING, name = "b"),
+            entry("d3", DownloadState.DOWNLOADING, name = "c"),
+            entry("q1", DownloadState.QUEUED, queuePosition = 1),
+            entry("q2", DownloadState.QUEUED, queuePosition = 2),
+        ),
+    )
+
+    @Test fun lines_cardsFillLinesOfTwo_eachSectionStartsANewLine() {
+        assertEquals(listOf(listOf(0, 1), listOf(2), listOf(3, 4)), xmbDlLines(twoSections(), 2))
+        assertEquals(listOf(listOf(0), listOf(1), listOf(2), listOf(3), listOf(4)), xmbDlLines(twoSections(), 1))
+        assertTrue(xmbDlLines(emptyList(), 2).isEmpty())
+    }
+
+    @Test fun slot_countsTheHeadingBeforeEachSection_andTheLinesOfCards() {
+        val groups = twoSections()
+        // Items with two columns: 0 heading, 1 line [d1 d2], 2 line [d3], 3 heading, 4 line [q1 q2].
+        val d1 = xmbDlSlot(groups, 0, 2)!!
+        assertEquals(0, d1.header); assertEquals(1, d1.item); assertTrue(d1.first)
+        val d2 = xmbDlSlot(groups, 1, 2)!!
+        assertEquals(0, d2.header); assertEquals(1, d2.item); assertTrue(d2.first)
+        val d3 = xmbDlSlot(groups, 2, 2)!!
+        assertEquals(0, d3.header); assertEquals(2, d3.item); assertFalse(d3.first)
+        val q1 = xmbDlSlot(groups, 3, 2)!!
+        assertEquals(3, q1.header); assertEquals(4, q1.item); assertTrue(q1.first)
+        val q2 = xmbDlSlot(groups, 4, 2)!!
+        assertEquals(3, q2.header); assertEquals(4, q2.item); assertTrue(q2.first)
+    }
+
+    @Test fun slot_oneColumnIsOneItemPerCard() {
+        val groups = twoSections()
+        // Items: 0 heading, 1 d1, 2 d2, 3 d3, 4 heading, 5 q1, 6 q2.
+        val d3 = xmbDlSlot(groups, 2, 1)!!
+        assertEquals(0, d3.header); assertEquals(3, d3.item); assertFalse(d3.first)
+        val q2 = xmbDlSlot(groups, 4, 1)!!
+        assertEquals(4, q2.header); assertEquals(6, q2.item); assertFalse(q2.first)
     }
 
     @Test fun slot_offTheListIsNull() {
         val groups = xmbDlGroups(listOf(entry("d", DownloadState.DOWNLOADING)))
-        assertNull(xmbDlSlot(groups, -1))
-        assertNull(xmbDlSlot(groups, 1))
-        assertNull(xmbDlSlot(emptyList(), 0))
+        assertNull(xmbDlSlot(groups, -1, 2))
+        assertNull(xmbDlSlot(groups, 1, 2))
+        assertNull(xmbDlSlot(emptyList(), 0, 2))
     }
 
-    @Test fun move_stopsAtTheLastCard_upFromTheFirstGoesToTheBar() {
-        assertEquals(1, xmbDlMove(3, 0, 1))
-        assertEquals(2, xmbDlMove(3, 2, 1))
-        assertEquals(0, xmbDlMove(3, 1, -1))
-        assertEquals(XMB_DL_TO_BAR, xmbDlMove(3, 0, -1))
+    @Test fun move_leftRightBetweenTheColumns_stopAtTheLineEnds() {
+        val lines = xmbDlLines(twoSections(), 2)
+        assertEquals(1, xmbTwoColSide(lines, 0, 1))
+        assertEquals(0, xmbTwoColSide(lines, 1, -1))
+        assertEquals(1, xmbTwoColSide(lines, 1, 1))
+        assertEquals(0, xmbTwoColSide(lines, 0, -1))
+        // A line of one card has nowhere to go sideways.
+        assertEquals(2, xmbTwoColSide(lines, 2, 1))
+        assertEquals(2, xmbTwoColSide(lines, 2, -1))
+    }
+
+    @Test fun move_downAndUpCrossTheSectionsOnTheWantedColumn_aShortLineClamps() {
+        val lines = xmbDlLines(twoSections(), 2)
+        // [0 1] [2] [3 4]
+        assertEquals(2, xmbTwoColVertical(lines, 1, down = true, wantCol = 1))
+        assertEquals(4, xmbTwoColVertical(lines, 2, down = true, wantCol = 1))
+        assertEquals(3, xmbTwoColVertical(lines, 2, down = true, wantCol = 0))
+        assertEquals(2, xmbTwoColVertical(lines, 4, down = false, wantCol = 1))
+        assertEquals(1, xmbTwoColVertical(lines, 2, down = false, wantCol = 1))
+        assertEquals(0, xmbTwoColVertical(lines, 2, down = false, wantCol = 0))
+    }
+
+    @Test fun move_stopsAtTheLastLine_upFromTheFirstGoesToTheBar() {
+        val lines = xmbDlLines(twoSections(), 2)
+        assertEquals(4, xmbTwoColVertical(lines, 4, down = true, wantCol = 1))
+        assertEquals(3, xmbTwoColVertical(lines, 3, down = true, wantCol = 0))
+        assertEquals(XMB_DL_TO_BAR, xmbTwoColVertical(lines, 0, down = false, wantCol = 0))
+        assertEquals(XMB_DL_TO_BAR, xmbTwoColVertical(lines, 1, down = false, wantCol = 1))
+        // One column: along the cards as before.
+        val one = xmbDlLines(twoSections(), 1)
+        assertEquals(1, xmbTwoColVertical(one, 0, down = true, wantCol = 0))
+        assertEquals(XMB_DL_TO_BAR, xmbTwoColVertical(one, 0, down = false, wantCol = 0))
     }
 
     @Test fun cursor_staysOnItsCardWhenTheListMoves() {

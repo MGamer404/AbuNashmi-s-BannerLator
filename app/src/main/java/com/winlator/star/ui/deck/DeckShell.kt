@@ -165,6 +165,9 @@ internal const val DECK_COMPACT_WIDTH_DP = 720
 /** Below this width (dp) a landscape Deck shell uses the phone layout too; above it, rails and legend (see isDeckCompact). */
 internal const val DECK_RAILS_MIN_WIDTH_DP = 560
 
+/** XMB floating hints (Back / Search / Add Game): their gap (base dp, scaled) above the bottom edge or the camera cut-out; also what the hint inset counts. */
+internal const val HINT_BOTTOM_GAP = 3f
+
 /** Below this width (dp) only the selected tab keeps its label in the top strip. */
 private const val DECK_WIDE_TABS_DP = 1100
 
@@ -563,7 +566,7 @@ private fun DeckShellContent(
     val hintSs = rememberScreenScale()
     val xmbKeyboard = LocalXmbKeyboard.current
     val hintInset = if (hintsShown) {
-        hintSs.dp(12f) + maxOf(22.dp, hintSs.dp(14f) * 1.4f) + hintSs.dp(8f) +
+        hintSs.dp(HINT_BOTTOM_GAP) + maxOf(22.dp, hintSs.dp(14f) * 1.4f) + hintSs.dp(8f) +
             (if (homeBleed) WindowInsets.displayCutout.asPaddingValues().calculateBottomPadding() else 0.dp)
     } else 0.dp
 
@@ -915,7 +918,7 @@ private fun DeckShellContent(
                         .padding(
                             // Home's place on every page (not the page's camera frame), so the hints never move between pages.
                             end = hintSs.dp(16f) + cutout.calculateEndPadding(dir),
-                            bottom = hintSs.dp(12f) + cutout.calculateBottomPadding(),
+                            bottom = hintSs.dp(HINT_BOTTOM_GAP) + cutout.calculateBottomPadding(),
                         ),
                 ) {
                     // The XMB home's tabs page, Stores tab: "Start Add Game" (the Start button runs it too), first of the hints.

@@ -8,7 +8,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
@@ -60,6 +62,8 @@ import com.winlator.star.store.download.Store
 import com.winlator.star.store.download.StoreStyle
 import com.winlator.star.ui.findActivity
 import com.winlator.star.ui.screens.XMB_DL_TO_BAR
+import com.winlator.star.ui.screens.XMB_TWO_COL_GAP_DP
+import com.winlator.star.ui.screens.XMB_TWO_COL_MAX_WIDTH_DP
 import com.winlator.star.ui.screens.XmbDlAction
 import com.winlator.star.ui.screens.XmbDlSection
 import com.winlator.star.ui.screens.xmbClick
@@ -67,13 +71,17 @@ import com.winlator.star.ui.screens.xmbDlActions
 import com.winlator.star.ui.screens.xmbDlCards
 import com.winlator.star.ui.screens.xmbDlCursor
 import com.winlator.star.ui.screens.xmbDlGroups
-import com.winlator.star.ui.screens.xmbDlMove
+import com.winlator.star.ui.screens.xmbDlLines
 import com.winlator.star.ui.screens.xmbDlNeedsConfirm
 import com.winlator.star.ui.screens.xmbDlProgress
 import com.winlator.star.ui.screens.xmbDlQuickAction
 import com.winlator.star.ui.screens.xmbDlSizeText
 import com.winlator.star.ui.screens.xmbDlSlot
 import com.winlator.star.ui.screens.xmbDlSpeedText
+import com.winlator.star.ui.screens.xmbTwoColCol
+import com.winlator.star.ui.screens.xmbTwoColColumns
+import com.winlator.star.ui.screens.xmbTwoColSide
+import com.winlator.star.ui.screens.xmbTwoColVertical
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 
@@ -92,9 +100,6 @@ private val XMB_DL_GREEN = Color(0xFF3DDC84)
 private val XMB_DL_AMBER = Color(0xFFFFAA00)
 private val XMB_DL_RED = Color(0xFFFF8A80)
 
-/** The widest the list gets, however wide the screen: a card wider than this reads badly. */
-private val XMB_DL_MAX_WIDTH = 880.dp
-
 /** How long a button that asks for a second press to confirm waits for it, in ms. */
 private const val XMB_DL_ARMED_MS = 4000L
 
@@ -106,11 +111,13 @@ internal fun xmbDownloadsActiveFlow(): StateFlow<Int> = DownloadRegistry.activeC
 
 /**
  * The Downloads tab of the XMB Home's tabs page: the cross-store Download Manager as a page of the Home rather than a window of its own.
- * Sections (downloading, queued, stopped, installed) of wide cards: cover, name, the store's mark, a progress bar with the sizes and
- * the speed, and the card's buttons. [focus] is what the host gives a page (see [XmbTabsPageFocus]).
+ * Sections (downloading, queued, stopped, installed) under full-width headings, their cards two to a line (one on a narrow screen), all of
+ * a width: cover, name, the store's mark, a progress bar with the sizes and the speed, and the card's buttons. [focus] is what the host
+ * gives a page (see [XmbTabsPageFocus]).
  *
- * The D-pad moves between the cards (Up from the first goes to the pill bar). A (or Right) steps into a card's buttons, Left / Right move
- * between them and A presses one; B steps back out (and, from a card, closes the page as the host does). X presses the card's main
+ * The D-pad: Left / Right between the two columns, Up / Down between the lines (across the headings; into a shorter line it lands on its
+ * last card, and keeps the column for the next line), Up from the first line goes to the pill bar. A steps into a card's buttons, where
+ * Left / Right move between them and A presses one; B steps back out (and, from a card, closes the page as the host does). X presses the card's main
  * button without stepping in (pause / resume, start next, add to games, dismiss). A press that cannot be undone (cancel a download,
  * uninstall a game) asks for a second one. Everything is tappable too; a tap on the card opens the game's page in its store.
  */
@@ -133,6 +140,8 @@ internal fun XmbDownloadsPage(focus: XmbTabsPageFocus) {
     var selKey by remember { mutableStateOf<String?>(null) }
     var selIdx by remember { mutableIntStateOf(0) }
     var inner by remember { mutableIntStateOf(-1) }
+    // The column the cursor last chose, which a move up or down keeps (through a one-card line, say).
+    var wantCol by remember { mutableIntStateOf(0) }
     var armed by remember { mutableStateOf<XmbDlAction?>(null) }
     val cursor = xmbDlCursor(keys, selKey, selIdx)
 
@@ -181,81 +190,95 @@ internal fun XmbDownloadsPage(focus: XmbTabsPageFocus) {
         }
     }
 
-    XmbTabsPageKeys(focus) { e ->
-        val n = cards.size
-        val first = e.nativeKeyEvent.repeatCount == 0
-        val at = xmbDlCursor(keys, selKey, selIdx)
-        val entry = cards.getOrNull(at)
-        val canMoveUp = entry != null && queueKeys.indexOf(entry.key) > 0
-        val buttons = if (entry == null) emptyList<XmbDlAction>() else xmbDlActions(entry, canMoveUp)
-        when (e.key) {
-            Key.DirectionUp, Key.DirectionDown -> {
-                val up = e.key == Key.DirectionUp
-                if (n == 0) {
-                    if (up) focus.toBar()
-                } else {
-                    val to = xmbDlMove(n, at, if (up) -1 else 1)
-                    if (to == XMB_DL_TO_BAR) focus.toBar() else select(to)
-                }
-                true
-            }
-            Key.DirectionRight -> {
-                if (buttons.isNotEmpty()) {
-                    inner = if (inner < 0) 0 else (inner + 1).coerceAtMost(buttons.lastIndex)
-                    armed = null
-                }
-                true
-            }
-            Key.DirectionLeft -> {
-                if (inner >= 0) {
-                    inner -= 1
-                    armed = null
-                }
-                true
-            }
-            // A held key must not press a button twice.
-            Key.ButtonA, Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                if (first && entry != null) {
-                    if (inner < 0) {
-                        if (buttons.isNotEmpty()) inner = 0
-                    } else {
-                        buttons.getOrNull(inner)?.let { perform(entry, it) }
-                    }
-                }
-                true
-            }
-            Key.ButtonX -> {
-                if (first && entry != null) xmbDlQuickAction(entry, canMoveUp)?.let { perform(entry, it) }
-                true
-            }
-            // Out of the buttons first; from the card B is the host's (it closes the page).
-            Key.ButtonB, Key.Escape -> if (inner >= 0) {
-                inner = -1
-                armed = null
-                true
-            } else {
-                false
-            }
-            else -> false
-        }
-    }
-
     val ss = rememberScreenScale()
     val density = LocalDensity.current
     val dir = LocalLayoutDirection.current
     val pad = focus.contentPadding
     val listState = rememberLazyListState()
 
-    // The card under the cursor scrolls into view, with its section's heading when it is the section's first.
-    val slot = xmbDlSlot(groups, cursor)
-    val topPx = with(density) { ss.dp(6f).roundToPx() }
-    val bottomPx = with(density) { (pad.calculateBottomPadding() + ss.dp(8f)).roundToPx() }
-    LaunchedEffect(slot?.item, slot?.first, focus.contentFocused) {
-        val s = slot
-        if (focus.contentFocused && s != null) listState.xmbDlReveal(if (s.first) s.header else s.item, s.item, topPx, bottomPx)
-    }
+    // The page's box runs down to the screen's edge so the list can scroll under the hints: only the top and the sides are padded here,
+    // the room for the hints is the last item. The width it is left decides the columns (the keys need them, so they are registered here).
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val avail = minOf(maxWidth - pad.calculateStartPadding(dir) - pad.calculateEndPadding(dir), XMB_TWO_COL_MAX_WIDTH_DP.dp)
+        val columns = xmbTwoColColumns(avail.value)
+        val lines = remember(groups, columns) { xmbDlLines(groups, columns) }
 
-    Box(Modifier.fillMaxSize()) {
+        // A tap puts the cursor on the card, and its column is the one a move up or down keeps.
+        fun pick(i: Int) {
+            select(i)
+            wantCol = xmbTwoColCol(lines, i).coerceAtLeast(0)
+        }
+
+        XmbTabsPageKeys(focus) { e ->
+            val n = cards.size
+            val first = e.nativeKeyEvent.repeatCount == 0
+            val at = xmbDlCursor(keys, selKey, selIdx)
+            val entry = cards.getOrNull(at)
+            val canMoveUp = entry != null && queueKeys.indexOf(entry.key) > 0
+            val buttons = if (entry == null) emptyList<XmbDlAction>() else xmbDlActions(entry, canMoveUp)
+            when (e.key) {
+                // Along the lines of cards (headings are skipped), on the column the cursor last chose.
+                Key.DirectionUp, Key.DirectionDown -> {
+                    val up = e.key == Key.DirectionUp
+                    if (n == 0) {
+                        if (up) focus.toBar()
+                    } else {
+                        val to = xmbTwoColVertical(lines, at, down = !up, wantCol = wantCol)
+                        if (to == XMB_DL_TO_BAR) focus.toBar() else select(to)
+                    }
+                    true
+                }
+                // Between the columns; once A has stepped into a card's buttons, between those instead.
+                Key.DirectionLeft, Key.DirectionRight -> {
+                    val d = if (e.key == Key.DirectionRight) 1 else -1
+                    if (inner >= 0) {
+                        val next = (inner + d).coerceIn(0, (buttons.size - 1).coerceAtLeast(0))
+                        if (next != inner) {
+                            inner = next
+                            armed = null
+                        }
+                    } else if (n > 0) {
+                        val to = xmbTwoColSide(lines, at, d)
+                        if (to != at) pick(to)
+                    }
+                    true
+                }
+                // A held key must not press a button twice.
+                Key.ButtonA, Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                    if (first && entry != null) {
+                        if (inner < 0) {
+                            if (buttons.isNotEmpty()) inner = 0
+                        } else {
+                            buttons.getOrNull(inner)?.let { perform(entry, it) }
+                        }
+                    }
+                    true
+                }
+                Key.ButtonX -> {
+                    if (first && entry != null) xmbDlQuickAction(entry, canMoveUp)?.let { perform(entry, it) }
+                    true
+                }
+                // Out of the buttons first; from the card B is the host's (it closes the page).
+                Key.ButtonB, Key.Escape -> if (inner >= 0) {
+                    inner = -1
+                    armed = null
+                    true
+                } else {
+                    false
+                }
+                else -> false
+            }
+        }
+
+        // The card under the cursor scrolls into view, with its section's heading when it is on the section's first line.
+        val slot = xmbDlSlot(groups, cursor, columns)
+        val topPx = with(density) { ss.dp(6f).roundToPx() }
+        val bottomPx = with(density) { (pad.calculateBottomPadding() + ss.dp(8f)).roundToPx() }
+        LaunchedEffect(slot?.item, slot?.first, focus.contentFocused) {
+            val s = slot
+            if (focus.contentFocused && s != null) listState.xmbDlReveal(if (s.first) s.header else s.item, s.item, topPx, bottomPx)
+        }
+
         if (cards.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(pad), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(ss.dp(4f))) {
@@ -270,33 +293,42 @@ internal fun XmbDownloadsPage(focus: XmbTabsPageFocus) {
                 }
             }
         } else {
-            // The page's box runs down to the screen's edge so the list can scroll under the hints: only the top and the sides are padded
-            // here, the room for the hints is the last item.
             Box(
                 Modifier
                     .fillMaxSize()
                     .padding(top = pad.calculateTopPadding(), start = pad.calculateStartPadding(dir), end = pad.calculateEndPadding(dir)),
                 contentAlignment = Alignment.TopCenter,
             ) {
-                LazyColumn(state = listState, modifier = Modifier.fillMaxHeight().widthIn(max = XMB_DL_MAX_WIDTH).fillMaxWidth()) {
+                LazyColumn(state = listState, modifier = Modifier.fillMaxHeight().widthIn(max = XMB_TWO_COL_MAX_WIDTH_DP.dp).fillMaxWidth()) {
                     groups.forEach { g ->
+                        // A heading spans the full width; the cards under it sit [columns] to a line, equally wide.
                         item(key = "h_${g.section.name}") { XmbDlHeading(g.section, g.entries.size, ss) }
-                        items(g.entries, key = { it.key }) { e ->
-                            val i = indexOf[e.key] ?: -1
-                            val here = focus.contentFocused && i == cursor
-                            val position = queueKeys.indexOf(e.key) + 1
-                            XmbDlCard(
-                                entry = e,
-                                position = position,
-                                canMoveUp = position > 1,
-                                focused = here,
-                                inner = if (here) inner else -1,
-                                // Also shown to a finger (the bar holds the cursor then).
-                                armed = if (e.key == selKey) armed else null,
-                                ss = ss,
-                                onOpen = { select(i); actions?.openDetail(e) },
-                                onAction = { a -> select(i); perform(e, a) },
-                            )
+                        items(g.entries.chunked(columns), key = { line -> "r_${line.first().key}" }) { line ->
+                            Row(
+                                Modifier.fillMaxWidth().padding(vertical = ss.dp(XMB_TWO_COL_GAP_DP / 2)).height(IntrinsicSize.Min),
+                                horizontalArrangement = Arrangement.spacedBy(ss.dp(XMB_TWO_COL_GAP_DP)),
+                            ) {
+                                line.forEach { e ->
+                                    val i = indexOf[e.key] ?: -1
+                                    val here = focus.contentFocused && i == cursor
+                                    val position = queueKeys.indexOf(e.key) + 1
+                                    XmbDlCard(
+                                        entry = e,
+                                        position = position,
+                                        canMoveUp = position > 1,
+                                        focused = here,
+                                        inner = if (here) inner else -1,
+                                        // Also shown to a finger (the bar holds the cursor then).
+                                        armed = if (e.key == selKey) armed else null,
+                                        ss = ss,
+                                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                                        onOpen = { pick(i); actions?.openDetail(e) },
+                                        onAction = { a -> pick(i); perform(e, a) },
+                                    )
+                                }
+                                // A short last line keeps the width of a card: the one under it is not stretched.
+                                repeat(columns - line.size) { Spacer(Modifier.weight(1f)) }
+                            }
                         }
                     }
                     item(key = "tail") { Spacer(Modifier.height(pad.calculateBottomPadding() + ss.dp(8f))) }
@@ -381,6 +413,7 @@ private fun XmbDlCard(
     inner: Int,
     armed: XmbDlAction?,
     ss: ScreenScale,
+    modifier: Modifier = Modifier,
     onOpen: () -> Unit,
     onAction: (XmbDlAction) -> Unit,
 ) {
@@ -395,9 +428,7 @@ private fun XmbDlCard(
         else -> XMB_DL_OUTLINE
     }
     Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(vertical = ss.dp(4f))
+        modifier
             .clip(shape)
             .background(Color.White.copy(alpha = if (focused) 0.16f else 0.08f))
             .border(if (focused) 1.5.dp else 1.dp, outline, shape)
@@ -457,6 +488,7 @@ private fun XmbDlCard(
             ) {
                 buttons.forEachIndexed { i, a ->
                     XmbDlButton(
+                        modifier = Modifier.weight(1f, fill = false),
                         action = a,
                         armed = armed == a,
                         focused = focused && inner == i,
@@ -494,6 +526,7 @@ private fun XmbDlBar(fraction: Float, paused: Boolean, ss: ScreenScale) {
 // (the one X presses) is a touch lighter, and wears the X while the card holds the cursor; [armed] asks for the second press.
 @Composable
 private fun XmbDlButton(
+    modifier: Modifier,
     action: XmbDlAction,
     armed: Boolean,
     focused: Boolean,
@@ -506,7 +539,7 @@ private fun XmbDlButton(
     val shape = RoundedCornerShape(8.dp)
     val danger = armed || action == XmbDlAction.CANCEL || action == XmbDlAction.UNINSTALL
     Box(
-        Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp).xmbClick(src, onClick),
+        modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp).xmbClick(src, onClick),
         contentAlignment = Alignment.Center,
     ) {
         Row(
@@ -514,7 +547,7 @@ private fun XmbDlButton(
                 .clip(shape)
                 .background(Color.White.copy(alpha = if (armed) 0.24f else if (filled) 0.20f else 0.10f))
                 .border(1.5.dp, if (focused) XMB_DL_OUTLINE else Color.Transparent, shape)
-                .padding(horizontal = ss.dp(12f), vertical = ss.dp(7f)),
+                .padding(horizontal = ss.dp(10f), vertical = ss.dp(7f)),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(ss.dp(6f)),
         ) {

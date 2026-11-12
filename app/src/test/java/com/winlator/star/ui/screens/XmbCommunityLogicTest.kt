@@ -61,6 +61,35 @@ class XmbCommunityLogicTest {
         assertEquals(6, xmbCcMove(40, 1, 0, 3, 7))
     }
 
+    // --- a game's configs: the same moves, two to a line ---
+
+    @Test fun configs_leftRightBetweenTheTwoColumns_downAndUpBetweenTheLines() {
+        // 5 configs, 2 to a line: [0 1] [2 3] [4]
+        assertEquals(1, xmbCcMove(0, 1, 0, 2, 5))
+        assertEquals(0, xmbCcMove(1, -1, 0, 2, 5))
+        assertEquals(1, xmbCcMove(1, 1, 0, 2, 5))
+        assertEquals(2, xmbCcMove(0, 0, 1, 2, 5))
+        assertEquals(3, xmbCcMove(1, 0, 1, 2, 5))
+        assertEquals(1, xmbCcMove(3, 0, -1, 2, 5))
+    }
+
+    @Test fun configs_aShortLastLineClampsToItsCard_upFromTheFirstLineGoesToTheBar() {
+        assertEquals(4, xmbCcMove(2, 0, 1, 2, 5))
+        assertEquals(4, xmbCcMove(3, 0, 1, 2, 5))
+        assertEquals(4, xmbCcMove(4, 0, 1, 2, 5))
+        // Nowhere sideways from a card alone on its line.
+        assertEquals(4, xmbCcMove(4, 1, 0, 2, 5))
+        assertEquals(4, xmbCcMove(4, -1, 0, 2, 5))
+        assertEquals(XMB_CC_TO_STRIP, xmbCcMove(1, 0, -1, 2, 5))
+    }
+
+    @Test fun configs_oneColumnWhenTheScreenIsNarrow() {
+        assertEquals(1, xmbTwoColColumns(360f))
+        assertEquals(2, xmbTwoColColumns(XMB_TWO_COL_MIN_DP))
+        assertEquals(1, xmbCcMove(0, 0, 1, xmbTwoColColumns(360f), 3))
+        assertEquals(0, xmbCcMove(0, 1, 0, xmbTwoColColumns(360f), 3))
+    }
+
     // --- the strip ---
 
     @Test fun strip_stopsAtTheEnds() {

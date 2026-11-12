@@ -94,6 +94,7 @@ import com.winlator.star.R
 import com.winlator.star.ui.LocalXmbHintInset
 import com.winlator.star.ui.deck.DeckFloatingHint
 import com.winlator.star.ui.deck.GlyphKind
+import com.winlator.star.ui.deck.HINT_BOTTOM_GAP
 import com.winlator.star.ui.deck.LocalXmbKeyboard
 import com.winlator.star.ui.deck.ScreenScale
 import com.winlator.star.ui.deck.XmbEditTapCatcher
@@ -190,7 +191,7 @@ internal fun XmbBackHintLayer(enabled: Boolean, content: @Composable () -> Unit)
     val hintDensity = rememberXmbHintDensity()
     val k = hintDensity.density / outer.density
     val cutoutBottom = WindowInsets.displayCutout.asPaddingValues().calculateBottomPadding()
-    CompositionLocalProvider(LocalXmbHintInset provides (ss.dp(12f) + XMB_BACK_HINT_HEIGHT) * k + cutoutBottom) {
+    CompositionLocalProvider(LocalXmbHintInset provides (ss.dp(HINT_BOTTOM_GAP) + XMB_BACK_HINT_HEIGHT) * k + cutoutBottom) {
         Box(Modifier.fillMaxSize()) {
             content()
             if (keyboard?.panelOpen != true) {
@@ -206,7 +207,7 @@ internal fun XmbBackHintLayer(enabled: Boolean, content: @Composable () -> Unit)
                             .align(Alignment.BottomEnd)
                             .padding(
                                 end = ss.dp(16f) + cutout.calculateEndPadding(dir),
-                                bottom = ss.dp(12f) + cutout.calculateBottomPadding(),
+                                bottom = ss.dp(HINT_BOTTOM_GAP) + cutout.calculateBottomPadding(),
                             ),
                     )
                 }

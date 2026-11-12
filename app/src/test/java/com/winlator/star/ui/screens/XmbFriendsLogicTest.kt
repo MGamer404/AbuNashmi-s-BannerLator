@@ -100,6 +100,60 @@ class XmbFriendsLogicTest {
         assertEquals(0, xmbFriendsResolve(listOf(XmbFriendsRow.Toolbar), "x", 5))
     }
 
+    // toolbar, then two sections of 3 and 2 friends:
+    // 0 toolbar, 1 hdr:ONLINE, 2 f:1, 3 f:2, 4 f:3, 5 hdr:OFFLINE, 6 f:4, 7 f:5
+    private fun roster() = xmbFriendsRows(
+        friends = listOf(
+            friend(1, "a", Presence.ONLINE), friend(2, "b", Presence.ONLINE), friend(3, "c", Presence.ONLINE),
+            friend(4, "d", Presence.OFFLINE), friend(5, "e", Presence.OFFLINE),
+        ),
+        incoming = none, outgoing = none, collapsed = emptySet(),
+    )
+
+    @Test fun lines_headingsSpanTheWidth_friendsFillLinesOfTwo() {
+        assertEquals(
+            listOf(listOf(0), listOf(1), listOf(2, 3), listOf(4), listOf(5), listOf(6, 7)),
+            xmbFriendsLines(roster(), 2),
+        )
+        assertEquals(
+            listOf(listOf(0), listOf(1), listOf(2), listOf(3), listOf(4), listOf(5), listOf(6), listOf(7)),
+            xmbFriendsLines(roster(), 1),
+        )
+    }
+
+    @Test fun lines_requestsOfBothKindsShareTheirRuns() {
+        val rows = xmbFriendsRows(
+            friends = emptyList(),
+            incoming = listOf(friend(1, "a", Presence.OFFLINE), friend(2, "b", Presence.OFFLINE)),
+            outgoing = listOf(friend(3, "c", Presence.OFFLINE)),
+            collapsed = emptySet(),
+        )
+        // toolbar(0), requests(1), in:1(2), in:2(3), out:3(4)
+        assertEquals(listOf(listOf(0), listOf(1), listOf(2, 3), listOf(4)), xmbFriendsLines(rows, 2))
+    }
+
+    @Test fun lines_aFoldedSectionHasOnlyItsHeading() {
+        val rows = xmbFriendsRows(listOf(friend(1, "a", Presence.OFFLINE)), none, none, setOf(Presence.OFFLINE))
+        assertEquals(listOf(listOf(0), listOf(1)), xmbFriendsLines(rows, 2))
+    }
+
+    @Test fun move_downAndUpKeepTheWantedColumn_aShortLineClamps() {
+        val rows = roster()
+        val lines = xmbFriendsLines(rows, 2)
+        // From the toolbar down onto the heading, then onto the first line of friends: column 0 or 1 as wanted.
+        assertEquals(1, xmbFriendsVertical(rows, lines, 0, down = true, wantCol = 1))
+        assertEquals(2, xmbFriendsVertical(rows, lines, 1, down = true, wantCol = 0))
+        assertEquals(3, xmbFriendsVertical(rows, lines, 1, down = true, wantCol = 1))
+        // Next line has one friend: clamps to it, from either column.
+        assertEquals(4, xmbFriendsVertical(rows, lines, 2, down = true, wantCol = 0))
+        assertEquals(4, xmbFriendsVertical(rows, lines, 3, down = true, wantCol = 1))
+        // Back up from the lone friend: onto the wanted column of the full line.
+        assertEquals(2, xmbFriendsVertical(rows, lines, 4, down = false, wantCol = 0))
+        assertEquals(3, xmbFriendsVertical(rows, lines, 4, down = false, wantCol = 1))
+        // Down from the last line stays.
+        assertEquals(7, xmbFriendsVertical(rows, lines, 7, down = true, wantCol = 1))
+    }
+
     @Test fun move_skipsTheRequestsHeading_upFromTheTopGoesToTheBar() {
         val rows = xmbFriendsRows(
             friends = listOf(friend(9, "x", Presence.ONLINE)),
@@ -107,18 +161,38 @@ class XmbFriendsLogicTest {
             outgoing = none, collapsed = emptySet(),
         )
         // toolbar(0), requests(1, not selectable), in:1(2), hdr:ONLINE(3), f:9(4)
-        assertEquals(2, xmbFriendsMove(rows, 0, 1))
-        assertEquals(0, xmbFriendsMove(rows, 2, -1))
-        assertEquals(XMB_FRIENDS_TO_BAR, xmbFriendsMove(rows, 0, -1))
-        assertEquals(4, xmbFriendsMove(rows, 4, 1))
-        assertEquals(4, xmbFriendsMove(rows, 0, 9))
+        val lines = xmbFriendsLines(rows, 2)
+        assertEquals(2, xmbFriendsVertical(rows, lines, 0, down = true, wantCol = 0))
+        assertEquals(0, xmbFriendsVertical(rows, lines, 2, down = false, wantCol = 0))
+        assertEquals(XMB_FRIENDS_TO_BAR, xmbFriendsVertical(rows, lines, 0, down = false, wantCol = 0))
+        assertEquals(4, xmbFriendsVertical(rows, lines, 4, down = true, wantCol = 0))
     }
 
     @Test fun move_aStrayIndexIsSafe() {
         val rows = xmbFriendsRows(none, none, none, emptySet())
-        assertEquals(0, xmbFriendsMove(rows, 7, 1))
-        assertEquals(XMB_FRIENDS_TO_BAR, xmbFriendsMove(rows, 7, -1))
-        assertEquals(0, xmbFriendsMove(emptyList(), 0, 1))
+        val lines = xmbFriendsLines(rows, 2)
+        assertEquals(XMB_FRIENDS_TO_BAR, xmbFriendsVertical(rows, lines, 7, down = false, wantCol = 0))
+        assertEquals(0, xmbFriendsVertical(emptyList(), emptyList(), 0, down = true, wantCol = 0))
+    }
+
+    @Test fun side_leftRightGoBetweenTheColumnsOfALine() {
+        val lines = xmbFriendsLines(roster(), 2)
+        assertEquals(3, xmbTwoColSide(lines, 2, 1))
+        assertEquals(2, xmbTwoColSide(lines, 3, -1))
+        assertEquals(4, xmbTwoColSide(lines, 4, 1))
+        // A heading is a line of one.
+        assertEquals(1, xmbTwoColSide(lines, 1, 1))
+    }
+
+    @Test fun side_buttonsOnTheToolbarAlways_onACardOnceStepIn() {
+        val f = friend(5, "a", Presence.IN_GAME, game = 1)
+        assertTrue(xmbFriendsSideIsButtons(XmbFriendsRow.Toolbar, false))
+        assertFalse(xmbFriendsSideIsButtons(XmbFriendsRow.Friend(f), false))
+        assertTrue(xmbFriendsSideIsButtons(XmbFriendsRow.Friend(f), true))
+        assertFalse(xmbFriendsSideIsButtons(XmbFriendsRow.Incoming(f), false))
+        assertTrue(xmbFriendsSideIsButtons(XmbFriendsRow.Incoming(f), true))
+        assertFalse(xmbFriendsSideIsButtons(XmbFriendsRow.Outgoing(f), true))
+        assertFalse(xmbFriendsSideIsButtons(XmbFriendsRow.Header(Presence.ONLINE, 3, false), true))
     }
 
     @Test fun actions_gameOnlyWhileInAGame_removeIsLast() {
@@ -139,13 +213,13 @@ class XmbFriendsLogicTest {
 
     @Test fun buttons_perRow() {
         val f = friend(5, "a", Presence.IN_GAME, game = 1)
-        assertEquals(XMB_FRIENDS_TOOLBAR_BUTTONS, xmbFriendsButtonCount(XmbFriendsRow.Toolbar, null))
-        assertEquals(2, xmbFriendsButtonCount(XmbFriendsRow.Incoming(f), null))
-        assertEquals(1, xmbFriendsButtonCount(XmbFriendsRow.Outgoing(f), null))
-        assertEquals(1, xmbFriendsButtonCount(XmbFriendsRow.Friend(f), null))
-        assertEquals(1, xmbFriendsButtonCount(XmbFriendsRow.Friend(f), 6L))
-        assertEquals(4, xmbFriendsButtonCount(XmbFriendsRow.Friend(f), 5L))
-        assertEquals(1, xmbFriendsButtonCount(XmbFriendsRow.Header(Presence.ONLINE, 3, false), null))
+        assertEquals(XMB_FRIENDS_TOOLBAR_BUTTONS, xmbFriendsButtonCount(XmbFriendsRow.Toolbar, false))
+        assertEquals(1, xmbFriendsButtonCount(XmbFriendsRow.Incoming(f), false))
+        assertEquals(2, xmbFriendsButtonCount(XmbFriendsRow.Incoming(f), true))
+        assertEquals(1, xmbFriendsButtonCount(XmbFriendsRow.Outgoing(f), false))
+        assertEquals(1, xmbFriendsButtonCount(XmbFriendsRow.Friend(f), false))
+        assertEquals(4, xmbFriendsButtonCount(XmbFriendsRow.Friend(f), true))
+        assertEquals(1, xmbFriendsButtonCount(XmbFriendsRow.Header(Presence.ONLINE, 3, false), false))
     }
 
     @Test fun online_countsReachableFriends_notOfflineOrUnknown() {

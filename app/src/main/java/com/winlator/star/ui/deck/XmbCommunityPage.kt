@@ -11,15 +11,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.Icons
@@ -59,6 +56,7 @@ import com.winlator.star.ui.screens.XMB_CC_STRIP_REFRESH
 import com.winlator.star.ui.screens.XMB_CC_STRIP_SEARCH
 import com.winlator.star.ui.screens.XMB_CC_STRIP_SORT
 import com.winlator.star.ui.screens.XMB_CC_TO_STRIP
+import com.winlator.star.ui.screens.XMB_TWO_COL_GAP_DP
 import com.winlator.star.ui.screens.communityFilePick
 import com.winlator.star.ui.screens.deviceHeaderLabel
 import com.winlator.star.ui.screens.rememberGameConfigs
@@ -71,6 +69,7 @@ import com.winlator.star.ui.screens.xmbCcNextSort
 import com.winlator.star.ui.screens.xmbCcRankConfigs
 import com.winlator.star.ui.screens.xmbCcStripStep
 import com.winlator.star.ui.screens.xmbCcVisible
+import com.winlator.star.ui.screens.xmbTwoColColumns
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -80,6 +79,9 @@ import kotlinx.coroutines.withContext
 // picks the game to apply it to and X reads what it sets (the dialogs of the Games screen's own flow, drawn from here). The rules (the
 // filters, the grid's moves, which games the library has or which fit this device) are in screens/XmbCommunityLogic.kt and the list rules
 // it shares with the dialog in screens/CommunityBrowserLogic.kt; the pieces drawn are in XmbCommunityParts.kt.
+//
+// A game's page lists its configs as cards two to a line (one on a narrow screen): the D-pad's Left / Right move between the two columns and
+// Up / Down between the lines, as on the Downloads and Friends tabs (the moves are xmbCcMove's, the same as the game grid's).
 //
 // Dropped from the dialog, which had them: the Steam / Title store filter (a game is Steam or not by its art), the "Devices" sort (not a
 // thing anyone sorts by), the My account button (the shell's header has it), and the Apply / View details chooser (a config row has both
@@ -178,6 +180,8 @@ internal fun XmbCommunityPage(focus: XmbTabsPageFocus) {
         val boxW = maxWidth.value
         val wide = boxW >= XMB_CC_WIDE_STRIP_DP
         val cols = remember(boxW) { xmbCcColumns(boxW) }
+        // The columns of a game's configs: two when the page is wide enough for them.
+        val cfgCols = remember(boxW) { xmbTwoColColumns(boxW) }
         val cardH = ss.dp(66f)
         val strip = inStrip || visible.isEmpty()
 
@@ -189,9 +193,9 @@ internal fun XmbCommunityPage(focus: XmbTabsPageFocus) {
         }
         val offlineRows = cfg != null && !cfg.loading && cfg.entries.isEmpty() && rows.isNotEmpty()
         LaunchedEffect(rows.size) { cfgSel = cfgSel.coerceIn(0, (rows.size - 1).coerceAtLeast(0)) }
-        val listState = rememberLazyListState()
-        // The offline note, when there is one, is the list's first item.
-        LaunchedEffect(cfgSel, rows.size, open, offlineRows) {
+        val listState = rememberLazyGridState()
+        // The offline note, when there is one, is the grid's first item (across both columns).
+        LaunchedEffect(cfgSel, rows.size, open, offlineRows, cfgCols) {
             if (open != null && rows.isNotEmpty()) listState.reveal(cfgSel.coerceIn(0, rows.lastIndex) + (if (offlineRows) 1 else 0))
         }
         LaunchedEffect(sel, strip, open, visible.size, cols) {
@@ -226,8 +230,15 @@ internal fun XmbCommunityPage(focus: XmbTabsPageFocus) {
                 // Nothing to list: A tries again.
                 games.isEmpty() -> if (enter) { if (first) refresh(); true } else false
                 open != null -> when {
-                    e.key == Key.DirectionUp -> { if (cfgSel > 0) cfgSel-- else focus.toBar(); true }
-                    e.key == Key.DirectionDown -> { if (cfgSel < rows.lastIndex) cfgSel++; true }
+                    // Along the grid of configs: Up from the first line goes to the pill bar, Down into a shorter line lands on its last card.
+                    e.key == Key.DirectionUp -> {
+                        val to = xmbCcMove(cfgSel, 0, -1, cfgCols, rows.size)
+                        if (to == XMB_CC_TO_STRIP) focus.toBar() else cfgSel = to
+                        true
+                    }
+                    e.key == Key.DirectionDown -> { cfgSel = xmbCcMove(cfgSel, 0, 1, cfgCols, rows.size); true }
+                    e.key == Key.DirectionLeft -> { cfgSel = xmbCcMove(cfgSel, -1, 0, cfgCols, rows.size); true }
+                    e.key == Key.DirectionRight -> { cfgSel = xmbCcMove(cfgSel, 1, 0, cfgCols, rows.size); true }
                     enter -> { if (first) applyRow(cfgSel); true }
                     e.key == Key.ButtonX -> { if (first) detailsRow(cfgSel); true }
                     e.key == Key.ButtonB || e.key == Key.Escape -> { if (first) openId = null; true }
@@ -296,13 +307,15 @@ internal fun XmbCommunityPage(focus: XmbTabsPageFocus) {
                 when {
                     cfg == null || cfg.loading -> XmbCcMessage(stringResource(R.string.xmb_cc_configs_loading), "", busy = true, ss = ss)
                     rows.isEmpty() -> XmbCcMessage(stringResource(R.string.xmb_cc_configs_none), "", busy = false, ss = ss)
-                    else -> LazyColumn(
+                    else -> LazyVerticalGrid(
+                        columns = GridCells.Fixed(cfgCols),
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(ss.dp(8f)),
+                        horizontalArrangement = Arrangement.spacedBy(ss.dp(XMB_TWO_COL_GAP_DP)),
+                        verticalArrangement = Arrangement.spacedBy(ss.dp(XMB_TWO_COL_GAP_DP)),
                     ) {
                         if (offlineRows) {
-                            item(key = "offline") {
+                            item(key = "offline", span = { GridItemSpan(maxLineSpan) }) {
                                 Text(
                                     stringResource(R.string.xmb_cc_configs_offline),
                                     color = XMB_CC_DIM,
@@ -540,21 +553,6 @@ private suspend fun LazyGridState.reveal(index: Int) {
     }
     val top = item.offset.y
     val bottom = top + item.size.height
-    val limit = info.viewportSize.height - info.afterContentPadding
-    if (top < info.beforeContentPadding) animateScrollBy((top - info.beforeContentPadding).toFloat())
-    else if (bottom > limit) animateScrollBy((bottom - limit).toFloat())
-}
-
-/** The same for a column of rows. */
-private suspend fun LazyListState.reveal(index: Int) {
-    val info = layoutInfo
-    val item = info.visibleItemsInfo.firstOrNull { it.index == index }
-    if (item == null) {
-        animateScrollToItem(index)
-        return
-    }
-    val top = item.offset
-    val bottom = top + item.size
     val limit = info.viewportSize.height - info.afterContentPadding
     if (top < info.beforeContentPadding) animateScrollBy((top - info.beforeContentPadding).toFloat())
     else if (bottom > limit) animateScrollBy((bottom - limit).toFloat())

@@ -3,7 +3,8 @@ package com.winlator.star.ui.screens
 import com.winlator.star.store.SteamFriendsStore
 
 // The pure rules of the XMB Home's Friends tab (ui/deck/XmbFriendsPage.kt), kept free of Compose and Android so they can be unit-tested: how the
-// roster is grouped into sections and flattened into the page's rows, where the D-pad's cursor moves in them, and which actions a friend offers.
+// roster is grouped into sections and flattened into the page's rows, how the rows fall into lines (headings across the full width, the
+// friends and the requests as cards two to a line), where the D-pad's cursor moves in them, and which actions a friend offers.
 
 /** The sections of the roster, top to bottom. "Unknown" only appears while a SteamLite game holds the session (see SteamFriendsStore). */
 internal val XMB_FRIENDS_SECTIONS: List<SteamFriendsStore.Presence> = listOf(
@@ -14,8 +15,8 @@ internal val XMB_FRIENDS_SECTIONS: List<SteamFriendsStore.Presence> = listOf(
     SteamFriendsStore.Presence.UNKNOWN,
 )
 
-/** [xmbFriendsMove]'s answer for Up from the top row: the cursor goes to the pill bar. */
-internal const val XMB_FRIENDS_TO_BAR = -1
+/** [xmbTwoColVertical]'s answer for Up from the top line: the cursor goes to the pill bar. */
+internal const val XMB_FRIENDS_TO_BAR = XMB_TWO_COL_TO_BAR
 
 /** The toolbar's buttons, left to right: Add friend, Settings. */
 internal const val XMB_FRIENDS_TOOLBAR_BUTTONS = 2
@@ -108,23 +109,33 @@ internal fun xmbFriendsResolve(rows: List<XmbFriendsRow>, key: String, lastIndex
     return 0
 }
 
+/** True for the rows drawn as a card, two to a line: a friend and the two kinds of request. The toolbar and the headings span the full width. */
+internal fun xmbFriendsIsCard(row: XmbFriendsRow): Boolean =
+    row is XmbFriendsRow.Friend || row is XmbFriendsRow.Incoming || row is XmbFriendsRow.Outgoing
+
 /**
- * Where the cursor goes from row [from] moved [delta] selectable rows (headings of the requests are skipped). Up from the first selectable
- * row is [XMB_FRIENDS_TO_BAR]; Down from the last stays.
+ * The lines of [rows] with the cards [columns] to a line: the toolbar and each heading alone on a line, the cards between two of them
+ * (the requests, or one section's friends) filling lines, the last of a run maybe shorter. Each line holds indexes into [rows].
  */
-internal fun xmbFriendsMove(rows: List<XmbFriendsRow>, from: Int, delta: Int): Int {
-    if (rows.isEmpty()) return 0
-    var i = from.coerceIn(0, rows.lastIndex)
-    var left = kotlin.math.abs(delta)
-    val step = if (delta < 0) -1 else 1
-    while (left > 0) {
-        var j = i + step
-        while (j in rows.indices && !rows[j].selectable) j += step
-        if (j !in rows.indices) return if (step < 0) XMB_FRIENDS_TO_BAR else i
-        i = j
-        left--
-    }
-    return i
+internal fun xmbFriendsLines(rows: List<XmbFriendsRow>, columns: Int): List<List<Int>> =
+    xmbTwoColLines(rows.map { !xmbFriendsIsCard(it) }, columns)
+
+/**
+ * Where Up ([down] false) or Down from row [from] goes: the nearest line above or below that holds a selectable row (the requests' heading
+ * only labels, so it is skipped), on the column [wantCol] or the last card of a shorter line. Up from the first line is
+ * [XMB_FRIENDS_TO_BAR]; Down from the last stays.
+ */
+internal fun xmbFriendsVertical(rows: List<XmbFriendsRow>, lines: List<List<Int>>, from: Int, down: Boolean, wantCol: Int): Int =
+    xmbTwoColVertical(lines, from, down, wantCol) { i -> rows.getOrNull(i)?.selectable == true }
+
+/**
+ * True when Left / Right on [row] move between its buttons rather than between the columns: always on the toolbar (Add friend, Settings),
+ * and on a friend's or a request's card once A has stepped into its [open] buttons.
+ */
+internal fun xmbFriendsSideIsButtons(row: XmbFriendsRow, open: Boolean): Boolean = when (row) {
+    is XmbFriendsRow.Toolbar -> true
+    is XmbFriendsRow.Friend, is XmbFriendsRow.Incoming -> open
+    is XmbFriendsRow.Outgoing, is XmbFriendsRow.Header, is XmbFriendsRow.RequestsHeader -> false
 }
 
 /** The buttons of an open friend's action row, left to right. */
@@ -140,11 +151,14 @@ internal fun xmbFriendActions(friend: SteamFriendsStore.SteamFriend): List<XmbFr
     }
 }
 
-/** How many buttons the row under the cursor has side by side (the Left / Right range): 1 for a row without inner buttons. */
-internal fun xmbFriendsButtonCount(row: XmbFriendsRow, openFriend: Long?): Int = when (row) {
+/**
+ * How many buttons the row under the cursor has side by side (the Left / Right range while they hold it): 1 for a row without inner
+ * buttons. [open]: A has stepped into the row's buttons (a friend's actions, an incoming request's Accept / Decline).
+ */
+internal fun xmbFriendsButtonCount(row: XmbFriendsRow, open: Boolean): Int = when (row) {
     is XmbFriendsRow.Toolbar -> XMB_FRIENDS_TOOLBAR_BUTTONS
-    is XmbFriendsRow.Incoming -> 2
+    is XmbFriendsRow.Incoming -> if (open) 2 else 1
     is XmbFriendsRow.Outgoing -> 1
-    is XmbFriendsRow.Friend -> if (openFriend == row.friend.steamId) xmbFriendActions(row.friend).size else 1
+    is XmbFriendsRow.Friend -> if (open) xmbFriendActions(row.friend).size else 1
     is XmbFriendsRow.Header, is XmbFriendsRow.RequestsHeader -> 1
 }

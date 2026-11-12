@@ -83,9 +83,9 @@ import kotlin.math.floor
 /** The thin light outline of the focused card. */
 private val XMB_STEAM_OUTLINE = Color.White.copy(alpha = 0.92f)
 
-/** The backdrop's gradient ends in this dark navy, at [XMB_STEAM_FADE_MAX] of full strength at the bottom edge. */
-private val XMB_STEAM_NAVY = Color(0xFF0B1426)
-private const val XMB_STEAM_FADE_MAX = 0.35f
+/** The backdrop's gradient ends in this very dark navy, at [XMB_STEAM_FADE_MAX] of full strength at the bottom edge. */
+private val XMB_STEAM_NAVY = Color(0xFF060B16)
+private const val XMB_STEAM_FADE_MAX = 0.78f
 
 /** The covers that are not the focused one are dimmed this much (an opaque black overlay, so the backdrop never shows through) while the options are open. */
 private const val XMB_STEAM_DIM = 0.45f
@@ -135,7 +135,7 @@ private fun XmbSteamPicture(
  * the device) crossfading as the cursor moves, cropped to fill the whole screen (a landscape hero is scaled to the screen's height, a
  * portrait or low-res one to its width, so no band of anything else shows under it and there is no seam). A dark scrim over the top
  * fifth keeps the shell's header readable, and a soft gradient to dark navy starts at [fadeFrom] (a share of the screen's height: the
- * top edge of the text tabs) and is darkest, but only about a third opaque, at the bottom edge. [picture] (the cover) is the usual
+ * top edge of the text tabs) and is darkest, about four fifths opaque, at the bottom edge. [picture] (the cover) is the usual
  * blurred backdrop, which stays underneath: it shows only while the art loads and when there is none.
  */
 @Composable
@@ -155,14 +155,18 @@ internal fun XmbSteamBackdrop(game: Shortcut?, picture: Any?, fadeFrom: Float) {
         }
         Box(
             Modifier.fillMaxSize().background(
-                // The navy's strength follows a smoothstep from 0 at the tabs' top edge to its maximum at the bottom: no visible start.
+                // Top: a dark scrim for the shell's header. Bottom: from the tabs' top edge (clear) to the bottom edge, the navy's
+                // strength eases in and out over several stops (0, .05, .18, .42, .66, .78 of full), so there is no visible start,
+                // band or edge. This box is drawn over the hero art and under the content box (covers, title, tabs), and the shell's
+                // hints are drawn over all of it.
                 Brush.verticalGradient(
                     0f to Color.Black.copy(alpha = 0.55f),
                     0.20f to Color.Transparent,
                     from to XMB_STEAM_NAVY.copy(alpha = 0f),
-                    from + (1f - from) * 0.25f to XMB_STEAM_NAVY.copy(alpha = XMB_STEAM_FADE_MAX * 0.156f),
-                    from + (1f - from) * 0.50f to XMB_STEAM_NAVY.copy(alpha = XMB_STEAM_FADE_MAX * 0.5f),
-                    from + (1f - from) * 0.75f to XMB_STEAM_NAVY.copy(alpha = XMB_STEAM_FADE_MAX * 0.844f),
+                    from + (1f - from) * 0.15f to XMB_STEAM_NAVY.copy(alpha = XMB_STEAM_FADE_MAX * 0.064f),
+                    from + (1f - from) * 0.30f to XMB_STEAM_NAVY.copy(alpha = XMB_STEAM_FADE_MAX * 0.231f),
+                    from + (1f - from) * 0.50f to XMB_STEAM_NAVY.copy(alpha = XMB_STEAM_FADE_MAX * 0.538f),
+                    from + (1f - from) * 0.75f to XMB_STEAM_NAVY.copy(alpha = XMB_STEAM_FADE_MAX * 0.846f),
                     1f to XMB_STEAM_NAVY.copy(alpha = XMB_STEAM_FADE_MAX),
                 ),
             ),
