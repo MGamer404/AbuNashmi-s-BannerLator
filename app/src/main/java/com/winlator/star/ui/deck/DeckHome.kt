@@ -119,7 +119,6 @@ import com.winlator.star.container.Shortcut
 import com.winlator.star.store.DownloadManagerActivity
 import com.winlator.star.store.SteamFriendsAction
 import com.winlator.star.store.SteamFriendsActivity
-import com.winlator.star.store.download.DownloadRegistry
 import com.winlator.star.ui.DeckDialogBars
 import com.winlator.star.ui.Screen
 import com.winlator.star.ui.DeckDialogScaled
@@ -133,12 +132,12 @@ import com.winlator.star.ui.screens.rememberShortcutActions
 import com.winlator.star.ui.screens.ShortcutsXmbView
 import com.winlator.star.ui.screens.xmbRowOf
 import com.winlator.star.ui.screens.WrapperManagerDialog
-import com.winlator.star.ui.screens.XMB_PLAIN_CARD
 import com.winlator.star.ui.screens.XmbAction
-import com.winlator.star.ui.screens.XmbCardArt
 import com.winlator.star.ui.screens.XmbGameHost
 import com.winlator.star.ui.screens.XmbSdBadge
+import com.winlator.star.ui.screens.XmbSteamTab
 import com.winlator.star.ui.screens.XmbStoreBadges
+import com.winlator.star.ui.screens.xmbSteamTabs
 import com.winlator.star.ui.screens.xmbGameActions
 import com.winlator.star.ui.screens.rememberShortcutLauncher
 import kotlinx.coroutines.flow.first
@@ -388,39 +387,31 @@ internal fun DeckHome(
         // Steam (Linux) entry, whose settings aren't XMB rows, opens the Deck editor.
         xmbGameActions(context, s, xmbHost, openSettings = { actions.perform(GameMenuAction.SETTINGS, it) }, settingsAsColumns = true)
     }
-    // XMB home: Up from a game lifts the row of cards above the games: the five stores (they replace the Stores tab),
-    // then Downloads and what the shelf toolbar offers elsewhere.
-    val downloads by DownloadRegistry.activeCount.collectAsState()
-    // Built once per change of what it shows, not on every recomposition (it counts each store's games); the callbacks it
-    // calls are tracked separately so the remembered cards never hold a stale one.
+    // XMB home: the plain text tabs under the focused game's title (Down from the covers moves onto them). Stores opens a small picker
+    // of the five stores and Add game; Downloads, Friends (only while signed in to Steam) and Community configs open their screens.
+    // Built once per change of what it shows, not on every recomposition; the callbacks it calls are tracked separately so the
+    // remembered tabs never hold a stale one.
     val launchStore by rememberUpdatedState(onLaunchStore)
     val addGame by rememberUpdatedState(onAddGame)
-    val xmbUpperRow: List<XmbAction> = remember(xmbHome, shortcuts, signedIn, downloads) {
-        if (!xmbHome) emptyList() else buildList {
-            DeckStore.entries.forEach { store ->
-                val owned = shortcuts.count(store.owns)
-                val games = when (owned) { 0 -> "no games yet"; 1 -> "1 game"; else -> "$owned games" }
-                val details = if (signedIn[store] == true) "Signed in · $games" else "Not signed in · A to sign in"
-                add(XmbAction(store.label, Icons.Filled.Storefront, details, art = storeCardArt(store)) { launchStore(store.screen) })
+    var storesOpen by remember { mutableStateOf(false) }
+    val steamSignedIn = signedIn[DeckStore.STEAM] == true
+    val xmbTabs: List<XmbAction> = remember(xmbHome, steamSignedIn) {
+        if (!xmbHome) emptyList() else xmbSteamTabs(steamSignedIn).map { tab ->
+            when (tab) {
+                XmbSteamTab.STORES -> XmbAction(context.getString(R.string.xmb_tab_stores), Icons.Filled.Storefront) { storesOpen = true }
+                XmbSteamTab.DOWNLOADS -> XmbAction(context.getString(R.string.xmb_tab_downloads), Icons.Filled.Download) {
+                    runCatching { context.startActivity(Intent(context, DownloadManagerActivity::class.java)) }
+                }
+                XmbSteamTab.FRIENDS -> XmbAction(context.getString(R.string.xmb_tab_friends), Icons.Filled.People) {
+                    runCatching { context.startActivity(Intent(context, SteamFriendsActivity::class.java)) }
+                }
+                XmbSteamTab.COMMUNITY -> XmbAction(context.getString(R.string.xmb_tab_community), Icons.Filled.Public) { actions.showCommunityBrowser = true }
             }
-            // The icon cards get dark gradients of their own, each softly tinted, so they sit with the store cards.
-            add(XmbAction("Downloads", Icons.Filled.Download, if (downloads > 0) "$downloads active" else "No downloads",
-                art = XmbCardArt(null, listOf(Color(0xFF1E3A5F), Color(0xFF0F1F33)))) {
-                runCatching { context.startActivity(Intent(context, DownloadManagerActivity::class.java)) }
-            })
-            if (signedIn[DeckStore.STEAM] == true) add(XmbAction("Friends", Icons.Filled.People, "Steam friends and chat",
-                art = XmbCardArt(null, listOf(Color(0xFF134E4A), Color(0xFF0A2B29)))) {
-                runCatching { context.startActivity(Intent(context, SteamFriendsActivity::class.java)) }
-            })
-            add(XmbAction("Community configs", Icons.Filled.Public, "Shared settings for your games",
-                art = XmbCardArt(null, listOf(Color(0xFF2E2A6B), Color(0xFF17153A)))) { actions.showCommunityBrowser = true })
-            add(XmbAction("Add game", Icons.Filled.Add, "Add games to your library",
-                art = XmbCardArt(null, XMB_PLAIN_CARD)) { addGame() })
         }
     }
-    // The store logos are big PNGs: decode them now, off the main thread, so the first frame finds them ready.
+    // The store logos on the covers' marks are big PNGs: decode them now, off the main thread, so the first frame finds them ready.
     LaunchedEffect(xmbHome) {
-        if (xmbHome) warmXmbLogos(context, DeckStore.entries.mapNotNull { storeCardArt(it).logo })
+        if (xmbHome) warmStoreMarks(context)
     }
 
     val shelfScroll = rememberScrollState()
@@ -566,12 +557,13 @@ internal fun DeckHome(
                     // Full screen: the XMB hides the system bars in landscape and keeps L1/R1 for its jumps.
                     // The XMB home sits inside the shell instead: the shell keeps the bars hidden, takes L1/R1 for its tabs
                     // and floats its own tabs, status and Back / Search hints over the XMB, so the XMB drops its hints and clock.
-                    // The games rest centred with the library cards (upperRow) peeking above; A opens a game's options,
-                    // Up lifts the cards fully into view.
+                    // The games sit in one low row under the focused game's art with the text tabs (homeTabs) under its title; A opens
+                    // a game's options, Down moves onto the tabs.
                     inDeckShell = xmbHome,
                     showClock = !xmbHome,
                     showHints = !xmbHome,
-                    upperRow = xmbUpperRow,
+                    steamHome = xmbHome,
+                    homeTabs = xmbTabs,
                     centeredHome = xmbHome,
                     takeFocus = { !xmbHome || !deckActions.navHold.value },
                     focusTick = if (xmbHome) deckActions.enterTick.intValue else 0,
@@ -580,6 +572,15 @@ internal fun DeckHome(
         }
     }
     if (showWrapperManager) WrapperManagerDialog(onDismiss = { showWrapperManager = false })
+    if (storesOpen) {
+        XmbStoresDialog(
+            signedIn = signedIn,
+            games = shortcuts,
+            onStore = { store -> storesOpen = false; launchStore(store.screen) },
+            onAddGame = { storesOpen = false; addGame() },
+            onDismiss = { storesOpen = false },
+        )
+    }
 
     if (filterOpen) {
         LibraryFilterDialog(
@@ -1169,11 +1170,3 @@ internal fun DeckButton(
     }
 }
 
-/** A store's card on the XMB home: its logo on its brand colours (Xbox's mark drawn white, as on its own green). */
-private fun storeCardArt(store: DeckStore): XmbCardArt = when (store) {
-    DeckStore.STEAM -> XmbCardArt(R.drawable.store_logo_steam, listOf(Color(0xFF171A21), Color(0xFF1B2838)))
-    DeckStore.EPIC -> XmbCardArt(R.drawable.store_logo_epic, listOf(Color(0xFF121212), Color(0xFF202020)))
-    DeckStore.GOG -> XmbCardArt(R.drawable.store_logo_gog, listOf(Color(0xFF5C2D91), Color(0xFF3B1C60)))
-    DeckStore.AMAZON -> XmbCardArt(R.drawable.store_logo_amazon, listOf(Color(0xFF232F3E), Color(0xFF131A22)))
-    DeckStore.XBOX -> XmbCardArt(R.drawable.store_logo_xbox, listOf(Color(0xFF107C10), Color(0xFF0B5A0B)), tintWhite = true)
-}
