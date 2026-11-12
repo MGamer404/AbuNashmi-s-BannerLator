@@ -52,6 +52,19 @@ internal fun xmbSteamTabs(steamSignedIn: Boolean): List<XmbSteamTab> =
 /** The pictures the first game's wide card tries: its landscape art, then its background art, each once; the caller falls back to the cover. */
 internal fun <T> xmbSteamWideOrder(wide: List<T>, background: List<T>): List<T> = (wide + background).distinct()
 
+/**
+ * Whether the first game's wide card shows its cover (cropped to the card) instead of the placeholder while no landscape art is on it:
+ * only once every landscape source has failed ([allFailed]) and the game's art lookup has finished ([resolved], as one may still find
+ * more), and for good once that has been decided ([latched]), so the card does not swing between a placeholder and a cropped portrait.
+ */
+internal fun xmbWideCoverShows(allFailed: Boolean, resolved: Boolean, latched: Boolean): Boolean = latched || (allFailed && resolved)
+
+/** How many dp the Home backdrop is blurred with [lift] (0 at rest, 1 with a game's options open) of the way to [max]. */
+internal fun xmbSteamBackdropBlur(lift: Float, max: Float): Float = max * lift.coerceIn(0f, 1f)
+
+/** The black dim over the Home backdrop's art with [lift] of the way to the options: 35% beside a blur, 55% where there is none (below API 31). */
+internal fun xmbSteamBackdropDim(lift: Float, blurs: Boolean): Float = (if (blurs) 0.35f else 0.55f) * lift.coerceIn(0f, 1f)
+
 /** The share of its size the card [index] is drawn at with the cursor at [pos]: [focus] on the cursor, 1 away from it, gliding in between. */
 internal fun xmbSteamScale(index: Int, pos: Float, focus: Float = XMB_STEAM_FOCUS_SCALE): Float =
     1f + (focus - 1f) * (1f - abs(index - pos)).coerceAtLeast(0f)

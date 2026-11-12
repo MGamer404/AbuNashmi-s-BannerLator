@@ -285,6 +285,9 @@ internal fun ShortcutsXmbView(
         settleJob?.cancel()
         target = idx
         pos.floatValue = idx.toFloat()
+        // The lifted card is the focused one while the options are open; the list changing order under them (a launch, a new game)
+        // moves it, and the lift is an index, so it follows or the options would hang on another game's card.
+        if (optsOpen) liftIdx = idx
     }
     // The game under the cursor, or null on the All Games card (the slot after the last game), which has no game behind it.
     val focused: Shortcut? = if (hasAll && target >= n) null else shortcuts[target.coerceIn(0, n - 1)]
@@ -690,7 +693,8 @@ internal fun ShortcutsXmbView(
                 ?: (if (onAll && !upperOpen) collage?.let { XmbCollagePicture(it) } else null)
             // The Steam home shows the focused game's own landscape art over that (the blurred cover stays under it until it loads).
             // Its bottom gradient starts at the text tabs' top edge (the tabs sit in the content box, below the top bar's inset).
-            if (steam) XmbSteamBackdrop(focused, picture, (topInset.value + sl.tabsTop) / screenHeight.value.coerceAtLeast(1f))
+            // [cT] (1 centred, 0 with the options open, glided over 300 ms) blurs and dims the art while the options are up.
+            if (steam) XmbSteamBackdrop(focused, picture, (topInset.value + sl.tabsTop) / screenHeight.value.coerceAtLeast(1f), lift = { 1f - cT })
             else XmbHomeBackdrop(picture)
             // Faint shade behind a see-through top bar so its title and buttons stay readable.
             if (topInset > 0.dp) {

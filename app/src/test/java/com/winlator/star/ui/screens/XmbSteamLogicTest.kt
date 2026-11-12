@@ -245,6 +245,34 @@ class XmbSteamLogicTest {
         assertEquals(row.x(0, 0f), l.titleX(row, 0, 0f), delta)
     }
 
+    @Test fun wideCover_neverWhileLandscapeArtMayStillArrive() {
+        // Loading: nothing failed yet. Everything failed but the lookup of more art is still running. Neither shows the cropped cover.
+        assertEquals(false, xmbWideCoverShows(allFailed = false, resolved = false, latched = false))
+        assertEquals(false, xmbWideCoverShows(allFailed = false, resolved = true, latched = false))
+        assertEquals(false, xmbWideCoverShows(allFailed = true, resolved = false, latched = false))
+    }
+
+    @Test fun wideCover_onlyWhenEverySourceFailedAndTheLookupIsDone_thenForGood() {
+        assertEquals(true, xmbWideCoverShows(allFailed = true, resolved = true, latched = false))
+        // Once decided for the game it stays decided, even while a new source list is being tried (failed is reset by it).
+        assertEquals(true, xmbWideCoverShows(allFailed = false, resolved = true, latched = true))
+    }
+
+    @Test fun backdropBlur_followsTheOptionsGlideAndIsClamped() {
+        assertEquals(0f, xmbSteamBackdropBlur(0f, 24f), delta)
+        assertEquals(12f, xmbSteamBackdropBlur(0.5f, 24f), delta)
+        assertEquals(24f, xmbSteamBackdropBlur(1f, 24f), delta)
+        assertEquals(24f, xmbSteamBackdropBlur(1.4f, 24f), delta)
+        assertEquals(0f, xmbSteamBackdropBlur(-0.2f, 24f), delta)
+    }
+
+    @Test fun backdropDim_isLighterBesideABlurAndStrongerWithout() {
+        assertEquals(0f, xmbSteamBackdropDim(0f, true), delta)
+        assertEquals(0.35f, xmbSteamBackdropDim(1f, true), delta)
+        assertEquals(0.55f, xmbSteamBackdropDim(1f, false), delta)
+        assertEquals(0.275f, xmbSteamBackdropDim(0.5f, false), delta)
+    }
+
     @Test fun layout_portraitScreenKeepsTheWideCardOnScreen() {
         val l = XmbSteamLayout(w = 393f, h = 851f, clipTop = 50f, bottomClear = 46f, k = 0.95f, rowH = 46f, extra = 6f)
         assertTrue(l.port)

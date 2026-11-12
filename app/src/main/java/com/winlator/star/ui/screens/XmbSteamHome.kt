@@ -1,5 +1,6 @@
 package com.winlator.star.ui.screens
 
+import android.os.Build
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animateFloatAsState
@@ -36,6 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableFloatState
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -44,6 +46,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -114,10 +117,22 @@ private val XMB_STEAM_CORNER = 2.dp
 /** A tab's text sits this far (dp) in from the edge of its highlight. */
 private const val XMB_STEAM_TAB_PAD = 10f
 
-/** A game's landscape art for the backdrop: the pictures to try in order, made once per game (and again when its art settings change). */
-private class XmbSteamHero(val pics: List<LabArt.Pic>)
+/**
+ * A game's landscape art for the backdrop: the pictures to try in order, made again only when the game or those sources change (two
+ * of these are equal when both are, so a refresh that finds the same art is not a new picture to cross-fade to).
+ */
+private data class XmbSteamHero(val path: String, val models: List<Any>) {
+    val pics: List<LabArt.Pic> = models.map { LabArt.Pic(it) }
+}
 
-/** [pics] faded in once one has loaded (nothing shows until then, nor when none loads), so what is under it stays until it is ready. */
+/** The backdrop goes this blurry (dp) while a game's options are open (API 31+; below that it is only dimmed, harder). */
+private const val XMB_STEAM_BACKDROP_BLUR = 24f
+
+/**
+ * [pics] faded in once one has loaded (nothing shows until then, nor when none loads), so what is under it stays until it is ready.
+ * "Loaded" belongs to the sources, not to the list object: a list rebuilt with the same sources (LabArt's tick turns over whenever any
+ * game's art is found) must not hide a picture that is already showing, as nothing would load it again.
+ */
 @Composable
 private fun XmbSteamPicture(
     pics: List<LabArt.Pic>,
@@ -125,7 +140,7 @@ private fun XmbSteamPicture(
     contentScale: ContentScale = ContentScale.Crop,
     alignment: Alignment = Alignment.Center,
 ) {
-    var loaded by remember(pics) { mutableStateOf(false) }
+    var loaded by remember(pics.map { it.model }) { mutableStateOf(false) }
     val a by animateFloatAsState(if (loaded) 1f else 0f, tween(350), label = "xmbSteamArt")
     LabPicture(pics, modifier.graphicsLayer { alpha = a }, contentScale = contentScale, alignment = alignment, onLoaded = { loaded = true })
 }
@@ -136,23 +151,30 @@ private fun XmbSteamPicture(
  * portrait or low-res one to its width, so no band of anything else shows under it and there is no seam). A dark scrim over the top
  * fifth keeps the shell's header readable, and a soft gradient to dark navy starts at [fadeFrom] (a share of the screen's height: the
  * top edge of the text tabs) and is darkest, about four fifths opaque, at the bottom edge. [picture] (the cover) is the usual
- * blurred backdrop, which stays underneath: it shows only while the art loads and when there is none.
+ * blurred backdrop, which stays underneath: it shows only while the art loads and when there is none. [lift] (0 at rest, 1 with a game's
+ * options open, glided over the options' own 300 ms) blurs the art layers by up to [XMB_STEAM_BACKDROP_BLUR] dp and dims them (API 31+;
+ * below that, only a stronger dim), so the options' text reads; going back, the backdrop sharpens again.
  */
 @Composable
-internal fun XmbSteamBackdrop(game: Shortcut?, picture: Any?, fadeFrom: Float) {
+internal fun XmbSteamBackdrop(game: Shortcut?, picture: Any?, fadeFrom: Float, lift: () -> Float = { 0f }) {
     val from = fadeFrom.coerceIn(0.25f, 0.97f)
     val context = LocalContext.current
     val path = game?.file?.path
     LaunchedEffect(path) { if (game != null) withContext(Dispatchers.IO) { LabArt.resolve(context, game) } }
     val tick = LabArt.tick
-    val hero = remember(path, tick) { game?.let { g -> XmbSteamHero(LabArt.models(g, "bg").map { LabArt.Pic(it) }) } }
+    val hero = remember(path, tick) { game?.let { g -> XmbSteamHero(g.file.path, LabArt.models(g, "bg")) } }
+    val blurs = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     Box(Modifier.fillMaxSize()) {
-        XmbHomeBackdrop(picture)
-        Crossfade(targetState = hero, animationSpec = tween(600), label = "xmbSteamHero") { h ->
-            if (h != null) {
-                XmbSteamPicture(h.pics, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alignment = Alignment.TopCenter)
+        // The art layers (the blurred cover and the hero) blur and dim as the options open; the gradient above them stays sharp.
+        XmbSteamBlurred(lift, blurs) {
+            XmbHomeBackdrop(picture)
+            Crossfade(targetState = hero, animationSpec = tween(600), label = "xmbSteamHero") { h ->
+                if (h != null) {
+                    XmbSteamPicture(h.pics, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alignment = Alignment.TopCenter)
+                }
             }
         }
+        Box(Modifier.fillMaxSize().graphicsLayer { alpha = xmbSteamBackdropDim(lift(), blurs) }.background(Color.Black))
         Box(
             Modifier.fillMaxSize().background(
                 // Top: a dark scrim for the shell's header. Bottom: from the tabs' top edge (clear) to the bottom edge, the navy's
@@ -172,6 +194,13 @@ internal fun XmbSteamBackdrop(game: Shortcut?, picture: Any?, fadeFrom: Float) {
             ),
         )
     }
+}
+
+/** [content] blurred by up to [XMB_STEAM_BACKDROP_BLUR] dp as [lift] (0..1) goes to 1; with no blur layer at all at rest (and where blurring is not supported). */
+@Composable
+private fun XmbSteamBlurred(lift: () -> Float, blurs: Boolean, content: @Composable () -> Unit) {
+    val radius = if (blurs) xmbSteamBackdropBlur(lift(), XMB_STEAM_BACKDROP_BLUR) else 0f
+    Box(Modifier.fillMaxSize().then(if (radius > 0.5f) Modifier.blur(radius.dp) else Modifier)) { content() }
 }
 
 /**
@@ -292,29 +321,62 @@ private fun XmbSteamCover(
 }
 
 /**
- * The first game's wide card, in the shape of Steam's capsule: its landscape art (its own pick, Steam's header, then its background
- * art) over the centre-crop of its cover, which shows until the art has loaded and when the game has none.
+ * The first game's wide card, in the shape of Steam's capsule: its landscape art (its own pick, what Steam publishes for the app, then
+ * its background art). While that loads, and for as long as more may arrive (the lookup of the game's art is still running), the card
+ * shows a neutral placeholder with the blurred cover, never the cover cropped to a wide card (a portrait cover cut like that shows a
+ * face and nothing else). Only when every landscape source has failed and the lookup is done does the cropped cover show, and once
+ * that is decided for this game it stays decided (art that arrives later fades in over it). All of it belongs to the game's path, not
+ * to the slot: a game that moves to or from the first place composes this fresh.
  */
 @Composable
 private fun XmbSteamWideArt(s: Shortcut, accent: Color) {
     val context = LocalContext.current
     val path = s.file.path
-    LaunchedEffect(path) { withContext(Dispatchers.IO) { LabArt.resolve(context, s) } }
+    var resolved by remember(path) { mutableStateOf(false) }
+    LaunchedEffect(path) {
+        withContext(Dispatchers.IO) { LabArt.resolveAndWait(context, s) }
+        resolved = true
+    }
     val tick = LabArt.tick
-    val pics = remember(path, tick) { xmbSteamWideOrder(LabArt.models(s, "wide"), LabArt.models(s, "bg")).map { LabArt.Pic(it) } }
+    val models = remember(path, tick) { xmbSteamWideOrder(LabArt.models(s, "wide"), LabArt.models(s, "bg")) }
+    val pics = remember(models) { models.map { LabArt.Pic(it) } }
+    var loaded by remember(path) { mutableStateOf(false) }
+    var failed by remember(path, models) { mutableStateOf(false) }
+    var coverDecided by remember(path) { mutableStateOf(false) }
+    val cover = xmbWideCoverShows(failed, resolved, coverDecided)
+    LaunchedEffect(cover) { if (cover) coverDecided = true }
+    val coverA by animateFloatAsState(if (cover) 1f else 0f, tween(250), label = "xmbWideCover")
+    val artA by animateFloatAsState(if (loaded) 1f else 0f, tween(350), label = "xmbSteamArt")
+    val bmp = s.icon
     Box(Modifier.fillMaxSize()) {
-        val bmp = s.icon
-        if (bmp != null) {
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF1B2230), Color(0xFF0C1018)))))
+        // Modifier.blur does nothing below API 31, where the cover would show as it is: there the placeholder stays plain.
+        if (bmp != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             Image(
                 bitmap = remember(bmp) { bmp.asImageBitmap() },
-                contentDescription = s.name,
+                contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().graphicsLayer { scaleX = 1.2f; scaleY = 1.2f; alpha = 0.55f }.blur(22.dp),
             )
-        } else {
-            XmbMonogram(s.name, accent)
         }
-        XmbSteamPicture(pics, Modifier.fillMaxSize())
+        Box(Modifier.fillMaxSize().graphicsLayer { alpha = coverA }) {
+            if (bmp != null) {
+                Image(
+                    bitmap = remember(bmp) { bmp.asImageBitmap() },
+                    contentDescription = s.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                XmbMonogram(s.name, accent)
+            }
+        }
+        LabPicture(
+            pics,
+            Modifier.fillMaxSize().graphicsLayer { alpha = artA },
+            onNone = { SideEffect { failed = true } },
+            onLoaded = { loaded = true },
+        )
     }
 }
 

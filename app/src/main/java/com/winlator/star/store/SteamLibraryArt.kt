@@ -75,6 +75,9 @@ object SteamLibraryArt {
     @Volatile private var loadedFromDisk = false
     @Volatile private var appContext: Context? = null
 
+    /** Called (on the refreshing thread) after a snapshot replaced the art map, so a screen showing art from it can read it again. */
+    @Volatile var onRefreshed: (() -> Unit)? = null
+
     /** Call once with any Context so the disk mirror can be found; safe to call repeatedly. */
     fun init(ctx: Context) {
         if (appContext == null) appContext = ctx.applicationContext
@@ -129,6 +132,7 @@ object SteamLibraryArt {
                 "(no network, no rate limit)",
         )
         saveToDisk()
+        runCatching { onRefreshed?.invoke() }
     }
 
     /** `{"owned_apps":[{"id":…,"art":{…}}]}` -> appId -> [AppArt]. Entries with no art are skipped. */
@@ -184,8 +188,9 @@ object SteamLibraryArt {
     @Synchronized
     private fun loadFromDiskOnce() {
         if (loadedFromDisk) return
-        loadedFromDisk = true
+        // No context yet (a lookup before init): stay unloaded, so the mirror is read once one is known.
         val f = cacheFile() ?: return
+        loadedFromDisk = true
         if (!f.exists()) return
         try {
             val root = JSONObject(f.readText())
