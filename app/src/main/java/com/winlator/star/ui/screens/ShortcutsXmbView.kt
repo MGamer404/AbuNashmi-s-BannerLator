@@ -217,7 +217,8 @@ internal fun ShortcutsXmbView(
     /**
      * [centeredHome] only: the Steam Deck library look (XmbSteamHome.kt) in place of the centred row and its [upperRow]. The focused game's
      * own art fills the backdrop, one row of covers sits low with the first game as a wide card, and [homeTabs] are the plain text tabs
-     * under its title: Down from the covers moves onto them, Left/Right pick one, A runs it, Up goes back to the covers.
+     * under its title: Down from the covers moves onto them, Left/Right pick one, A runs it, Up goes back to the covers. The row holds the
+     * whole [shortcuts] list (recent first) and has no All Games card, so it applies only while [allShortcuts] is null.
      */
     steamHome: Boolean = false,
     homeTabs: List<XmbAction> = emptyList(),
@@ -265,7 +266,7 @@ internal fun ShortcutsXmbView(
     // Centred home: whether the focused game's options are showing. They belong to one game, so moving closes them.
     var optsOpen by remember { mutableStateOf(false) }
     val centered = centeredHome && !optsOpen
-    val steam = steamHome && centeredHome
+    val steam = steamHome && centeredHome && allShortcuts == null
 
     LaunchedEffect(shortcuts, hasAll) {
         val i = slotOfPath(focusedPath)
@@ -473,7 +474,7 @@ internal fun ShortcutsXmbView(
             XmbSteamLayout(m.w, m.h, clipTop, max(hintInset.value, 16f * ss.factor), ss.factor, m.rowH, m.extra)
         }
         // Where the options column and the info pane beside it start: under the focused card of the Steam home, else at the usual place.
-        val colX = if (steam) sl.anchorX + sl.cardW(target, n) / 2f - m.iconBox / 2f else m.colX
+        val colX = if (steam) (sl.row(n).x(target, target.toFloat()) + sl.cardW(target, n) * XMB_STEAM_FOCUS_SCALE / 2f - m.iconBox / 2f).coerceIn(8f, max(8f, m.w - m.iconBox - 12f - 176f - 8f)) else m.colX
         val colTop = if (steam) sl.colTop else m.colTop
         val nVis = if (steam) sl.nVis else m.nVis
         val labelW = if (steam && m.port) min(220f, m.w - colX - m.iconBox - 28f).coerceAtLeast(120f) else m.labelW
@@ -497,7 +498,7 @@ internal fun ShortcutsXmbView(
         // Read where it's used (draw / drag), so the animation doesn't recompose the view.
         val rowScale = { 1f + (homeK - 1f) * cT * (1f - upT) }
         // One card's step on screen: the Steam home's covers are drawn at their own sizes.
-        val pitchPx = with(density) { (if (steam) sl.fW * XMB_STEAM_REST_SCALE + sl.gap else m.pitch).dp.toPx() }
+        val pitchPx = with(density) { (if (steam) sl.fW + sl.gap else m.pitch).dp.toPx() }
         val rowPx = with(density) { m.rowH.dp.toPx() }
 
         var swipe by remember { mutableFloatStateOf(0f) }
@@ -665,7 +666,7 @@ internal fun ShortcutsXmbView(
             val picture: Any? = card?.let { c -> c.art?.let { XmbBackdropArt(it, c.icon) } } ?: focused?.icon
                 ?: (if (onAll && !upperOpen) collage?.let { XmbCollagePicture(it) } else null)
             // The Steam home shows the focused game's own landscape art over that (the blurred cover stays under it until it loads).
-            if (steam) XmbSteamBackdrop(focused, picture) else XmbHomeBackdrop(picture)
+            if (steam) XmbSteamBackdrop(focused, picture, !sl.port) else XmbHomeBackdrop(picture)
             // Faint shade behind a see-through top bar so its title and buttons stay readable.
             if (topInset > 0.dp) {
                 Box(Modifier.fillMaxWidth().height(topInset + 24.dp).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.35f), Color.Transparent))))
@@ -724,21 +725,18 @@ internal fun ShortcutsXmbView(
                     // The Steam look: one row of covers, the focused game's title and the text tabs (XmbSteamHome.kt). Its options are
                     // the column below, which sits under the lifted focused card.
                     XmbSteamHome(
-                        shortcuts = shortcuts, hasAll = hasAll, pos = pos, target = target, sl = sl, accent = accent, ss = ss,
-                        mosaic = mosaic, allCount = allCount, focused = focused, sdBadge = sdBadge,
+                        shortcuts = shortcuts, pos = pos, target = target, sl = sl, accent = accent, ss = ss,
+                        focused = focused, sdBadge = sdBadge,
                         lift = { 1f - cT }, tabs = homeTabs, tabSel = tabIdx, tabsActive = tabsActive, tabsEnabled = centered,
                         onCard = { i ->
                             tabsOn = false
                             if (nav.depth == 0) {
-                                if (i >= n) { if (i != target) settleTo(i) else allOpen = true }
-                                else {
-                                    val s = shortcuts[i]
-                                    when {
-                                        i != target -> settleTo(i)
-                                        selectionMode -> onToggleSelect(s)
-                                        centered -> { optsOpen = true; act = 0 }
-                                        else -> onPlay(s)
-                                    }
+                                val s = shortcuts[i]
+                                when {
+                                    i != target -> settleTo(i)
+                                    selectionMode -> onToggleSelect(s)
+                                    centered -> { optsOpen = true; act = 0 }
+                                    else -> onPlay(s)
                                 }
                             }
                         },
@@ -1113,7 +1111,7 @@ private fun XmbAllGamesCover(
 // XMB_MOSAIC_COLS columns that fills the space it is given (the cells share it equally and crop the covers to fit, about square on
 // the 2:3 card). Cells with no game stay faintly empty.
 @Composable
-internal fun XmbAllGamesMosaic(mosaic: XmbMosaic<Shortcut>, accent: Color, modifier: Modifier) {
+private fun XmbAllGamesMosaic(mosaic: XmbMosaic<Shortcut>, accent: Color, modifier: Modifier) {
     val gap = 3.dp
     val tileShape = RoundedCornerShape(3.dp)
     Column(modifier, verticalArrangement = Arrangement.spacedBy(gap)) {

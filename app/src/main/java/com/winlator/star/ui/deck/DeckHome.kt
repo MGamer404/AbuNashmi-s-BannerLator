@@ -542,8 +542,9 @@ internal fun DeckHome(
         } else {
             Box(modifier = Modifier.fillMaxSize()) {
                 ShortcutsXmbView(
-                    shortcuts = xmbRow,
-                    allShortcuts = visible,
+                    // The XMB home runs the whole library, recent first, in one row with no All Games card.
+                    shortcuts = if (xmbHome) visible else xmbRow,
+                    allShortcuts = if (xmbHome) null else visible,
                     selectionMode = false,
                     selectedPaths = emptySet(),
                     onToggleSelect = {},
