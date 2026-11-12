@@ -21,11 +21,23 @@ internal const val XMB_STEAM_OPTS_SCALE = 1.14f
 /** The text tabs are this tall (dp): the touch target. */
 internal const val XMB_STEAM_TABS_H = 48f
 
-/** The title and the subtitle under it, together (dp, on a 412 dp phone): the title, a 4 dp gap and the subtitle. */
-internal const val XMB_STEAM_TITLE_H = 34f
+/** The title and the subtitle under it, together (dp, on a 412 dp phone): the title, a 2 dp gap and the subtitle, boxes hugging their glyphs. */
+internal const val XMB_STEAM_TITLE_H = 29f
+
+/** The covers end this far (dp, on a 412 dp phone) above the title. */
+internal const val XMB_STEAM_TITLE_GAP = 5f
+
+/** The title block ends this far (dp, on a 412 dp phone) above the tabs' text. */
+internal const val XMB_STEAM_TABS_GAP = 4f
 
 /** The tabs' text with its padding is about this tall (dp, on a 412 dp phone). */
 internal const val XMB_STEAM_TAB_TEXT_H = 26f
+
+// The title block used to be 34 dp tall with 8 dp above the tabs' text and 6 dp under the covers: the covers' top edge is still
+// worked out from those (see XmbSteamLayout.cardTop), so it stays where it was while the covers now reach down to the tighter title.
+private const val XMB_STEAM_OLD_TITLE_H = 34f
+private const val XMB_STEAM_OLD_TITLE_GAP = 6f
+private const val XMB_STEAM_OLD_TABS_GAP = 8f
 
 /** How far (dp, on a 412 dp phone) the covers lift while a game's options are open, at most. */
 private const val XMB_STEAM_LIFT = 120f
@@ -120,8 +132,8 @@ internal class XmbSteamRow(
 }
 
 /**
- * Where everything of the Steam look sits (dp, from the content box's top left): one row of covers resting low (about a third of the
- * screen tall, their tops near half of it and their bottoms just above the focused game's title), the title with the subtitle tight
+ * Where everything of the Steam look sits (dp, from the content box's top left): one row of covers resting low (their tops near half of the
+ * screen and their bottoms just above the focused game's title), the title with the subtitle tight
  * under it and the centred text tabs near the bottom. [w] x [h] is the content box, [clipTop] the room the host's floating tab bar
  * takes at the top, [bottomClear] the room its hints take at the bottom, [k] the screen's scale ([ScreenScale.factor]) and [rowH] /
  * [extra] the options column's row height and the gap after its first row.
@@ -138,30 +150,42 @@ internal class XmbSteamLayout(
     val port = h > w * 1.05f
 
     /** The margin the row is pinned to at its ends, and the left margin of the lifted card (and its options column) while they are open. */
-    val edge = (w * 0.035f).coerceIn(16f * k, 48f * k)
+    val edge = (w * 0.055f).coerceIn(40f * k, 44f * k)
 
     /** The tabs are centred (their text, in a band [XMB_STEAM_TABS_H] tall); a narrow screen, where they would meet the hints, lifts them above those. */
-    val tabsCentre = if (w >= 640f) h * 0.915f else min(h * 0.915f, h - bottomClear - XMB_STEAM_TABS_H / 2f)
+    val tabsCentre = if (w >= 640f) h * 0.92f else min(h * 0.92f, h - bottomClear - XMB_STEAM_TABS_H / 2f)
     val tabsTop = tabsCentre - XMB_STEAM_TABS_H / 2f
 
-    // The title block ends 8 dp above the tabs' text and the covers 6 dp above the title: that is how low the covers can reach.
-    private val cardBottomMax = tabsCentre - XMB_STEAM_TAB_TEXT_H * k / 2f - 8f * k - XMB_STEAM_TITLE_H * k - 6f * k
+    // Where the covers' top edge is: the same place as before the title block was tightened (the covers were about a third of the screen
+    // tall, their tops at half of it, or higher on a short screen where the old, taller title block had to fit under them).
+    private val oldTabsCentre = if (w >= 640f) h * 0.915f else min(h * 0.915f, h - bottomClear - XMB_STEAM_TABS_H / 2f)
+    private val oldBottomMax = oldTabsCentre - XMB_STEAM_TAB_TEXT_H * k / 2f - XMB_STEAM_OLD_TABS_GAP * k -
+        XMB_STEAM_OLD_TITLE_H * k - XMB_STEAM_OLD_TITLE_GAP * k
+    private val oldWantH = min(h * 0.32f, w * 0.35f)
+    private val oldBottom = min(oldBottomMax, h * 0.50f + oldWantH)
+    private val oldH = min(oldWantH, oldBottom - clipTop - 8f * k).coerceAtLeast(72f)
 
-    // The covers want to be about a third of the screen tall (and no wider than the screen allows) with their tops at half of it.
-    private val wantH = min(h * 0.32f, w * 0.35f)
+    /** The top edge every cover shares (it does not move when the covers grow). */
+    val cardTop = oldBottom - oldH
 
-    /** The bottom edge every cover shares. */
-    val cardBottom = min(cardBottomMax, h * 0.50f + wantH)
+    // The title block ends 4 dp above the tabs' text and the covers 5 dp above the title: that is how low the covers can reach.
+    private val cardBottomMax = tabsCentre - XMB_STEAM_TAB_TEXT_H * k / 2f - XMB_STEAM_TABS_GAP * k - XMB_STEAM_TITLE_H * k -
+        XMB_STEAM_TITLE_GAP * k
 
-    /** An unfocused portrait cover's height; the wide first card is as tall. */
-    val fH = min(wantH, cardBottom - clipTop - 8f * k).coerceAtLeast(72f)
+    // The wide first card, drawn larger with the options open, must fit between the margins.
+    private val widthCap = (w - 2f * edge) / (XMB_STEAM_WIDE_RATIO * XMB_STEAM_OPTS_SCALE)
+
+    /** An unfocused portrait cover's height (from [cardTop] down to just above the title); the wide first card is as tall. */
+    val fH = min(cardBottomMax - cardTop, widthCap).coerceAtLeast(72f)
     val fW = fH * 2f / 3f
     val wideW = fH * XMB_STEAM_WIDE_RATIO
     val gap = 6f
-    val cardTop = cardBottom - fH
 
-    /** The title sits right under the covers; the subtitle follows it 4 dp lower (see [XMB_STEAM_TITLE_H]). */
-    val titleY = cardBottom + 6f * k
+    /** The bottom edge every cover shares. */
+    val cardBottom = cardTop + fH
+
+    /** The title sits right under the covers; the subtitle follows it 2 dp lower (see [XMB_STEAM_TITLE_H]). */
+    val titleY = cardBottom + XMB_STEAM_TITLE_GAP * k
 
     /** The title is as wide as the wide card (at most half the screen); it is kept on the screen when the row is pinned right. */
     val titleW = min(wideW, w * 0.5f)

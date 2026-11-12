@@ -118,13 +118,15 @@ class XmbSteamLogicTest {
         assertTrue(xmbSteamWindow(0f, 0, 800f, 110f).isEmpty())
     }
 
-    @Test fun layout_coversAreAThirdOfTheScreenTall() {
+    @Test fun layout_coversKeepTheirTopsAndReachDownToTheTitle() {
         val l = XmbSteamLayout(w = 851f, h = 393f, clipTop = 50f, bottomClear = 46f, k = 1f, rowH = 40f, extra = 6f)
-        assertEquals(393f * 0.32f, l.fH, delta)
-        assertTrue(l.fH / 393f in 0.31f..0.325f)
-        // Their tops are at about half the screen, or a little higher on a short one (the title block has to fit under them).
-        assertTrue(l.cardTop in 393f * 0.40f..393f * 0.50f + delta)
+        // The top edge is where it was before the title block was tightened (a third of the screen tall, 125.76 dp, ending 298.595).
+        assertEquals(298.595f - 393f * 0.32f, l.cardTop, 0.01f)
+        // Their bottom edge now reaches down to just above the title, so they are taller than that third.
+        assertTrue(l.fH > 393f * 0.32f + 4f)
         assertEquals(l.cardTop + l.fH, l.cardBottom, delta)
+        assertEquals(l.cardBottom + XMB_STEAM_TITLE_GAP, l.titleY, delta)
+        assertEquals(l.fH * 2f / 3f, l.fW, delta)
         assertEquals(6f, l.gap, delta)
         assertEquals(l.fH * XMB_STEAM_WIDE_RATIO, l.wideW, delta)
     }
@@ -132,18 +134,21 @@ class XmbSteamLogicTest {
     @Test fun layout_tallScreenKeepsTheCoverTopsAtHalfTheScreen() {
         val l = XmbSteamLayout(w = 1280f, h = 800f, clipTop = 50f, bottomClear = 46f, k = 1f, rowH = 40f, extra = 6f)
         assertEquals(400f, l.cardTop, delta)
-        assertEquals(800f * 0.32f, l.fH, delta)
+        // From there down to the title block, which ends 4 dp above the tabs' text.
+        val titleBottom = 800f * 0.92f - XMB_STEAM_TAB_TEXT_H / 2f - XMB_STEAM_TABS_GAP
+        assertEquals(titleBottom - XMB_STEAM_TITLE_H - XMB_STEAM_TITLE_GAP - 400f, l.fH, delta)
+        assertTrue(l.fH > 800f * 0.32f)
         // The title is just under the covers and the tabs well below it.
-        assertEquals(l.cardBottom + 6f, l.titleY, delta)
-        assertEquals(800f * 0.915f, l.tabsCentre, delta)
+        assertEquals(l.cardBottom + XMB_STEAM_TITLE_GAP, l.titleY, delta)
+        assertEquals(800f * 0.92f, l.tabsCentre, delta)
     }
 
     @Test fun layout_titleJustUnderTheCardsAndTabsBelowIt() {
         for (h in listOf(393f, 800f)) {
             val l = XmbSteamLayout(w = 851f, h = h, clipTop = 50f, bottomClear = 46f, k = 1f, rowH = 40f, extra = 6f)
-            assertEquals(l.cardBottom + 6f, l.titleY, delta)
+            assertEquals(l.cardBottom + XMB_STEAM_TITLE_GAP, l.titleY, delta)
             // The title and the subtitle under it end above the tabs' text.
-            assertTrue(l.titleY + XMB_STEAM_TITLE_H <= l.tabsCentre - XMB_STEAM_TAB_TEXT_H / 2f + delta)
+            assertTrue(l.titleY + XMB_STEAM_TITLE_H <= l.tabsCentre - XMB_STEAM_TAB_TEXT_H / 2f - XMB_STEAM_TABS_GAP + delta)
             assertTrue(l.tabsTop + XMB_STEAM_TABS_H <= h)
             // The covers keep clear of the floating tab bar, even lifted and larger.
             assertTrue(l.cardTop - l.lift - l.fH * (XMB_STEAM_OPTS_SCALE - 1f) >= 50f - delta)
@@ -153,7 +158,16 @@ class XmbSteamLogicTest {
     @Test fun layout_narrowScreenKeepsTheTabsAboveTheHints() {
         val l = XmbSteamLayout(w = 600f, h = 360f, clipTop = 50f, bottomClear = 100f, k = 1f, rowH = 40f, extra = 6f)
         assertTrue(l.tabsTop + XMB_STEAM_TABS_H <= 360f - 100f + delta)
-        assertTrue(l.titleY + XMB_STEAM_TITLE_H <= l.tabsCentre - XMB_STEAM_TAB_TEXT_H / 2f + delta)
+        assertTrue(l.titleY + XMB_STEAM_TITLE_H <= l.tabsCentre - XMB_STEAM_TAB_TEXT_H / 2f - XMB_STEAM_TABS_GAP + delta)
+    }
+
+    @Test fun layout_rowMarginIsAbout40DpOnAPhoneInLandscape() {
+        val l = XmbSteamLayout(w = 700f, h = 360f, clipTop = 50f, bottomClear = 46f, k = 1f, rowH = 40f, extra = 6f)
+        assertTrue(l.edge in 38f..44f)
+        // The row starts at it and its last card ends at the same margin from the right.
+        val r = l.row(30)
+        assertEquals(l.edge, r.x(0, 0f), delta)
+        assertEquals(700f - l.edge, r.x(29, 29f) + l.fW * XMB_STEAM_FOCUS_SCALE, delta)
     }
 
     @Test fun layout_optionsColumnOpensUnderTheLiftedCard() {

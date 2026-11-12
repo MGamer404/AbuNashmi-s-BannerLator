@@ -684,7 +684,7 @@ internal fun ShortcutsXmbView(
                 ?: (if (onAll && !upperOpen) collage?.let { XmbCollagePicture(it) } else null)
             // The Steam home shows the focused game's own landscape art over that (the blurred cover stays under it until it loads).
             // Its bottom gradient starts at the text tabs' top edge (the tabs sit in the content box, below the top bar's inset).
-            if (steam) XmbSteamBackdrop(focused, picture, !sl.port, (topInset.value + sl.tabsTop) / screenHeight.value.coerceAtLeast(1f))
+            if (steam) XmbSteamBackdrop(focused, picture, (topInset.value + sl.tabsTop) / screenHeight.value.coerceAtLeast(1f))
             else XmbHomeBackdrop(picture)
             // Faint shade behind a see-through top bar so its title and buttons stay readable.
             if (topInset > 0.dp) {

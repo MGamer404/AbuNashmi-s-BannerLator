@@ -99,8 +99,14 @@ private val XMB_STEAM_TEXT = TextStyle(
 /** Tight lines: no padding above or below a text's glyphs, so the title and the subtitle under it are exactly their gap apart. */
 private val XMB_STEAM_TIGHT = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both)
 
-/** The subtitle's text: muted. */
-private val XMB_STEAM_MUTED = Color(0xFF9AA4B5)
+/** The title's line box hugs its glyphs from above: the line is cut from below (the descenders hang out of it), so the subtitle can sit right under. */
+private val XMB_STEAM_TOP = LineHeightStyle(LineHeightStyle.Alignment.Top, LineHeightStyle.Trim.Both)
+
+/** The subtitle's text: light, but a step under the title's white. */
+private val XMB_STEAM_MUTED = Color.White.copy(alpha = 0.72f)
+
+/** The tabs' text: light grey (near white); the one under the cursor is pure white in a thin white outline pill. */
+private val XMB_STEAM_TAB_INK = Color.White.copy(alpha = 0.92f)
 
 /** The cards' corners are nearly square, as on the Steam Deck. */
 private val XMB_STEAM_CORNER = 2.dp
@@ -126,14 +132,14 @@ private fun XmbSteamPicture(
 
 /**
  * The Home backdrop: [game]'s own landscape art (its own pick, Steam's, SteamGridDB's, found by LabArt off the main thread and kept on
- * the device) crossfading as the cursor moves: as wide as the screen and top aligned on a landscape one (Steam's hero is about 3:1, so
- * it fills the upper part, not zoomed in), cropped to fill a portrait one. A dark scrim over the top fifth keeps the shell's header
- * readable, and a soft gradient to dark navy starts at [fadeFrom] (a share of the screen's height: the top edge of the text tabs) and
- * is darkest, but only about half opaque, at the bottom edge. [picture] (the cover) is the usual blurred backdrop, which stays
- * underneath: it shows while the art loads and when there is none.
+ * the device) crossfading as the cursor moves, cropped to fill the whole screen (a landscape hero is scaled to the screen's height, a
+ * portrait or low-res one to its width, so no band of anything else shows under it and there is no seam). A dark scrim over the top
+ * fifth keeps the shell's header readable, and a soft gradient to dark navy starts at [fadeFrom] (a share of the screen's height: the
+ * top edge of the text tabs) and is darkest, but only about half opaque, at the bottom edge. [picture] (the cover) is the usual
+ * blurred backdrop, which stays underneath: it shows only while the art loads and when there is none.
  */
 @Composable
-internal fun XmbSteamBackdrop(game: Shortcut?, picture: Any?, landscape: Boolean, fadeFrom: Float) {
+internal fun XmbSteamBackdrop(game: Shortcut?, picture: Any?, fadeFrom: Float) {
     val from = fadeFrom.coerceIn(0.25f, 0.97f)
     val context = LocalContext.current
     val path = game?.file?.path
@@ -144,11 +150,7 @@ internal fun XmbSteamBackdrop(game: Shortcut?, picture: Any?, landscape: Boolean
         XmbHomeBackdrop(picture)
         Crossfade(targetState = hero, animationSpec = tween(600), label = "xmbSteamHero") { h ->
             if (h != null) {
-                XmbSteamPicture(
-                    h.pics, Modifier.fillMaxSize(),
-                    contentScale = if (landscape) ContentScale.FillWidth else ContentScale.Crop,
-                    alignment = Alignment.TopCenter,
-                )
+                XmbSteamPicture(h.pics, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alignment = Alignment.TopCenter)
             }
         }
         Box(
@@ -312,7 +314,7 @@ private fun XmbSteamWideArt(s: Shortcut, accent: Color) {
 }
 
 // Under the focused card, left aligned with it (it follows the card as the row glides): its name, bold, and below it "container ·
-// resolution" in tiny muted capitals behind a small play arrow (an Android game's package name stands in).
+// resolution" in tiny light capitals behind a small play arrow (an Android game's package name stands in).
 @Composable
 private fun XmbSteamTitle(
     focused: Shortcut?,
@@ -346,17 +348,17 @@ private fun XmbSteamTitle(
                 Text(
                     s.name, color = Color.White, fontSize = ss.sp(16f), fontWeight = FontWeight.Bold,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    style = XMB_STEAM_TEXT.copy(lineHeight = ss.sp(17f), lineHeightStyle = XMB_STEAM_TIGHT),
+                    style = XMB_STEAM_TEXT.copy(lineHeight = ss.sp(15f), lineHeightStyle = XMB_STEAM_TOP),
                 )
-                // About 4 dp under the title, nearly touching it.
-                Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                // 2 dp under the title's line box (its descenders hang over it): the two nearly touch.
+                Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (meta.isNotEmpty()) {
-                        Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = ink.copy(alpha = 0.9f), modifier = Modifier.size(12.dp))
+                        Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = ink.copy(alpha = 0.9f), modifier = Modifier.size(11.dp))
                         Spacer(Modifier.width(2.dp))
                         Text(
                             meta.uppercase(), color = XMB_STEAM_MUTED, fontSize = ss.sp(10f), letterSpacing = 0.8.sp, maxLines = 1,
                             overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
-                            style = XMB_STEAM_TEXT.copy(lineHeight = ss.sp(12f), lineHeightStyle = XMB_STEAM_TIGHT),
+                            style = XMB_STEAM_TEXT.copy(lineHeight = ss.sp(10f), lineHeightStyle = XMB_STEAM_TIGHT),
                         )
                     }
                     sdBadge(s)
@@ -367,7 +369,7 @@ private fun XmbSteamTitle(
 }
 
 // The plain text tabs: small, upper case, letter-spaced, evenly spaced and centred on the screen. The one under the cursor (while the
-// tabs hold it) is tinted with the accent on a faint accent fill; the rest are dim white.
+// tabs hold it) is pure white in a thin white outline pill on a faint accent fill; the rest are bold light grey.
 @Composable
 private fun XmbSteamTabs(
     tabs: List<XmbAction>,
@@ -380,8 +382,7 @@ private fun XmbSteamTabs(
     lift: () -> Float,
     onTap: (Int) -> Unit,
 ) {
-    val ink = remember(accent) { xmbInkColor(accent, Color.White, XMB_STEAM_NAVY) }
-    val shape = RoundedCornerShape(8.dp)
+    val shape = RoundedCornerShape(50)
     Box(
         Modifier
             .offset(0.dp, sl.tabsTop.dp)
@@ -405,15 +406,16 @@ private fun XmbSteamTabs(
                     ) {
                         Text(
                             tab.label.uppercase(),
-                            color = if (on) ink else Color.White.copy(alpha = 0.66f),
+                            color = if (on) Color.White else XMB_STEAM_TAB_INK,
                             fontSize = ss.sp(11f),
                             letterSpacing = 1.5.sp,
-                            fontWeight = FontWeight.SemiBold,
+                            fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             style = XMB_STEAM_TEXT,
                             modifier = Modifier
                                 .clip(shape)
-                                .background(if (on) accent.copy(alpha = 0.18f) else Color.Transparent)
+                                .background(if (on) accent.copy(alpha = 0.22f) else Color.Transparent)
+                                .then(if (on) Modifier.border(1.5.dp, Color.White, shape) else Modifier)
                                 .padding(horizontal = XMB_STEAM_TAB_PAD.dp, vertical = 6.dp),
                         )
                     }
