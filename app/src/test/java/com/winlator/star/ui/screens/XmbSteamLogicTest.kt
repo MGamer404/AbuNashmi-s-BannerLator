@@ -118,27 +118,101 @@ class XmbSteamLogicTest {
         assertTrue(xmbSteamWindow(0f, 0, 800f, 110f).isEmpty())
     }
 
-    @Test fun layout_coversSitAtHalfTheScreenAndAreAQuarterTall() {
+    @Test fun layout_coversAreAThirdOfTheScreenTall() {
         val l = XmbSteamLayout(w = 851f, h = 393f, clipTop = 50f, bottomClear = 46f, k = 1f, rowH = 40f, extra = 6f)
-        assertEquals(393f * 0.5f, l.cardTop, delta)
-        assertEquals(393f * 0.27f, l.fH, delta)
+        assertEquals(393f * 0.32f, l.fH, delta)
+        assertTrue(l.fH / 393f in 0.31f..0.325f)
+        // Their tops are at about half the screen, or a little higher on a short one (the title block has to fit under them).
+        assertTrue(l.cardTop in 393f * 0.40f..393f * 0.50f + delta)
+        assertEquals(l.cardTop + l.fH, l.cardBottom, delta)
         assertEquals(6f, l.gap, delta)
         assertEquals(l.fH * XMB_STEAM_WIDE_RATIO, l.wideW, delta)
     }
 
-    @Test fun layout_titleUnderTheCardsAndTabsBelowIt() {
-        val l = XmbSteamLayout(w = 851f, h = 393f, clipTop = 50f, bottomClear = 46f, k = 1f, rowH = 40f, extra = 6f)
-        assertTrue(l.cardBottom < l.titleY)
-        assertTrue(l.titleY + 20f + 14f <= l.tabsTop + XMB_STEAM_TABS_H / 2f)
-        assertTrue(l.tabsTop + XMB_STEAM_TABS_H <= 393f)
-        // The covers keep clear of the floating tab bar, even lifted.
-        assertTrue(l.cardTop - l.lift >= 50f)
+    @Test fun layout_tallScreenKeepsTheCoverTopsAtHalfTheScreen() {
+        val l = XmbSteamLayout(w = 1280f, h = 800f, clipTop = 50f, bottomClear = 46f, k = 1f, rowH = 40f, extra = 6f)
+        assertEquals(400f, l.cardTop, delta)
+        assertEquals(800f * 0.32f, l.fH, delta)
+        // The title is just under the covers and the tabs well below it.
+        assertEquals(l.cardBottom + 6f, l.titleY, delta)
+        assertEquals(800f * 0.915f, l.tabsCentre, delta)
+    }
+
+    @Test fun layout_titleJustUnderTheCardsAndTabsBelowIt() {
+        for (h in listOf(393f, 800f)) {
+            val l = XmbSteamLayout(w = 851f, h = h, clipTop = 50f, bottomClear = 46f, k = 1f, rowH = 40f, extra = 6f)
+            assertEquals(l.cardBottom + 6f, l.titleY, delta)
+            // The title and the subtitle under it end above the tabs' text.
+            assertTrue(l.titleY + XMB_STEAM_TITLE_H <= l.tabsCentre - XMB_STEAM_TAB_TEXT_H / 2f + delta)
+            assertTrue(l.tabsTop + XMB_STEAM_TABS_H <= h)
+            // The covers keep clear of the floating tab bar, even lifted and larger.
+            assertTrue(l.cardTop - l.lift - l.fH * (XMB_STEAM_OPTS_SCALE - 1f) >= 50f - delta)
+        }
+    }
+
+    @Test fun layout_narrowScreenKeepsTheTabsAboveTheHints() {
+        val l = XmbSteamLayout(w = 600f, h = 360f, clipTop = 50f, bottomClear = 100f, k = 1f, rowH = 40f, extra = 6f)
+        assertTrue(l.tabsTop + XMB_STEAM_TABS_H <= 360f - 100f + delta)
+        assertTrue(l.titleY + XMB_STEAM_TITLE_H <= l.tabsCentre - XMB_STEAM_TAB_TEXT_H / 2f + delta)
     }
 
     @Test fun layout_optionsColumnOpensUnderTheLiftedCard() {
         val l = XmbSteamLayout(w = 851f, h = 393f, clipTop = 50f, bottomClear = 46f, k = 1f, rowH = 40f, extra = 6f)
         assertEquals(l.cardBottom - l.lift + 12f, l.colTop, delta)
         assertTrue(l.nVis in 2..8)
+        // The column and the card above it start at the same left margin.
+        assertEquals(l.edge, l.row(30).xOpts(5, 5f, 5, XMB_STEAM_OPTS_SCALE, 1f), delta)
+        assertTrue(XMB_STEAM_OPTS_SCALE > XMB_STEAM_FOCUS_SCALE)
+    }
+
+    @Test fun xOpts_atRestIsTheRow() {
+        val r = row(30)
+        for (i in listOf(0, 7, 12, 29)) assertEquals(r.x(i, 12f), r.xOpts(i, 12f, 12, 1.2f, 0f), delta)
+    }
+
+    @Test fun xOpts_liftedCardSitsAtTheMarginAndTheOthersFollowToItsRight() {
+        val r = row(30)
+        // A portrait card (100 wide), drawn 1.2 times larger: the next card starts one gap after its drawn width.
+        assertEquals(20f, r.xOpts(12, 12f, 12, 1.2f, 1f), delta)
+        assertEquals(20f + 120f + 10f, r.xOpts(13, 12f, 12, 1.2f, 1f), delta)
+        assertEquals(20f + 120f + 10f + 110f, r.xOpts(14, 12f, 12, 1.2f, 1f), delta)
+        // The earlier ones run off to the left, one pitch apart.
+        assertEquals(20f - 110f, r.xOpts(11, 12f, 12, 1.2f, 1f), delta)
+    }
+
+    @Test fun xOpts_theWideFirstCardAlreadySitsAtTheMargin() {
+        val r = row(30)
+        assertEquals(r.x(0, 0f), r.xOpts(0, 0f, 0, 1.2f, 1f), delta)
+        // Its next neighbour follows the larger drawn width (200 * 1.2) and a gap.
+        assertEquals(20f + 240f + 10f, r.xOpts(1, 0f, 0, 1.2f, 1f), delta)
+    }
+
+    @Test fun xOpts_glidesLinearlyBetweenTheRestAndTheLiftedRow() {
+        val r = row(30)
+        val rest = r.x(13, 12f)
+        val lifted = r.xOpts(13, 12f, 12, 1.2f, 1f)
+        assertEquals((rest + lifted) / 2f, r.xOpts(13, 12f, 12, 1.2f, 0.5f), delta)
+        // Past the ends of the animation it stays at them.
+        assertEquals(lifted, r.xOpts(13, 12f, 12, 1.2f, 1.7f), delta)
+        assertEquals(rest, r.xOpts(13, 12f, 12, 1.2f, -0.3f), delta)
+    }
+
+    @Test fun xOpts_keepsItsAnchorWhileTheCursorMovesOn() {
+        // Going back after the cursor has moved from card 12 to 13 (which closes the options): the lifted layout stays around card 12.
+        val r = row(30)
+        assertEquals(20f, r.xOpts(12, 13f, 12, 1.2f, 1f), delta)
+        assertEquals(20f + 120f + 10f, r.xOpts(13, 13f, 12, 1.2f, 1f), delta)
+    }
+
+    @Test fun xOpts_withTheFocusLiftNeighboursStayAGapApart() {
+        val r = row(30, focus = XMB_STEAM_FOCUS_SCALE)
+        val s = XMB_STEAM_OPTS_SCALE
+        assertEquals(r.xOpts(5, 5f, 5, s, 1f) + 100f * s + 10f, r.xOpts(6, 5f, 5, s, 1f), delta)
+        assertEquals(20f, r.xOpts(5, 5f, 5, s, 1f), delta)
+    }
+
+    @Test fun xOpts_emptyRow() {
+        assertEquals(20f, row(0).xOpts(0, 0f, 0, 1.2f, 1f), delta)
     }
 
     @Test fun layout_onlyTheFirstGamesCardIsWide() {
@@ -161,5 +235,7 @@ class XmbSteamLogicTest {
         val l = XmbSteamLayout(w = 393f, h = 851f, clipTop = 50f, bottomClear = 46f, k = 0.95f, rowH = 46f, extra = 6f)
         assertTrue(l.port)
         assertTrue(l.wideW + 2 * l.edge <= 393f)
+        // Lifted and larger at the left margin, it still fits.
+        assertTrue(l.wideW * XMB_STEAM_OPTS_SCALE + l.edge <= 393f)
     }
 }

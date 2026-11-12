@@ -45,14 +45,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -78,9 +83,21 @@ import kotlin.math.floor
 /** The thin light outline of the focused card. */
 private val XMB_STEAM_OUTLINE = Color.White.copy(alpha = 0.92f)
 
-/** The backdrop's gradient ends in these: dark navy, then nearly black at the bottom edge. */
+/** The backdrop's gradient ends in this dark navy, at [XMB_STEAM_FADE_MAX] of full strength at the bottom edge. */
 private val XMB_STEAM_NAVY = Color(0xFF0B1426)
-private val XMB_STEAM_NAVY_DEEP = Color(0xFF04060C)
+private const val XMB_STEAM_FADE_MAX = 0.58f
+
+/** The covers that are not the focused one are dimmed this much (an opaque black overlay, so the backdrop never shows through) while the options are open. */
+private const val XMB_STEAM_DIM = 0.45f
+
+/** A soft shadow under the title, the subtitle and the tabs: they sit over art that is no longer darkened. */
+private val XMB_STEAM_TEXT = TextStyle(
+    shadow = Shadow(Color.Black.copy(alpha = 0.7f), Offset(0f, 2f), 6f),
+    platformStyle = PlatformTextStyle(includeFontPadding = false),
+)
+
+/** Tight lines: no padding above or below a text's glyphs, so the title and the subtitle under it are exactly their gap apart. */
+private val XMB_STEAM_TIGHT = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both)
 
 /** The subtitle's text: muted. */
 private val XMB_STEAM_MUTED = Color(0xFF9AA4B5)
@@ -111,11 +128,13 @@ private fun XmbSteamPicture(
  * The Home backdrop: [game]'s own landscape art (its own pick, Steam's, SteamGridDB's, found by LabArt off the main thread and kept on
  * the device) crossfading as the cursor moves: as wide as the screen and top aligned on a landscape one (Steam's hero is about 3:1, so
  * it fills the upper part, not zoomed in), cropped to fill a portrait one. A dark scrim over the top fifth keeps the shell's header
- * readable, and a gradient to dark navy at the bottom takes the art under the covers. [picture] (the cover) is the usual blurred
- * backdrop, which stays underneath: it shows while the art loads and when there is none.
+ * readable, and a soft gradient to dark navy starts at [fadeFrom] (a share of the screen's height: the top edge of the text tabs) and
+ * is darkest, but only about half opaque, at the bottom edge. [picture] (the cover) is the usual blurred backdrop, which stays
+ * underneath: it shows while the art loads and when there is none.
  */
 @Composable
-internal fun XmbSteamBackdrop(game: Shortcut?, picture: Any?, landscape: Boolean) {
+internal fun XmbSteamBackdrop(game: Shortcut?, picture: Any?, landscape: Boolean, fadeFrom: Float) {
+    val from = fadeFrom.coerceIn(0.25f, 0.97f)
     val context = LocalContext.current
     val path = game?.file?.path
     LaunchedEffect(path) { if (game != null) withContext(Dispatchers.IO) { LabArt.resolve(context, game) } }
@@ -134,13 +153,15 @@ internal fun XmbSteamBackdrop(game: Shortcut?, picture: Any?, landscape: Boolean
         }
         Box(
             Modifier.fillMaxSize().background(
+                // The navy's strength follows a smoothstep from 0 at the tabs' top edge to its maximum at the bottom: no visible start.
                 Brush.verticalGradient(
                     0f to Color.Black.copy(alpha = 0.55f),
                     0.20f to Color.Transparent,
-                    0.42f to Color.Transparent,
-                    0.62f to XMB_STEAM_NAVY.copy(alpha = 0.85f),
-                    0.80f to XMB_STEAM_NAVY_DEEP.copy(alpha = 0.98f),
-                    1f to XMB_STEAM_NAVY_DEEP,
+                    from to XMB_STEAM_NAVY.copy(alpha = 0f),
+                    from + (1f - from) * 0.25f to XMB_STEAM_NAVY.copy(alpha = XMB_STEAM_FADE_MAX * 0.156f),
+                    from + (1f - from) * 0.50f to XMB_STEAM_NAVY.copy(alpha = XMB_STEAM_FADE_MAX * 0.5f),
+                    from + (1f - from) * 0.75f to XMB_STEAM_NAVY.copy(alpha = XMB_STEAM_FADE_MAX * 0.844f),
+                    1f to XMB_STEAM_NAVY.copy(alpha = XMB_STEAM_FADE_MAX),
                 ),
             ),
         )
@@ -149,14 +170,17 @@ internal fun XmbSteamBackdrop(game: Shortcut?, picture: Any?, landscape: Boolean
 
 /**
  * The row of covers (the whole library, recent first), the focused game's title and the text tabs. [lift] is 0 normally and 1 while
- * the options are open: the covers lift (the column opens under the focused one), the others dim and the title and tabs fade out.
- * [tabsActive] = the tabs hold the cursor, on tab [tabSel]; [tabsEnabled] = they can be tapped. [onCard] / [onTab] are taps.
+ * the options are open: the card [liftIdx] (the focused one when they opened) glides to the left margin, lifted and larger, with the
+ * column opening under it and the other covers continuing in a row to its right (dimmed with an opaque overlay), and the title and
+ * tabs fade out. Going back, the row glides to where it rested. [tabsActive] = the tabs hold the cursor, on tab [tabSel]; [tabsEnabled]
+ * = they can be tapped. [onCard] / [onTab] are taps.
  */
 @Composable
 internal fun XmbSteamHome(
     shortcuts: List<Shortcut>,
     pos: MutableFloatState,
     target: Int,
+    liftIdx: Int,
     sl: XmbSteamLayout,
     accent: Color,
     ss: ScreenScale,
@@ -178,7 +202,7 @@ internal fun XmbSteamHome(
         for (i in xmbSteamWindow(base.toFloat(), n, sl.w, sl.fW + sl.gap)) {
             val s = shortcuts[i]
             key(s.file.path) {
-                XmbSteamCover(s, i, pos, sl, row, accent, i == target, lift) { onCard(i) }
+                XmbSteamCover(s, i, pos, sl, row, accent, i == target, i == liftIdx, liftIdx, lift) { onCard(i) }
             }
         }
         XmbSteamTitle(focused, sdBadge, sl, row, target, pos, accent, ss, lift)
@@ -186,24 +210,25 @@ internal fun XmbSteamHome(
     }
 }
 
-// A card's place in the row: its size, then its drawn size, position and fade from its distance to the cursor, read in the graphics
-// layer so a swipe re-draws without recomposing. All cards share a bottom edge, so the focused (larger) one grows upward; [lift] raises
-// the whole row while the options are open and dims the cards that are not focused.
+// A card's place in the row: its size, then its drawn size and position from its distance to the cursor, read in the graphics layer so a
+// swipe re-draws without recomposing. All cards share a bottom edge, so the focused (larger) one grows upward. [lift] (0 at rest, 1 with
+// the options open) glides the whole row to the options layout: raised, the card [liftIdx] at the left margin and drawn larger, the
+// cards after it in a row to its right (see XmbSteamRow.xOpts). Nothing here fades: the dimming is an opaque overlay on the cover.
 private fun Modifier.xmbSteamSlot(
-    index: Int, pos: MutableFloatState, sl: XmbSteamLayout, row: XmbSteamRow, focused: Boolean, lift: () -> Float,
+    index: Int, pos: MutableFloatState, sl: XmbSteamLayout, row: XmbSteamRow, focused: Boolean, lifted: Boolean, liftIdx: Int, lift: () -> Float,
 ): Modifier = this
-    .zIndex(if (focused) 1f else 0f)
+    .zIndex(if (focused || lifted) 1f else 0f)
     .size(sl.cardW(index, row.count).dp, sl.fH.dp)
     .graphicsLayer {
         val p = pos.floatValue
-        val sc = xmbSteamScale(index, p)
         val l = lift()
-        translationX = row.x(index, p).dp.toPx()
+        val sc0 = xmbSteamScale(index, p)
+        val sc = if (lifted) sc0 + (XMB_STEAM_OPTS_SCALE - sc0) * l else sc0
+        translationX = row.xOpts(index, p, liftIdx, XMB_STEAM_OPTS_SCALE, l).dp.toPx()
         translationY = (sl.cardTop - sl.lift * l).dp.toPx()
         scaleX = sc
         scaleY = sc
         transformOrigin = TransformOrigin(0f, 1f)
-        alpha = if (focused) 1f else 1f - 0.45f * l
     }
 
 @Composable
@@ -215,16 +240,19 @@ private fun XmbSteamCover(
     row: XmbSteamRow,
     accent: Color,
     focused: Boolean,
+    lifted: Boolean,
+    liftIdx: Int,
     lift: () -> Float,
     onClick: () -> Unit,
 ) {
     val shape = RoundedCornerShape(XMB_STEAM_CORNER)
     val src = remember { MutableInteractionSource() }
     val mark = remember(shortcut) { storeMarkOf(shortcut) }
-    val chip = (sl.fW * 0.34f).coerceIn(20f, 26f).dp
+    // The store's mark is small and scales with the card (it is sized in dp inside the card's graphics layer).
+    val markSize = (sl.fW * 0.20f).coerceIn(13f, 22f).dp
     Box(
         Modifier
-            .xmbSteamSlot(index, pos, sl, row, focused, lift)
+            .xmbSteamSlot(index, pos, sl, row, focused, lifted, liftIdx, lift)
             .clip(shape)
             .background(Color(0xFF111111))
             .then(if (focused) Modifier.border(1.5.dp, XMB_STEAM_OUTLINE, shape) else Modifier)
@@ -245,17 +273,13 @@ private fun XmbSteamCover(
                 XmbMonogram(shortcut.name, accent)
             }
         }
-        // Where the Steam Deck draws its controller badge: the store's mark on a small dark chip, on every card, scaled with it.
-        Box(
-            Modifier
-                .align(Alignment.BottomEnd)
-                .padding(3.dp)
-                .size(chip)
-                .clip(RoundedCornerShape(4.dp))
-                .background(Color.Black.copy(alpha = 0.62f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            XmbStoreMark(mark, Modifier, chip * 0.68f)
+        // Where the Steam Deck draws its controller badge: the store's mark straight on the cover (no chip, shadow or elevation behind
+        // it), on every card, small, scaled with it.
+        XmbStoreMark(mark, Modifier.align(Alignment.BottomEnd).padding(4.dp), markSize)
+        // The cards that are not the lifted one are dimmed while the options are open: an opaque black overlay over the whole cover
+        // (not a fade of the card, which would show the backdrop through it).
+        if (!lifted) {
+            Box(Modifier.fillMaxSize().graphicsLayer { alpha = XMB_STEAM_DIM * lift() }.background(Color.Black))
         }
     }
 }
@@ -320,16 +344,19 @@ private fun XmbSteamTitle(
             val meta = remember(s) { AndroidGames.packageOf(s) ?: buildLaunchSpec(s, context).meta }
             Column {
                 Text(
-                    s.name, color = Color.White, fontSize = ss.sp(16f), lineHeight = ss.sp(20f), fontWeight = FontWeight.Bold,
+                    s.name, color = Color.White, fontSize = ss.sp(16f), fontWeight = FontWeight.Bold,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    style = XMB_STEAM_TEXT.copy(lineHeight = ss.sp(17f), lineHeightStyle = XMB_STEAM_TIGHT),
                 )
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                // About 4 dp under the title, nearly touching it.
+                Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (meta.isNotEmpty()) {
                         Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = ink.copy(alpha = 0.9f), modifier = Modifier.size(12.dp))
                         Spacer(Modifier.width(2.dp))
                         Text(
                             meta.uppercase(), color = XMB_STEAM_MUTED, fontSize = ss.sp(10f), letterSpacing = 0.8.sp, maxLines = 1,
                             overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
+                            style = XMB_STEAM_TEXT.copy(lineHeight = ss.sp(12f), lineHeightStyle = XMB_STEAM_TIGHT),
                         )
                     }
                     sdBadge(s)
@@ -383,6 +410,7 @@ private fun XmbSteamTabs(
                             letterSpacing = 1.5.sp,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
+                            style = XMB_STEAM_TEXT,
                             modifier = Modifier
                                 .clip(shape)
                                 .background(if (on) accent.copy(alpha = 0.18f) else Color.Transparent)
