@@ -11,11 +11,7 @@ import org.junit.Test
  */
 class AppSettingsLayoutTest {
 
-    /** The XMB layout (the new arrangement). */
-    private fun tab(id: String) = AppSettingsLayout.tabFor(id, true)
-
-    /** The plain Deck layout (the earlier arrangement). */
-    private fun deckTab(id: String) = AppSettingsLayout.tabFor(id, false)
+    private fun tab(id: String) = AppSettingsLayout.tabFor(id)
 
     @Test
     fun generalHoldsTheStartUpScreenAndTheUpdateSwitches() {
@@ -70,41 +66,29 @@ class AppSettingsLayoutTest {
     }
 
     @Test
-    fun thePlainDeckKeepsTheThemePresetRowAndTheLogsRowsInStorage() {
-        assertEquals(EditorTabs.APP_APPEARANCE, deckTab("app.appearance.preset"))
-        for (id in listOf("app.logs.location", "app.logs.perGame", "app.logs.wineDebug", "app.logs.box64", "app.logs.dxvk", "app.logs.controller", "app.logs.steamLite", "app.logs.headlessSteam", "app.logs.ubisoftReport", "app.logs.ubisoftDeep", "app.logs.logcat", "app.logs.crashReports", "app.logs.exitReasons", "app.logs.keepLast")) {
-            assertEquals(id, EditorTabs.APP_STORAGE, deckTab(id))
-        }
-        // Logs come after the saves in Storage; the saves after the download engines.
-        assertTrue(AppSettingsLayout.rankOf("app.saves.steamCollect", false) < AppSettingsLayout.rankOf("app.logs.location", false))
-        // The XMB layout puts nothing of the logs in Storage.
-        assertEquals(0, AppSettingsLayout.rankOf("app.logs.location", true))
-    }
-
-    @Test
-    fun theRestOfTheMappingIsTheSameInBothLayouts() {
-        for (id in listOf("app.general.landing", "app.appearance.style", "app.library.steamGridKey", "app.steam.region", "app.contents.keepRaw", "app.performance.sustained", "app.downloads.speedTier", "app.saves.steamCollect", "app.advanced.xr", "app.controllers.trueMouse", "app.controllers.steamController", "app.library.midiDefault", "app.nothing.here")) {
-            assertEquals(id, tab(id), deckTab(id))
-        }
-    }
-
-    @Test
     fun advancedHoldsTheExperimentalSwitchesAndTheMouseAndKeyboardRowsOfWineGames() {
         for (id in listOf("app.advanced.fileProvider", "app.advanced.androidBrowser", "app.advanced.clipboard", "app.advanced.contentsUrl", "app.advanced.dri3", "app.advanced.xr")) {
             assertEquals(id, EditorTabs.APP_ADVANCED, tab(id))
         }
         // The three controller rows that have no other home are re-homed here, not deleted.
-        for (id in listOf("app.controllers.cursorSpeed", "app.controllers.trueMouse", "app.controllers.disableXinput")) {
+        for (id in listOf("app.controllers.cursorSpeed", "app.controllers.trueMouse", "app.controllers.disableXinput", "app.controllers.touch", "app.controllers.aim")) {
             assertEquals(id, EditorTabs.APP_ADVANCED, tab(id))
         }
     }
 
     @Test
+    fun theSeedsOfNewContainersStayEditableInAdvanced() {
+        // New containers are still seeded from these three app preferences (ContainerDetailViewModel), so their rows are not hidden.
+        for (id in listOf("app.library.midiDefault", "app.performance.box64Preset", "app.performance.fexPreset")) {
+            assertEquals(id, EditorTabs.APP_ADVANCED, tab(id))
+        }
+        // After the experimental switches and the mouse and keyboard rows.
+        assertTrue(AppSettingsLayout.rankOf("app.controllers.cursorSpeed") < AppSettingsLayout.rankOf("app.performance.box64Preset"))
+        assertTrue(AppSettingsLayout.rankOf("app.advanced.xr") < AppSettingsLayout.rankOf("app.library.midiDefault"))
+    }
+
+    @Test
     fun rowsThatLiveElsewhereNowAreHidden() {
-        // Replaced by Defaults for new containers (General > Audio, Performance) .
-        assertNull(tab("app.library.midiDefault"))
-        assertNull(tab("app.performance.box64Preset"))
-        assertNull(tab("app.performance.fexPreset"))
         // The same switches are in Controls > Device.
         assertNull(tab("app.controllers.steamController"))
         assertNull(tab("app.controllers.trackpadMouse"))
@@ -132,12 +116,12 @@ class AppSettingsLayoutTest {
     @Test
     fun rowsKeepTheirOrderWithinATabByRank() {
         // Library: cover art (0), Steam friends (1), component downloads (2), then the Steam region (3).
-        assertTrue(AppSettingsLayout.rankOf("app.library.steamGridKey", true) < AppSettingsLayout.rankOf("app.steam.social", true))
-        assertTrue(AppSettingsLayout.rankOf("app.steam.social", true) < AppSettingsLayout.rankOf("app.contents.keepRaw", true))
-        assertTrue(AppSettingsLayout.rankOf("app.contents.keepRaw", true) < AppSettingsLayout.rankOf("app.steam.region", true))
+        assertTrue(AppSettingsLayout.rankOf("app.library.steamGridKey") < AppSettingsLayout.rankOf("app.steam.social"))
+        assertTrue(AppSettingsLayout.rankOf("app.steam.social") < AppSettingsLayout.rankOf("app.contents.keepRaw"))
+        assertTrue(AppSettingsLayout.rankOf("app.contents.keepRaw") < AppSettingsLayout.rankOf("app.steam.region"))
         // Storage: download engines, then saves.
-        assertTrue(AppSettingsLayout.rankOf("app.downloads.speedTier", true) < AppSettingsLayout.rankOf("app.saves.steamCollect", true))
+        assertTrue(AppSettingsLayout.rankOf("app.downloads.speedTier") < AppSettingsLayout.rankOf("app.saves.steamCollect"))
         // Advanced: the experimental switches, then mouse and keyboard.
-        assertTrue(AppSettingsLayout.rankOf("app.advanced.xr", true) < AppSettingsLayout.rankOf("app.controllers.cursorSpeed", true))
+        assertTrue(AppSettingsLayout.rankOf("app.advanced.xr") < AppSettingsLayout.rankOf("app.controllers.cursorSpeed"))
     }
 }

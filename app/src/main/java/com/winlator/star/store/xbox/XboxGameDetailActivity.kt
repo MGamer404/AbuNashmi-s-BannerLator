@@ -52,11 +52,6 @@ import java.io.File
  * view (XboxRuntime) inside the Wine session.
  */
 class XboxGameDetailActivity : ComponentActivity() {
-    // English and left-to-right whatever the phone's language (see AppLocale).
-    override fun attachBaseContext(newBase: android.content.Context) {
-        super.attachBaseContext(com.winlator.star.AppLocale.wrap(newBase))
-    }
-
     private lateinit var game: XboxGame
     private var installed by mutableStateOf<XboxInstallState.Installed?>(null)
     private var downloading by mutableStateOf(false)
@@ -162,10 +157,10 @@ class XboxGameDetailActivity : ComponentActivity() {
                     onBack = { finish() },
                     title = game.title,
                     storeBadge = { StoreBadge(Store.XBOX) },
+                    downloadKey = "${Store.XBOX}:${game.id}",
                     hero = {
                         val art = listOfNotNull(game.heroUrl, game.posterUrl)
                         if (art.isNotEmpty()) CatalogArt(candidates = art, title = game.title, modifier = Modifier.fillMaxSize(), aspectRatio = null)
-                        else Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant))
                     },
                     subtitle = {
                         Spacer(Modifier.height(4.dp))

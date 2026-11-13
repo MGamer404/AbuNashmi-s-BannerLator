@@ -165,6 +165,9 @@ internal const val DECK_COMPACT_WIDTH_DP = 720
 /** Below this width (dp) a landscape Deck shell uses the phone layout too; above it, rails and legend (see isDeckCompact). */
 internal const val DECK_RAILS_MIN_WIDTH_DP = 560
 
+/** XMB floating hints (Back / Search / Add Game): their gap (base dp, scaled) above the bottom edge or the camera cut-out; also what the hint inset counts. */
+internal const val HINT_BOTTOM_GAP = 3f
+
 /** Below this width (dp) only the selected tab keeps its label in the top strip. */
 private const val DECK_WIDE_TABS_DP = 1100
 
@@ -187,9 +190,10 @@ internal fun deckTabOf(route: String?): DeckTab = when {
     route == null -> DeckTab.HOME
     route == DeckRoutes.STORES -> DeckTab.STORES
     route == Screen.Containers.route || route.startsWith("container_detail") || DeckSettingsRoutes.isContainerEditor(route) -> DeckTab.CONTAINERS
-    // Wrappers and Adrenotools are Components tabs now; their classic routes (Big Picture, the games wall) sit under it.
-    route == DeckRoutes.COMPONENTS || route == Screen.Contents.route ||
-        route == Screen.Wrappers.route || route == Screen.AdrenoTools.route -> DeckTab.COMPONENTS
+    route == DeckRoutes.COMPONENTS || route == Screen.Contents.route -> DeckTab.COMPONENTS
+    // XMB only: Wrappers and Adrenotools are Components tabs there; the plain Deck keeps them under Tools.
+    (route == Screen.Wrappers.route || route == Screen.AdrenoTools.route) ->
+        if (AppThemeState.deckXmbHome.value) DeckTab.COMPONENTS else DeckTab.TOOLS
     route == DeckRoutes.CONTROLS || route == Screen.InputControls.route -> DeckTab.CONTROLS
     route == DeckRoutes.TOOLS || route == Screen.FileManager.route || route == Screen.SaveManager.route ||
         route == Screen.Saves.route -> DeckTab.TOOLS
@@ -208,8 +212,8 @@ private val DECK_ALIASES = mapOf(
 /** With the Simple style on, these routes open its own pages instead. */
 private val SIMPLE_ALIASES = mapOf(
     Screen.Containers.route to com.winlator.star.ui.simple.SimpleRoutes.CONTAINERS,
-    Screen.Contents.route to com.winlator.star.ui.simple.SimpleRoutes.COMPONENTS,
-    DeckRoutes.COMPONENTS to com.winlator.star.ui.simple.SimpleRoutes.COMPONENTS,
+    Screen.Contents.route to com.winlator.star.ui.simple.SimpleRoutes.DRIVERS,
+    DeckRoutes.COMPONENTS to com.winlator.star.ui.simple.SimpleRoutes.DRIVERS,
     Screen.AdrenoTools.route to com.winlator.star.ui.simple.SimpleRoutes.DRIVERS,
     Screen.InputControls.route to com.winlator.star.ui.simple.SimpleRoutes.CONTROLS,
     DeckRoutes.CONTROLS to com.winlator.star.ui.simple.SimpleRoutes.CONTROLS,
@@ -242,7 +246,7 @@ internal fun DeckShell(
     val navController = rememberNavController()
     val route by navController.currentBackStackEntryAsState()
     val onHome = (route?.destination?.route ?: DeckRoutes.HOME) == DeckRoutes.HOME
-    DeckTheme {
+    DeckTheme(xmb = xmbHome) {
         // XMB mode: every page but Home sits on the charcoal glass, so its own `colorScheme.background` fill goes clear; Home is plain black under its own backdrop.
         XmbGlassTheme(xmbHome, glass = !onHome) {
             XmbKeyboardHost(xmbHome) {
@@ -293,7 +297,7 @@ private fun DeckShellContent(
     val tab = deckTabOf(currentRoute)
 
     val nav = remember(navController) { DeckNav(navController) }
-    // XMB mode: no Stores tab; the stores are cards in Home's upper row. Its route stays for search and the other modes.
+    // XMB mode: no Stores tab; the stores live on the Home tabs page (Down from the games row). Its route stays for search and the other modes.
     val tabs = remember(xmbHome) { if (xmbHome) DeckTab.entries - DeckTab.STORES else DeckTab.entries }
     SideEffect { nav.tabs = tabs }
     val focusManager = LocalFocusManager.current
@@ -511,7 +515,7 @@ private fun DeckShellContent(
                     if (nav.currentRoute() == DeckRoutes.HOME) {
                         if (!xmbHomeNow) return@handler false
                         // XMB home: this is only reached for a B the Home view did not consume. Its key-down is consumed when
-                        // something is open (menu, upper row, option column, All Games...) but its key-up never is, so the key-up of an
+                        // something is open (menu, option column, tabs page...) but its key-up never is, so the key-up of an
                         // already-handled B arrives here too. Only a key-up whose key-down came through here counts (XmbBackKeyArm).
                         if (ev.action != KeyEvent.ACTION_DOWN && ev.action != KeyEvent.ACTION_UP) return@handler false
                         val press = homeBArm.onKey(ev.action == KeyEvent.ACTION_DOWN, ev.repeatCount, ev.isCanceled)
@@ -558,12 +562,13 @@ private fun DeckShellContent(
 
     // XMB mode, every tab but the phone layout: the floating "B Back" / "Y Search" hints bottom right. LocalXmbHintInset tells
     // the pages how far up they must lift a floating button to sit above them: the row (a glyph or one line of text, plus its
-    // padding) and its gap to the edge; on Home, which reaches under the camera hole, the hole's bottom edge too.
+    // padding, the compact chips' 3 dp above and below) and its gap to the edge; on Home, which reaches under the camera hole, the hole's
+    // bottom edge too.
     val hintsShown = xmbHome && !compact
     val hintSs = rememberScreenScale()
     val xmbKeyboard = LocalXmbKeyboard.current
     val hintInset = if (hintsShown) {
-        hintSs.dp(12f) + maxOf(22.dp, hintSs.dp(14f) * 1.4f) + hintSs.dp(8f) +
+        hintSs.dp(HINT_BOTTOM_GAP) + maxOf(22.dp, hintSs.dp(13f) * 1.4f) + hintSs.dp(6f) +
             (if (homeBleed) WindowInsets.displayCutout.asPaddingValues().calculateBottomPadding() else 0.dp)
     } else 0.dp
 
@@ -650,6 +655,8 @@ private fun DeckShellContent(
                             portrait = !rails,
                             onMenu = { labDrawer = true },
                             onBack = if (currentRoute != DeckRoutes.HOME) goBack else null,
+                            // The same search as Y: the page's own where it has one, else the search overlay.
+                            onSearch = { (deckActions.search.value ?: openSearch)() },
                         )
                     }
                     if (floatTabs && !full && !homeBleed) {
@@ -815,7 +822,13 @@ private fun DeckShellContent(
                                                 onAbout = onAbout,
                                                 onLaunchStore = onLaunchStore,
                                             )
-                                            composable(DeckRoutes.TOOLS) { DeckToolsPage() }
+                                            composable(DeckRoutes.TOOLS) {
+                                                DeckToolsPage(
+                                                    onNavigate = { route -> nav.open(route) },
+                                                    onMyAccount = onAccount,
+                                                    onAbout = onAbout,
+                                                )
+                                            }
                                         },
                                     )
                                 }
@@ -888,8 +901,7 @@ private fun DeckShellContent(
 
             // XMB home: the tabs and status float over the XMB's own space above its game row, clear of the camera hole.
             // No backgrounds, so the XMB's backdrop shows through.
-            // Not while the All Games page is open: it has its own header there (back arrow, title, View / Sort).
-            if (homeBleed && !deckActions.xmbAllGamesOpen.value) {
+            if (homeBleed) {
                 DeckFloatingBar(
                     current = tab,
                     tabs = tabs,
@@ -907,25 +919,40 @@ private fun DeckShellContent(
             // bottom right, clear of the camera frame. They may sit over a page's corner (LocalXmbHintInset lifts the floating
             // buttons above them). Hidden while the XMB keyboard panel is up, which has its own hints.
             if (hintsShown && xmbKeyboard?.panelOpen != true) {
+                // Compact chips close together. "B Back" is anchored: the row hugs the right edge, so what sits to Back's left (Start Add
+                // Game, X Options: their own group, which only grows leftwards) never moves it; "Y Search" sits right of it.
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(hintSs.dp(6f)),
+                    horizontalArrangement = Arrangement.spacedBy(hintSs.dp(2f)),
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(
                             // Home's place on every page (not the page's camera frame), so the hints never move between pages.
-                            end = hintSs.dp(16f) + cutout.calculateEndPadding(dir),
-                            bottom = hintSs.dp(12f) + cutout.calculateBottomPadding(),
+                            end = hintSs.dp(44f) + cutout.calculateEndPadding(dir),
+                            bottom = hintSs.dp(HINT_BOTTOM_GAP) + cutout.calculateBottomPadding(),
                         ),
                 ) {
-                    // Tools > Files only: "X Options" (the page's options callback, the same one X runs), first of the three.
-                    if (deckActions.xmbOptionsHint.value && deckActions.options.value != null) {
-                        DeckFloatingHint("X", GlyphKind.Y, "Options", { deckActions.options.value?.invoke() })
+                    val addGameHint = deckActions.xmbAddGameHint.value
+                    val optionsHint = deckActions.xmbOptionsHint.value && deckActions.options.value != null
+                    if (addGameHint != null || optionsHint) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(hintSs.dp(2f)),
+                        ) {
+                            // The XMB home's tabs page, Stores tab: "Start Add Game" (the Start button runs it too), first of the hints.
+                            if (addGameHint != null) {
+                                DeckFloatingHint("≡", GlyphKind.Y, stringResource(R.string.xmb_hint_add_game), addGameHint, compact = true, hitMinHeight = 40.dp)
+                            }
+                            // Tools > Files only: "X Options" (the page's options callback, the same one X runs).
+                            if (optionsHint) {
+                                DeckFloatingHint("X", GlyphKind.Y, "Options", { deckActions.options.value?.invoke() }, compact = true, hitMinHeight = 40.dp)
+                            }
+                        }
                     }
                     // The same back action as B: a sub-page pops, Home asks for the second press (homeBack). Drawn with Search's
                     // glyph look (the round grey one), not the red B.
-                    DeckFloatingHint("B", GlyphKind.Y, "Back", { if (backDispatcher != null) backDispatcher.onBackPressed() else nav.back() })
-                    DeckFloatingHint("Y", GlyphKind.Y, "Search", { (deckActions.search.value ?: openSearch)() })
+                    DeckFloatingHint("B", GlyphKind.Y, "Back", { if (backDispatcher != null) backDispatcher.onBackPressed() else nav.back() }, compact = true, hitMinHeight = 40.dp)
+                    DeckFloatingHint("Y", GlyphKind.Y, "Search", { (deckActions.search.value ?: openSearch)() }, compact = true, hitMinHeight = 40.dp)
                 }
             }
 
@@ -1001,7 +1028,7 @@ private class DeckNav(private val navController: NavHostController) {
         }
     }
 
-    /** The tabs L1/R1 move through (the XMB mode has no Stores tab: its stores are cards on Home). */
+    /** The tabs L1/R1 move through (the XMB mode has no Stores tab: its stores are the Home tabs page's first tab). */
     var tabs: List<DeckTab> = DeckTab.entries
 
     /**
@@ -1021,7 +1048,9 @@ private class DeckNav(private val navController: NavHostController) {
     fun open(requested: String) {
         if (AppThemeState.simpleLook) {
             // Simple has no tabs: every page is pushed over the Simple home and B pops it.
-            val r = SIMPLE_ALIASES[requested] ?: DECK_ALIASES[requested] ?: requested
+            // Lab has its own game page: a Deck game route (search, the Deck pages) opens it instead.
+            val lab = if (requested.startsWith("deck_game?")) "lab_game?" + requested.removePrefix("deck_game?") else requested
+            val r = SIMPLE_ALIASES[lab] ?: DECK_ALIASES[lab] ?: lab
             if (r == DeckRoutes.HOME) home()
             else if (currentRoute() != r) navController.navigate(r) { launchSingleTop = true }
             return
@@ -1337,7 +1366,7 @@ private fun DeckFloatingBar(
     val accent = MaterialTheme.colorScheme.primary
     val clock = rememberDeckClock()
     val battery = rememberDeckBattery()
-    // Sized with the screen, as the XMB's own clear space above its game row is (its peek clip is 50 of the same units):
+    // Sized with the screen, as the XMB's own clear space above its game row is (the Steam home's top room is 50 of the same units):
     // portrait leaves 34 there, landscape a good deal more.
     val ss = rememberScreenScale()
     val k = if (portrait) 0.8f else 1f
@@ -1431,7 +1460,7 @@ private fun FloatingBumper(text: String, onClick: () -> Unit) {
  * A floating hint with no box around it: the button's [glyph] (none = not drawn, for a touch-only screen), an optional [icon]
  * and a [label], muted and tappable. The one look behind the XMB hints: Back and Search on every page, and the All Games
  * page's Back / View / Sort. A [modifier] height or width minimum (applied first) widens the tap area without changing how it
- * looks.
+ * looks. [compact] tightens the chip (less padding, a smaller label and a smaller gap to its glyph) for the shell's close-set row.
  */
 @Composable
 internal fun DeckFloatingHint(
@@ -1442,21 +1471,37 @@ internal fun DeckFloatingHint(
     modifier: Modifier = Modifier,
     icon: ImageVector? = null,
     description: String? = label,
+    compact: Boolean = false,
+    hitMinHeight: Dp = 0.dp,
 ) {
     val ss = rememberScreenScale()
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(ss.dp(6f)),
-        modifier = modifier
-            .clip(deckShape(10.dp))
-            .dpadFocus(false)
-            .clickable(onClick = onClick)
-            .padding(horizontal = ss.dp(8f), vertical = ss.dp(4f))
-            .alpha(0.75f),
-    ) {
-        if (glyph != null) DeckGlyph(glyph, kind)
-        if (icon != null) Icon(icon, contentDescription = description, tint = Color(0xFFDDDDDD), modifier = Modifier.size(ss.dp(18f)))
-        if (label != null) Text(label, color = Color(0xFFDDDDDD), fontSize = ss.sp(14f), fontWeight = FontWeight.Light, maxLines = 1)
+    val content: @Composable (Modifier) -> Unit = { m ->
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(ss.dp(if (compact) 4f else 6f)),
+            modifier = m
+                .padding(horizontal = ss.dp(if (compact) 5f else 8f), vertical = ss.dp(if (compact) 3f else 4f))
+                .alpha(0.75f),
+        ) {
+            if (glyph != null) DeckGlyph(glyph, kind)
+            if (icon != null) Icon(icon, contentDescription = description, tint = Color(0xFFDDDDDD), modifier = Modifier.size(ss.dp(18f)))
+            if (label != null) Text(label, color = Color(0xFFDDDDDD), fontSize = ss.sp(if (compact) 13f else 14f), fontWeight = FontWeight.Light, maxLines = 1)
+        }
+    }
+    if (hitMinHeight > 0.dp) {
+        // A touch target [hitMinHeight] tall that grows upward only: the chip stays where it sits (at the bottom of its box), the box
+        // around it is what takes the tap. The shell asks for 40 dp, not 48: that is as far up as the hints' own inset
+        // (LocalXmbHintInset), so it does not cover the bottom of a page's floating buttons lifted above them.
+        Box(
+            modifier = modifier
+                .heightIn(min = hitMinHeight)
+                .clip(deckShape(10.dp))
+                .dpadFocus(false)
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.BottomCenter,
+        ) { content(Modifier) }
+    } else {
+        content(modifier.clip(deckShape(10.dp)).dpadFocus(false).clickable(onClick = onClick))
     }
 }
 

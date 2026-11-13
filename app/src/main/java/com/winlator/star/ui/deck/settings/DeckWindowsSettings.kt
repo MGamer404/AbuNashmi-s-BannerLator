@@ -93,7 +93,7 @@ internal object WindowsRows {
     fun defs(): List<SettingDef> = listOf(
         SettingDef(
             id = "windows.wineVersion", category = "windows", group = "Wine", level = SettingLevel.ADVANCED,
-            label = L("Wine / Proton version"), hint = L("The Wine layer this container runs."), tech = L("Wine Version"),
+            label = L("Wine / Proton version"), hint = L("The Wine layer this container runs. Download more below."), tech = L("Wine Version"),
             control = { env, _ -> Control.Select((env.vm?.wineVersionEntries ?: emptyList()).map { Opt(it, it) }) },
             vm = VmBinding(get = { _, vm -> vm.selectedWineVersion }, set = { _, vm, v -> vm.onWineVersionChanged(v) }),
             onDefaults = false, showInGame = false,
@@ -198,16 +198,16 @@ internal class DeckWindowsSection(
 
     override fun extras(): Map<String, CategoryExtra> {
         // XMB only. Lab lists the component rows itself (SimpleClassicEditor) and the plain Deck keeps them on Windows: no page.
-        val components = if (!xmb || com.winlator.star.ui.theme.AppThemeState.simpleLook) emptyMap<String, CategoryExtra>() else winComponents.extras()
+        val components = if (xmb) winComponents.extras() else emptyMap<String, CategoryExtra>()
         if (vm == null || env.world != World.WINE) return components
         return components + mapOf("windows" to CategoryExtra(bottom = ::bottomItems))
     }
 
     private fun bottomItems(): List<PageExtra> = buildList {
         val vm = vm ?: return@buildList
-        // The Deck / XMB editor reaches this sheet from "Get more" on the Wine / Proton version row ([openGetMore]);
-        // the Lab style has no such link, so it keeps its own download action.
-        if (container && com.winlator.star.ui.theme.AppThemeState.simpleLook) {
+        // The XMB editor reaches this sheet from "Get more" on the Wine / Proton version row ([openGetMore]); the plain Deck and
+        // the Lab style have no such link, so they keep their own download action.
+        if (container && !xmb) {
             addAll(actionItems("windows-wine", null, listOf(
                 DeckAction("wine", Icons.Filled.CloudDownload, L("Download Wine and Proton versions"),
                     L("Layers from the catalog, or install one from a file. New containers can use them.")) { wineSheet = true },

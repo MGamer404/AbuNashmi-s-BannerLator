@@ -9,6 +9,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.winlator.star.contents.ContentProfile
 import com.winlator.star.ui.screens.ContentDownloadSheet
+import com.winlator.star.ui.theme.AppThemeState
 import kotlinx.coroutines.CoroutineScope
 
 /**
@@ -41,10 +42,10 @@ internal class DeckTranslatorDownloads(
 
     private fun applies() = env.world == World.WINE && env.scope != EditorScope.APP && env.vm != null
 
-    // The Deck / XMB editor has "Get more" on the Box64 / FEX / Box64EC version rows ([openGetMore]), so it lists no
-    // downloads of its own; the Lab style has no such link and keeps the section.
+    // The XMB editor has "Get more" on the Box64 / FEX / Box64EC version rows ([openGetMore]), so it lists no downloads of its
+    // own; the plain Deck and the Lab style have no such link and keep the section.
     override fun extras(): Map<String, CategoryExtra> {
-        if (!applies() || !com.winlator.star.ui.theme.AppThemeState.simpleLook) return emptyMap()
+        if (!applies() || AppThemeState.deckXmbHome.value) return emptyMap()
         return mapOf("performance" to CategoryExtra(bottom = ::items))
     }
 

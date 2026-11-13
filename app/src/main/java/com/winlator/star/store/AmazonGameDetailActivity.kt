@@ -72,11 +72,6 @@ import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
 class AmazonGameDetailActivity : ComponentActivity() {
-    // English and left-to-right whatever the phone's language (see AppLocale).
-    override fun attachBaseContext(newBase: android.content.Context) {
-        super.attachBaseContext(com.winlator.star.AppLocale.wrap(newBase))
-    }
-
 
     companion object {
         const val RESULT_REFRESH = 100
@@ -825,6 +820,7 @@ private fun AmazonGameDetailScreen(
         onBack = onBack,
         title = titleText ?: "",
         storeBadge = { StoreBadge(Store.AMAZON) },
+        downloadKey = productId?.let { "${Store.AMAZON}:$it" },
         hero = {
             if (heroCandidates.isNotEmpty()) {
                 CatalogArt(
@@ -833,8 +829,6 @@ private fun AmazonGameDetailScreen(
                     modifier = Modifier.fillMaxSize(),
                     aspectRatio = null,
                 )
-            } else {
-                Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant))
             }
         },
         subtitle = if (exeNameVisible) {

@@ -73,11 +73,6 @@ import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
 class EpicGameDetailActivity : ComponentActivity() {
-    // English and left-to-right whatever the phone's language (see AppLocale).
-    override fun attachBaseContext(newBase: android.content.Context) {
-        super.attachBaseContext(com.winlator.star.AppLocale.wrap(newBase))
-    }
-
 
     companion object {
         const val RESULT_REFRESH = 100
@@ -250,9 +245,11 @@ class EpicGameDetailActivity : ComponentActivity() {
                 if (e != null && (e.state == DownloadState.DOWNLOADING || e.state == DownloadState.PAUSED)) {
                     progressVisible = true
                     progressValue = e.pct
-                    // Epic is pct-only → live "$pct%" label (matches the DL card + notification, and
-                    // the local onProgress below, so a list-started/reopened DL reads identically).
-                    progressLabelText = "Downloading… ${e.pct}%"
+                    // Live "45%  ·  1.2 GB / 4.5 GB  ·  12 MB/s" label from the registry entry (matches the DL
+                    // card + notification, and the local onProgress below, so a list-started/reopened DL
+                    // reads identically). Bare "$pct%" until the first bytes are in.
+                    progressLabelText = epicProgressLabel(e.pct, e.installDone, e.installTotal, e.speedBps, e.etaSeconds,
+                        lead = if (e.state == DownloadState.PAUSED) "Paused" else "Downloading…")
                     progressLabelVisible = true
                     installBtnVisible = true
                     installBtnText = "Cancel"
@@ -341,6 +338,7 @@ class EpicGameDetailActivity : ComponentActivity() {
     private fun startInstallInternal() {
         val an = appName ?: return
         EpicCancelPolicy.clear(an)   // fresh download → default to keep-on-cancel until the dialog says otherwise
+        EpicDownloadControl.onFreshStart(applicationContext, an)   // supersedes any earlier pause of this game
         installBtnText = "Cancel"
             installBtnColor = 0xFFCC3333.toInt()
         progressVisible = true
@@ -362,8 +360,9 @@ class EpicGameDetailActivity : ComponentActivity() {
             id = an,
             name = title ?: an,
             cover = artCover,
-            supportsPause = false,
+            supportsPause = true,
             installTotal = prefs!!.getLong("epic_size_$an", 0L),
+            pause = { EpicDownloadControl.pause(an) },
             cancel = { cancelled.set(true) },
         )
 
@@ -388,6 +387,8 @@ class EpicGameDetailActivity : ComponentActivity() {
                 // Feature #2 — download required(base) + the container language's files only.
                 val installTags = EpicInstallTags.tagsForCurrentContainer(appCtx)
 
+                // Carries the manager's byte counter + speed into every registry tick and label.
+                val tracker = EpicProgressTracker(an)
                 val ok = EpicDownloadManager.install(
                     appCtx,
                     manifestJson,
@@ -395,20 +396,34 @@ class EpicGameDetailActivity : ComponentActivity() {
                     installDir.absolutePath,
                     installTags,
                     cancelled,
-                ) { _, pct ->
-                    // Freeze the card/label the moment the user hits Cancel; install() also polls
-                    // `cancelled` internally and returns false promptly.
-                    if (!cancelled.get()) {
-                        StoreDownloadHooks.tick(Store.EPIC, an, pct)
-                        if (!isDestroyed && !isFinishing) runOnUiThread {
-                            if (isDestroyed || isFinishing) return@runOnUiThread
-                            progressValue = pct
-                            progressLabelText = "Downloading\u2026 $pct%"
+                    object : EpicDownloadManager.ProgressCallback {
+                        override fun onBytes(bytesDone: Long, bytesTotal: Long, speedBps: Long, etaSeconds: Long) {
+                            tracker.onBytes(bytesDone, bytesTotal, speedBps, etaSeconds)
                         }
-                    }
-                }
+
+                        override fun onProgress(message: String?, pct: Int) {
+                            // Freeze the card/label the moment the user hits Cancel; install() also polls
+                            // `cancelled` internally and returns false promptly.
+                            if (!cancelled.get()) {
+                                val p = tracker.tick(pct)
+                                val label = tracker.label(p)
+                                if (!isDestroyed && !isFinishing) runOnUiThread {
+                                    if (isDestroyed || isFinishing) return@runOnUiThread
+                                    progressValue = p
+                                    progressLabelText = label
+                                }
+                            }
+                        }
+                    },
+                )
 
                 if (cancelled.get()) {
+                    // A pause (Download Manager) stops the transfer the same way: keep everything and park the row as PAUSED.
+                    if (EpicDownloadControl.consumePause(an)) {
+                        cancelDownload = null
+                        EpicDownloadControl.parkPaused(appCtx, an, installDir.absolutePath, title ?: an, artCover)
+                        return@launch
+                    }
                     // Delete the partial download if the user chose "Delete files" on any Cancel dialog.
                     if (EpicCancelPolicy.consumeDeleteOnCancel(an)) {
                         try { deleteDir(installDir) } catch (_: Exception) {}
@@ -421,12 +436,7 @@ class EpicGameDetailActivity : ComponentActivity() {
                 }
                 if (!ok) { onInstallError(EpicDownloadManager.withFailureReason("Download failed")); return@launch }
 
-                try {
-                    val vid = JSONObject(manifestJson).optString("versionId", "")
-                    if (vid.isNotEmpty()) {
-                        prefs!!.edit().putString("epic_manifest_version_$an", vid).apply()
-                    }
-                } catch (_: Exception) {}
+                EpicInstallState.rememberVersion(appCtx, an, manifestJson)
 
                 val exeFiles = mutableListOf<File>()
                 AmazonLaunchHelper.collectExe(installDir, exeFiles)
@@ -611,8 +621,9 @@ class EpicGameDetailActivity : ComponentActivity() {
                     }
                     val stored = prefs!!.getString("epic_manifest_version_$appName", null)
                     if (stored == null) {
-                        prefs!!.edit().putString("epic_manifest_version_$appName", latest).apply()
-                        updateStatusText = "Up to date \u2713"
+                        // Unknown is not "up to date": Verify / Repair checks the files against this
+                        // version and records it.
+                        updateStatusText = "Installed version not recorded\nLatest: ${latest.substring(0, minOf(12, latest.length))}\u2026"
                         updateBtnVisible = false
                     } else if (stored == latest) {
                         updateStatusText = "Up to date \u2713"
@@ -657,7 +668,7 @@ class EpicGameDetailActivity : ComponentActivity() {
                     return@launch
                 }
                 val installTags = EpicInstallTags.tagsForCurrentContainer(appCtx)
-                val result = EpicDownloadManager.verifyInstall(manifestJson, token, dir, installTags) { msg, _ ->
+                val result = EpicDownloadManager.verifyInstall(appCtx, manifestJson, token, dir, installTags) { msg, _ ->
                     if (!isDestroyed && !isFinishing) runOnUiThread { verifyStatusText = msg }
                 }
                 if (result == null) {
@@ -665,21 +676,39 @@ class EpicGameDetailActivity : ComponentActivity() {
                     return@launch
                 }
                 if (!result.needsRepair()) {
+                    // The files match this manifest, so this is the installed version.
+                    EpicInstallState.rememberVersion(appCtx, an, manifestJson)
                     runOnUiThread {
                         verifyEnabled = true
                         verifyStatusText = "All ${result.ok}/${result.checked} files verified ✓"
+                        updateStatusText = ""
+                        updateBtnVisible = false
                     }
                     return@launch
                 }
                 val damaged = result.corrupt + result.missing
                 runOnUiThread { verifyStatusText = "Repairing $damaged file(s)…" }
-                val ok = EpicDownloadManager.install(appCtx, manifestJson, token, dir, installTags) { _, pct ->
-                    if (!isDestroyed && !isFinishing) runOnUiThread { verifyStatusText = "Repairing… $pct%" }
-                }
+                val repairTracker = EpicProgressTracker(an)
+                val ok = EpicDownloadManager.install(appCtx, manifestJson, token, dir, installTags,
+                    object : EpicDownloadManager.ProgressCallback {
+                        override fun onBytes(bytesDone: Long, bytesTotal: Long, speedBps: Long, etaSeconds: Long) {
+                            repairTracker.onBytes(bytesDone, bytesTotal, speedBps, etaSeconds)
+                        }
+
+                        override fun onProgress(message: String?, pct: Int) {
+                            val label = repairTracker.label(repairTracker.percent(pct), lead = "Repairing…")
+                            if (!isDestroyed && !isFinishing) runOnUiThread { verifyStatusText = label }
+                        }
+                    })
+                if (ok) EpicInstallState.rememberVersion(appCtx, an, manifestJson)
                 runOnUiThread {
                     verifyEnabled = true
                     verifyStatusText = if (ok) "Repaired $damaged file(s) ✓"
                         else EpicDownloadManager.withFailureReason("Repair failed")
+                    if (ok) {
+                        updateStatusText = ""
+                        updateBtnVisible = false
+                    }
                 }
             } catch (e: Exception) {
                 runOnUiThread { verifyEnabled = true; verifyStatusText = "Verify error: ${e.message}" }
@@ -948,6 +977,7 @@ private fun EpicGameDetailScreen(
         onBack = onBack,
         title = title,
         storeBadge = { StoreBadge(Store.EPIC) },
+        downloadKey = "${Store.EPIC}:$appName",
         hero = {
             if (artCover.isNotEmpty()) {
                 AsyncImage(
@@ -956,8 +986,6 @@ private fun EpicGameDetailScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,
                 )
-            } else {
-                Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant))
             }
             StoreBadgeOverlay(
                 showEpic = true,
@@ -1011,7 +1039,7 @@ private fun EpicGameDetailScreen(
                         else {
                             val storedVer = prefs.getString("epic_manifest_version_$appName", null)
                             if (storedVer != null) "Installed: ${storedVer.substring(0, minOf(14, storedVer.length))}…"
-                            else "Version not recorded — tap Check to verify"
+                            else "Version not recorded — Verify / Repair records it"
                         }
                         StoreStatusText(displayText)
                         Spacer(Modifier.height(8.dp))

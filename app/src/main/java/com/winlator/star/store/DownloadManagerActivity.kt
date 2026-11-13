@@ -1,8 +1,6 @@
 package com.winlator.star.store
 
 import com.winlator.star.R
-import android.app.AlertDialog
-import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -20,7 +18,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -32,14 +29,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.itemsIndexed
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.AlertDialog
-import com.winlator.star.ui.screens.OutlinedAlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -66,7 +59,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -78,10 +70,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import com.winlator.star.store.compose.AddResultDialog
-import com.winlator.star.store.compose.AddShortcutResult
-import com.winlator.star.store.compose.AddToShortcutsRequest
-import com.winlator.star.store.compose.ContainerPickerDialog
 import com.winlator.star.store.compose.openShortcutsScreen
 import com.winlator.star.store.download.DownloadEntry
 import com.winlator.star.store.download.DownloadRegistry
@@ -106,7 +94,6 @@ import com.winlator.star.ui.deck.xmbGlassBackground
 import com.winlator.star.ui.deck.xmbInner
 import com.winlator.star.ui.theme.LocalAccentDim
 import com.winlator.star.ui.theme.WinlatorTheme
-import java.io.File
 
 /**
  * Phase 3 — the cross-store Download Manager screen. A thin Compose consumer of the
@@ -123,35 +110,17 @@ import java.io.File
  * Epic/GOG/Amazon land in a later phase.
  */
 class DownloadManagerActivity : ComponentActivity() {
-    // English and left-to-right whatever the phone's language (see AppLocale).
-    override fun attachBaseContext(newBase: android.content.Context) {
-        super.attachBaseContext(com.winlator.star.AppLocale.wrap(newBase))
-    }
 
-
-    // Add-to-shortcuts flow state (mirrors SteamGamesActivity / SteamGameDetailActivity).
-    private var showExePicker by mutableStateOf<ExePickerDataDm?>(null)
-    private var addToShortcuts by mutableStateOf<AddToShortcutsRequest?>(null)
-    private var addResult by mutableStateOf<AddShortcutResult?>(null)
-    // Non-null while an uninstall is deleting files → shows the blocking progress spinner.
-    private var uninstallingName by mutableStateOf<String?>(null)
-    // Non-null briefly after an uninstall → themed auto-dismiss confirmation bar (not a Toast).
-    private var uninstallResult by mutableStateOf<String?>(null)
+    // The cards' actions and the dialogs they raise are shared with the XMB Home's Downloads page (DownloadActions.kt).
+    private val actions by lazy { DownloadActions(this) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // Idempotent: seeds the durable library so the screen has rows even if opened
-        // before any producer touched the registry this session.
-        SteamPrefs.init(this)
-        SteamRepository.getInstance().initialize(this)
-        DownloadRegistry.init(this)
-        // Seed non-Steam libraries too, so opening the Manager directly (without visiting the
-        // Amazon store first) still self-heals orphaned installs and surfaces update-available.
-        // Idempotent; never throws into startup.
-        AmazonLibrarySync.seed(this)
-        GogLibrarySync.seed(this)
-        EpicLibrarySync.seed(this)
-        com.winlator.star.store.xbox.XboxDownloads.seed(this)
+        // before any producer touched the registry this session, and the non-Steam libraries too, so opening
+        // the Manager directly (without visiting the Amazon store first) still self-heals orphaned installs
+        // and surfaces update-available.
+        DownloadActions.prepare(this)
         // Deck XMB home: this screen follows the Deck's orientation lock like the store screens do.
         val xmbHome = isXmbHome(this)
         if (xmbHome) AppOrientation.apply(this)
@@ -164,60 +133,19 @@ class DownloadManagerActivity : ComponentActivity() {
                         xmbHome = xmbHome,
                         onBack = { finish() },
                         onClear = { clearTerminalAndLibrary() },
-                        onEntryClick = { openDetail(it) },
-                        onLaunch = { launch(it) },
-                        onUninstall = { uninstall(it) },
-                        onCancel = { cancelEntry(it) },
-                        onPauseResume = { it.pause?.invoke() },
-                        onDismiss = { DownloadRegistry.remove(it.key) },
+                        onEntryClick = { actions.openDetail(it) },
+                        onLaunch = { actions.launch(it) },
+                        onUninstall = { actions.uninstall(it) },
+                        onCancel = { actions.cancel(it) },
+                        onPauseResume = { actions.pauseResume(it) },
+                        onDismiss = { actions.dismiss(it) },
                         // Queue reorder (Steam-only; a no-op for any id that isn't a live queued Steam appId).
-                        onMoveUp = { it.id.toIntOrNull()?.let { id -> DownloadQueue.moveUp(id) } },
-                        onMoveToTop = { it.id.toIntOrNull()?.let { id -> DownloadQueue.moveToTop(id) } },
+                        onMoveUp = { actions.moveUp(it) },
+                        onMoveToTop = { actions.moveToTop(it) },
                     )
                 }
 
-                showExePicker?.let { data ->
-                    ExePickerDialogDm(
-                        gameName = data.gameName,
-                        candidates = data.candidates,
-                        onDismiss = { showExePicker = null },
-                        onSelected = { chosen ->
-                            showExePicker = null
-                            startAddToShortcuts(data.appId, data.gameName, chosen, data.coverUrl)
-                        },
-                    )
-                }
-
-                uninstallingName?.let { UninstallProgressDialog(it) }
-                uninstallResult?.let { UninstallResultBar(it) { uninstallResult = null } }
-
-                addToShortcuts?.let { req ->
-                    ContainerPickerDialog(
-                        gameName = req.gameName,
-                        containers = req.containers,
-                        onDismiss = { addToShortcuts = null },
-                        onSelected = { container ->
-                            addToShortcuts = null
-                            StarLaunchBridge.writeShortcutAsync(
-                                this@DownloadManagerActivity, container,
-                                req.gameName, req.exePath, req.coverUrl, req.appId,
-                            ) { success, message ->
-                                addResult = AddShortcutResult(req.gameName, success, message)
-                            }
-                        },
-                    )
-                }
-
-                addResult?.let { result ->
-                    AddResultDialog(
-                        result = result,
-                        onOpenShortcuts = {
-                            addResult = null
-                            openShortcutsScreen(this@DownloadManagerActivity)
-                        },
-                        onDismiss = { addResult = null },
-                    )
-                }
+                actions.Dialogs { openShortcutsScreen(this@DownloadManagerActivity) }
             }
         }
     }
@@ -232,219 +160,7 @@ class DownloadManagerActivity : ComponentActivity() {
         }
         DownloadRegistry.clearLibrary()
     }
-
-    /** Tap a card → open that game's detail in its store (works for downloading + installed). */
-    private fun openDetail(entry: DownloadEntry) {
-        when (entry.store) {
-            Store.STEAM -> startActivity(
-                Intent(this, SteamGameDetailActivity::class.java)
-                    .putExtra(SteamGameDetailActivity.EXTRA_APP_ID, entry.id.toIntOrNull() ?: 0),
-            )
-            Store.AMAZON -> {
-                // The card only carries id(=productId)/name/cover; hydrate the rest of the detail
-                // extras from amazon_library_cache. Fall back to the entry's own fields so the page
-                // still opens (with a functional install/launch) even if the cache is unavailable.
-                val d = AmazonLibrarySync.cachedDetail(this, entry.id)
-                val title = d?.title?.takeIf { it.isNotEmpty() } ?: entry.name
-                val art = d?.artUrl?.takeIf { it.isNotEmpty() } ?: entry.cover ?: ""
-                startActivity(
-                    Intent(this, AmazonGameDetailActivity::class.java).apply {
-                        putExtra("product_id", entry.id)
-                        putExtra("entitlement_id", d?.entitlementId ?: "")
-                        putExtra("title", title)
-                        putExtra("developer", d?.developer ?: "")
-                        putExtra("publisher", d?.publisher ?: "")
-                        putExtra("art_url", art)
-                        putExtra("product_sku", d?.productSku ?: "")
-                    },
-                )
-            }
-            Store.GOG -> {
-                // Hydrate the detail extras from gog_library_cache; fall back to the entry's own
-                // fields so the page still opens even if the cache is unavailable.
-                val d = GogLibrarySync.cachedDetail(this, entry.id)
-                val title = d?.title?.takeIf { it.isNotEmpty() } ?: entry.name
-                val image = d?.imageUrl?.takeIf { it.isNotEmpty() } ?: entry.cover ?: ""
-                startActivity(
-                    Intent(this, GogGameDetailActivity::class.java).apply {
-                        putExtra("game_id", entry.id)
-                        putExtra("title", title)
-                        putExtra("image_url", image)
-                        putExtra("description", d?.description ?: "")
-                        putExtra("developer", d?.developer ?: "")
-                        putExtra("category", d?.category ?: "")
-                        putExtra("generation", d?.generation ?: 0)
-                    },
-                )
-            }
-            Store.XBOX -> {
-                // Installed record first (title, art, market), then the entry's own fields.
-                val g = com.winlator.star.store.xbox.XboxInstallState.get(this, entry.id)
-                startActivity(com.winlator.star.store.xbox.XboxMainActivity.detailIntent(this,
-                    com.winlator.star.store.xbox.XboxGame(entry.id, g?.title ?: entry.name, g?.heroUrl, g?.posterUrl ?: entry.cover,
-                        market = g?.market ?: com.winlator.star.store.xbox.Xodus.market(), access = g?.access ?: "")))
-            }
-            Store.EPIC -> {
-                // Hydrate the detail extras from epic_cache; fall back to the entry's own fields so
-                // the page still opens even if the cache is unavailable.
-                val d = EpicLibrarySync.cachedDetail(this, entry.id)
-                val title = d?.title?.takeIf { it.isNotEmpty() } ?: entry.name
-                val art = d?.artCover?.takeIf { it.isNotEmpty() } ?: entry.cover ?: ""
-                startActivity(
-                    Intent(this, EpicGameDetailActivity::class.java).apply {
-                        putExtra("app_name", entry.id)
-                        putExtra("title", title)
-                        putExtra("description", d?.description ?: "")
-                        putExtra("developer", d?.developer ?: "")
-                        putExtra("art_cover", art)
-                        putExtra("namespace", d?.namespace ?: "")
-                        putExtra("catalog_item_id", d?.catalogItemId ?: "")
-                    },
-                )
-            }
-        }
-    }
-
-    /** Same launch flow the Steam screens use: scan for exes, pick one, add a shortcut. */
-    private fun launch(entry: DownloadEntry) {
-        val dir = entry.installPath
-        if (dir.isNullOrEmpty()) {
-            uninstallResult = "Install directory not set"
-            return
-        }
-        if (entry.store == Store.XBOX) {
-            // Xbox: the launch exe comes from MicrosoftGame.config and the shortcut carries the product id.
-            val g = com.winlator.star.store.xbox.XboxInstallState.get(this, entry.id)
-            if (g == null) { uninstallResult = "This Xbox game is not installed"; return }
-            StarLaunchBridge.addToLauncher(this, g.title, File(g.folder, g.exe).path, g.posterUrl ?: g.heroUrl, "xbox:${g.id}", false)
-            return
-        }
-        // Only a Steam entry's id is a Steam app ID; GOG ids are numeric too and must not be stamped as Steam.
-        val appId = if (entry.store == Store.STEAM) entry.id.toIntOrNull() ?: 0 else 0
-        val installDir = File(dir)
-        Thread {
-            val exeFiles = mutableListOf<File>()
-            AmazonLaunchHelper.collectExe(installDir, exeFiles)
-            if (exeFiles.isEmpty()) {
-                runOnUiThread {
-                    uninstallResult = "No .exe found in install directory"
-                }
-                return@Thread
-            }
-            val lowerTitle = entry.name.lowercase()
-            exeFiles.sortWith { a, b ->
-                AmazonLaunchHelper.scoreExe(b, lowerTitle) - AmazonLaunchHelper.scoreExe(a, lowerTitle)
-            }
-            val coverUrl = "https://shared.steamstatic.com/store_item_assets/steam/apps/$appId/library_600x900.jpg"
-
-            if (exeFiles.size == 1) {
-                runOnUiThread { startAddToShortcuts(appId, entry.name, exeFiles[0].absolutePath, coverUrl) }
-                return@Thread
-            }
-            val candidates = exeFiles.map { it.absolutePath }
-            runOnUiThread { showExePicker = ExePickerDataDm(appId, entry.name, candidates, coverUrl) }
-        }.start()
-    }
-
-    /** Load containers, then show the M3 picker. Goldberg Cold-Client rewrites the exe. */
-    private fun startAddToShortcuts(appId: Int, gameName: String, exePath: String, coverUrl: String?) {
-        val launchExe = GoldbergPatcher.resolveLaunchExe(this, appId, exePath)
-        StarLaunchBridge.loadContainers(this) { containers ->
-            addToShortcuts = AddToShortcutsRequest(gameName, launchExe, coverUrl, containers, appId)
-        }
-    }
-
-    /** Uninstall: mark uninstalled in the store DB and delete the install dir off the UI
-     *  thread; once the delete is VERIFIED complete, drop the durable-library row (which also
-     *  removes it from the live registry), dismiss the spinner, and toast the real outcome. */
-    private fun uninstall(entry: DownloadEntry) {
-        uninstallingName = entry.name
-        // A Steam game found in another Steam client's library: those files and that manifest are the client's.
-        val imported = entry.store == Store.STEAM &&
-            entry.id.toIntOrNull()?.let { SteamLibraryImport.isImported(this, it) } == true
-        StoreUninstaller.run(
-            installDir = entry.installPath,
-            mark = {
-                if (entry.store == Store.STEAM) {
-                    entry.id.toIntOrNull()?.let {
-                        if (imported) SteamLibraryImport.releaseImported(this, it)
-                        else SteamAppManifest.removeFor(entry.installPath, it)
-                        SteamRepository.getInstance().database.markUninstalled(it)
-                    }
-                }
-            },
-            // A Steam game whose folder another game (a demo / server) also uses is kept.
-            keepFolder = {
-                val steamId = if (entry.store == Store.STEAM) entry.id.toIntOrNull() else null
-                val path = entry.installPath
-                imported || steamId != null && !path.isNullOrEmpty() &&
-                    SteamInstallPaths.folderSharedWithOtherGame(this, File(path), steamId)
-            },
-        ) { ok ->
-            // Clear the durable-library row (also drops the live registry entry) AND the store's
-            // OWN native install record — otherwise the originating store's list/detail keeps
-            // reading "installed" from a record the Manager never touched (device-observed bug).
-            DownloadRegistry.removeLibraryEntry(entry.key)
-            purgeNativeInstall(entry)
-            uninstallingName = null
-            uninstallResult = when {
-                imported -> getString(R.string.steam_lib_uninstall_kept, entry.name)
-                ok -> "${entry.name} uninstalled"
-                else -> "Couldn't fully remove ${entry.name}"
-            }
-        }
-    }
-
-    /**
-     * Per-store native install-record purge — the generalized seam so a cross-store uninstall
-     * clears each store's OWN "installed" bookkeeping, not just Steam's DB. Steam is already
-     * handled by the `mark` callback above (DB `markUninstalled`); this covers the storefronts
-     * whose install-state lives outside a DB.
-     */
-    private fun purgeNativeInstall(entry: DownloadEntry) {
-        when (entry.store) {
-            Store.AMAZON -> AmazonInstallState.purge(this, entry.id)
-            Store.GOG -> GogInstallState.purge(this, entry.id)
-            Store.EPIC -> EpicInstallState.purge(this, entry.id)
-            Store.XBOX -> com.winlator.star.store.xbox.XboxInstallState.remove(this, entry.id)
-            Store.STEAM -> Unit   // handled via SteamRepository.markUninstalled in `mark`
-        }
-    }
-
-    /**
-     * Cancel a download from the Download Manager. For Epic this raises the same keep/delete dialog
-     * as the detail page + library list (synced via [EpicCancelPolicy]); the running download
-     * coroutine acts on the choice. Other stores cancel directly (their keep/delete semantics are
-     * unchanged).
-     */
-    private fun cancelEntry(entry: DownloadEntry) {
-        if (entry.store == Store.EPIC) {
-            AlertDialog.Builder(this)
-                .setTitle("Cancel download?")
-                .setMessage("Keep the partial download so you can resume later, or delete all " +
-                        "downloaded files for this game?")
-                .setPositiveButton("Keep files") { _, _ ->
-                    EpicCancelPolicy.setDeleteOnCancel(entry.id, false)
-                    entry.cancel?.invoke()
-                }
-                .setNegativeButton("Delete files") { _, _ ->
-                    EpicCancelPolicy.setDeleteOnCancel(entry.id, true)
-                    entry.cancel?.invoke()
-                }
-                .setNeutralButton("Keep downloading", null)
-                .show()
-        } else {
-            entry.cancel?.invoke()
-        }
-    }
 }
-
-private data class ExePickerDataDm(
-    val appId: Int,
-    val gameName: String,
-    val candidates: List<String>,
-    val coverUrl: String,
-)
 
 // --- Composable screen ---
 
@@ -938,7 +654,7 @@ private fun ActiveContent(
     }
     Text(
         text = when (entry.state) {
-            DownloadState.PAUSED -> "Paused — $pct%$sizePart"
+            DownloadState.PAUSED -> pausedStatusText(pct, sizePart, entry.error)
             DownloadState.QUEUED -> "Queued…"
             else -> "Downloading… $pct%$sizePart$speedEta"
         },
@@ -1104,7 +820,7 @@ private fun QueuedCardBody(
  * falling back to a themed placeholder box when the URL is genuinely absent.
  */
 @Composable
-private fun DownloadCoverArt(entry: DownloadEntry, modifier: Modifier) {
+internal fun DownloadCoverArt(entry: DownloadEntry, modifier: Modifier) {
     if (entry.store == Store.STEAM) {
         GameCoverArt(appId = entry.cover?.toIntOrNull() ?: entry.id.toIntOrNull() ?: 0, modifier = modifier)
         return
@@ -1145,40 +861,6 @@ private fun StoreBadge(store: Store) {
             color = accent,
         )
     }
-}
-
-@Composable
-private fun ExePickerDialogDm(
-    gameName: String,
-    candidates: List<String>,
-    onDismiss: () -> Unit,
-    onSelected: (String) -> Unit,
-) {
-    OutlinedAlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Select executable for \"$gameName\"") },
-        text = {
-            // Cap at ~half the screen height so a long bin/*.exe list still scrolls to the
-            // real game exe (same treatment as the Steam screens' exe pickers).
-            val maxListHeight = (LocalConfiguration.current.screenHeightDp * 0.5f).dp
-            Column(
-                modifier = Modifier
-                    .heightIn(max = maxListHeight)
-                    .verticalScroll(rememberScrollState()),
-            ) {
-                candidates.forEach { path ->
-                    val f = File(path)
-                    val parent = f.parentFile
-                    val label = if (parent != null) "${parent.name}/${f.name}" else f.name
-                    TextButton(
-                        onClick = { onSelected(path) },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text(label, modifier = Modifier.weight(1f)) }
-                }
-            }
-        },
-        confirmButton = {},
-    )
 }
 
 private val INSTALLED_GREEN = Color(0xFF4CAF50)

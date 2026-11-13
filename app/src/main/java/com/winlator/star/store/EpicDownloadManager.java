@@ -79,6 +79,16 @@ public class EpicDownloadManager {
 
     public interface ProgressCallback {
         void onProgress(String message, int pct);
+
+        /**
+         * Byte-level progress of the chunk download: {@code bytesDone}/{@code bytesTotal} = chunk bytes
+         * fetched / to fetch, {@code speedBps} = smoothed network speed (0 = unknown), {@code etaSeconds}
+         * = time left (-1 = unknown). Called right before the matching {@link #onProgress}, at the same
+         * cadence, so implementations should only store the values. Never called for phases without a
+         * byte count (manifest, verifying files). Once every chunk is in, a single (total, total, 0, -1)
+         * call marks the file-writing phase. Optional: the default ignores it.
+         */
+        default void onBytes(long bytesDone, long bytesTotal, long speedBps, long etaSeconds) {}
     }
 
     // ── Data classes (public for EpicApiClient size calc) ─────────────────────
@@ -100,7 +110,7 @@ public class EpicDownloadManager {
     public static class ChunkInfo {
         public int[]  guid = new int[4]; // 4 uint32 in binary read order
         public long   hash;              // uint64 stored as signed long
-        public byte[] sha1;              // 20-byte SHA-1 of the DECOMPRESSED chunk (null for JSON manifests)
+        public byte[] sha1;              // 20-byte SHA-1 of the DECOMPRESSED chunk (null when the manifest has none)
         public int    groupNum;          // uint8 subfolder (DECIMAL)
         public int    windowSize;        // uncompressed size
         public long   fileSize;          // compressed download size
@@ -214,7 +224,7 @@ public class EpicDownloadManager {
         public List<ChunkPart> parts       = new ArrayList<>();
         /** Install-tag names (e.g. "German", "de-DE"). Empty = required/base file (always installed). */
         public List<String>    installTags = new ArrayList<>();
-        /** 20-byte full-file SHA-1 (null when the manifest doesn't carry it, e.g. JSON manifests). */
+        /** 20-byte full-file SHA-1 (null when the manifest doesn't carry it). */
         public byte[]          sha1        = null;
 
         /** Installed (uncompressed) file size = sum of its chunk-part sizes. */
@@ -241,6 +251,10 @@ public class EpicDownloadManager {
          *  Kept at install for the Windows-components recommendations ({@code StoreRedists}). */
         public String prereqName = "";
         public String prereqPath = "";
+        /** The manifest's app name (the Epic appName) and the launch command the Epic launcher passes
+         *  to the game (e.g. "-PCStore=EGS"); "" when absent. Kept at install by {@link EpicLaunchArgs}. */
+        public String appName = "";
+        public String launchCommand = "";
 
         /**
          * Parse the manifest API JSON, download the manifest binary, and parse it.
@@ -416,6 +430,8 @@ public class EpicDownloadManager {
             installDir.mkdirs();
             // Its prerequisite, for the Windows-components recommendations (kept by install folder).
             com.winlator.star.components.StoreRedists.rememberEpicPrereq(ctx, installDir, manifest.prereqName, manifest.prereqPath);
+            // Its launch command, added to the game's arguments at launch.
+            EpicLaunchArgs.rememberManifestLaunchCommand(ctx, manifest.appName, manifest.launchCommand);
             File chunkCacheDir = new File(installDir, ".chunks");
             chunkCacheDir.mkdirs();
 
@@ -424,6 +440,15 @@ public class EpicDownloadManager {
             // installTags == null → no filtering (legacy: every file). Degrades gracefully:
             // if the manifest carries no tags, resolveInstallFiles returns all files.
             List<FileInfo> selectedFiles = resolveInstallFiles(manifest, installTags);
+            for (FileInfo f : selectedFiles) {
+                if (!isSafeRelativePath(f.filename)) {
+                    dbg.append("ERROR: unsafe file path in manifest: ").append(f.filename).append("\n");
+                    writeDebug(ctx, dbg);
+                    Log.e(TAG, "Manifest file path leaves the install folder: " + f.filename);
+                    lastFailureReason = "this game's manifest has a file path outside its folder";
+                    return false;
+                }
+            }
             dbg.append("installTags=").append(installTags == null ? "(all)" : installTags.toString())
                .append(" selectedFiles=").append(selectedFiles.size())
                .append("/").append(manifest.files.size()).append("\n");
@@ -485,6 +510,11 @@ public class EpicDownloadManager {
             final AtomicLong lastSpeedMs       = new AtomicLong(System.currentTimeMillis());
             final AtomicLong lastSpeedBytes    = new AtomicLong(0);
             final AtomicLong currentSpeedBps   = new AtomicLong(0);
+            // Speed/ETA reported through ProgressCallback.onBytes: sliding window + EMA over the bytes
+            // actually fetched (netBytes excludes chunks already in the resume cache, which would
+            // otherwise show up as a burst of speed).
+            final EpicSpeedMeter speedMeter    = new EpicSpeedMeter();
+            final AtomicLong netBytes          = new AtomicLong(0);
             final java.util.concurrent.ConcurrentLinkedQueue<String> chunkLog =
                     new java.util.concurrent.ConcurrentLinkedQueue<>();
 
@@ -510,7 +540,8 @@ public class EpicDownloadManager {
             if (tryRust) {
                 RustPoolResult rr = runRustChunkPool(ctx, dbg, manifestBytes, manifest, pendingFiles,
                         neededChunks, fTotalBytes, installDirPath, cdnUrls, cancelFlag, progressCallback,
-                        completedBytes, completedCount, lastSpeedMs, lastSpeedBytes, currentSpeedBps);
+                        completedBytes, completedCount, lastSpeedMs, lastSpeedBytes, currentSpeedBps,
+                        speedMeter);
                 if (rr.started) {
                     useJavaPool = false;
                     if (rr.cancelled) {
@@ -554,6 +585,7 @@ public class EpicDownloadManager {
                         // Cancel: don't start new chunk work once the user has cancelled.
                         if (cancelFlag != null && cancelFlag.get()) return;
                         File cachedFile = new File(chunkCacheDir, fc.guidStr());
+                        boolean fetched = false;
                         if (!cachedFile.exists()) {
                             if (!downloadChunkStreaming(fc, manifest.chunkDir, cdnUrls, cachedFile,
                                     chunkStatuses, encryptedChunks)) {
@@ -562,7 +594,9 @@ public class EpicDownloadManager {
                                 failCount.incrementAndGet();
                                 return;
                             }
+                            fetched = true;
                         }
+                        long net  = fetched ? netBytes.addAndGet(Math.max(fc.fileSize, 1)) : netBytes.get();
                         long done = completedBytes.addAndGet(Math.max(fc.fileSize, 1));
                         int  cnt  = completedCount.incrementAndGet();
                         int  pct  = (int)(done * 80L / fTotalBytes);
@@ -578,7 +612,7 @@ public class EpicDownloadManager {
 
                         String mb    = String.format("%.1f / %.1f MB", done / 1048576.0, fTotalBytes / 1048576.0);
                         String speed = formatSpeed(currentSpeedBps.get());
-                        progress(progressCallback,
+                        downloadProgress(progressCallback, speedMeter, net, done, fTotalBytes,
                                 "Downloading chunks (" + cnt + "/" + totalChunks + ")  " + mb
                                 + (speed.isEmpty() ? "" : "  " + speed), pct);
                     });
@@ -630,6 +664,8 @@ public class EpicDownloadManager {
                 return false;
             }
             dbg.append("chunksOK=").append(completedCount.get()).append("\n");
+            // All bytes are in: the rest is writing files out (no network speed any more).
+            if (progressCallback != null) progressCallback.onBytes(fTotalBytes, fTotalBytes, 0L, -1L);
 
             // Assemble files — only the pending set (already-correct files are left untouched).
             int totalFiles = pendingFiles.size();
@@ -723,7 +759,8 @@ public class EpicDownloadManager {
             AtomicInteger completedCount,
             AtomicLong lastSpeedMs,
             AtomicLong lastSpeedBytes,
-            AtomicLong currentSpeedBps) {
+            AtomicLong currentSpeedBps,
+            EpicSpeedMeter speedMeter) {
         RustPoolResult r = new RustPoolResult();
         try {
             // pendingFiles are FileInfo objects out of manifest.files (identity, no equals()).
@@ -749,6 +786,14 @@ public class EpicDownloadManager {
             DownloadSpeedConfig cfg = StoreDownloadTier.config(ctx);
             final int rustWorkers = Math.max(1, Math.min(128, cfg.getMaxNetworkWindow()));
             final int rustProcess = Math.max(2, Math.max(1, Math.min(32, cfg.getMaxDecompress())));
+            // The engine credits the chunks already in the resume cache up front, in one burst (driver.rs: same rule, a cached
+            // chunk's size or 1). Those bytes were not fetched, so the speed meter must not see them: it gets the bytes past this.
+            final File rustChunkCache = new File(installDirPath, ".chunks");
+            long cachedBytes = 0;
+            for (ChunkInfo c : neededChunks) {
+                if (new File(rustChunkCache, c.guidStr()).exists()) cachedBytes += Math.max(c.fileSize, 1);
+            }
+            final long preBytes = cachedBytes;
             com.winlator.star.store.blsteam.BlEpicDownload.Result res =
                     com.winlator.star.store.blsteam.BlEpicDownload.run(
                             manifestBytes, installDirPath, prefixes, pendingIdx, totalChunks, totalBytes,
@@ -768,6 +813,8 @@ public class EpicDownloadManager {
                     completedBytes.set(bytesDone);
                     completedCount.set(chunksDone);
                     long done = bytesDone;
+                    // Bytes actually fetched: the cached chunks credited at the start are not (as netBytes in the Java pool).
+                    long net  = Math.max(0L, bytesDone - preBytes);
                     int  cnt  = chunksDone;
                     int  pct  = (int)(done * 80L / fTotalBytes);
 
@@ -775,14 +822,14 @@ public class EpicDownloadManager {
                     long prevMs    = lastSpeedMs.get();
                     long timeDelta = nowMs - prevMs;
                     if (timeDelta >= 500 && lastSpeedMs.compareAndSet(prevMs, nowMs)) {
-                        long prevB  = lastSpeedBytes.getAndSet(done);
-                        long bDelta = done - prevB;
+                        long prevB  = lastSpeedBytes.getAndSet(net);
+                        long bDelta = net - prevB;
                         if (timeDelta > 0) currentSpeedBps.set(bDelta * 1000L / timeDelta);
                     }
 
                     String mb    = String.format("%.1f / %.1f MB", done / 1048576.0, fTotalBytes / 1048576.0);
                     String speed = formatSpeed(currentSpeedBps.get());
-                    progress(progressCallback,
+                    downloadProgress(progressCallback, speedMeter, net, done, fTotalBytes,
                             "Downloading chunks (" + cnt + "/" + totalChunks + ")  " + mb
                             + (speed.isEmpty() ? "" : "  " + speed), pct);
                 }
@@ -985,7 +1032,7 @@ public class EpicDownloadManager {
             // ManifestMeta section: only its prerequisite is read (best effort), then skipped whole.
             int metaStart = body.position();
             int metaSize = body.getInt();
-            String[] prereq = readMetaPrereq(body);
+            String[] prereq = readMeta(body);
             // Like Legendary, the chunk directory follows the META feature level (the uint32 after
             // meta_size and data_version); the header version is only the fallback.
             int featureLevel = body.getInt(metaStart + 5);
@@ -1076,6 +1123,8 @@ public class EpicDownloadManager {
             result.files        = files;
             result.prereqName   = prereq[0];
             result.prereqPath   = prereq[1];
+            result.appName      = prereq[2];
+            result.launchCommand = prereq[3];
             return result;
 
         } catch (Exception e) {
@@ -1086,23 +1135,79 @@ public class EpicDownloadManager {
 
     // ── JSON manifest (older games) ───────────────────────────────────────────
 
-    private static EpicManifest.ParsedManifest parseJsonManifest(byte[] bytes) {
+    /**
+     * Whether a manifest file name stays inside the install folder: not empty, not absolute (no leading
+     * slash or drive letter) and no ".." part.
+     */
+    static boolean isSafeRelativePath(String name) {
+        if (name == null || name.trim().isEmpty()) return false;
+        String p = name.replace('\\', '/');
+        if (p.startsWith("/") || (p.length() >= 2 && p.charAt(1) == ':')) return false;
+        for (String part : p.split("/")) {
+            if (part.equals("..")) return false;
+        }
+        return true;
+    }
+
+    /**
+     * A number in the JSON manifests' "blob" form: each byte as three decimal digits, least significant
+     * byte first (Legendary blob_to_num; "013000000000" = 13). Groups past eight bytes are ignored and a
+     * group that is not a number counts as 0.
+     */
+    static long blobToLong(String blob) {
+        if (blob == null) return 0;
+        long num = 0;
+        int shift = 0;
+        for (int i = 0; i < blob.length() && shift < 64; i += 3, shift += 8) {
+            int v;
+            try { v = Integer.parseInt(blob.substring(i, Math.min(i + 3, blob.length()))); }
+            catch (NumberFormatException e) { v = 0; }
+            num |= ((long) (v & 0xFF)) << shift;
+        }
+        return num;
+    }
+
+    /** The first {@code size} bytes of a "blob" string (three decimal digits each), or null when it is shorter or not numeric. */
+    static byte[] blobToBytes(String blob, int size) {
+        if (blob == null || blob.length() < size * 3) return null;
+        byte[] out = new byte[size];
+        for (int i = 0; i < size; i++) {
+            try { out[i] = (byte) Integer.parseInt(blob.substring(i * 3, i * 3 + 3)); }
+            catch (NumberFormatException e) { return null; }
+        }
+        return out;
+    }
+
+    /** A 40-digit hex SHA-1 as 20 bytes, or null. */
+    static byte[] sha1FromHex(String hex) {
+        if (hex == null || hex.length() != 40) return null;
+        byte[] out = new byte[20];
+        for (int i = 0; i < 20; i++) {
+            int hi = Character.digit(hex.charAt(i * 2), 16), lo = Character.digit(hex.charAt(i * 2 + 1), 16);
+            if (hi < 0 || lo < 0) return null;
+            out[i] = (byte) ((hi << 4) | lo);
+        }
+        return out;
+    }
+
+    /**
+     * Older games' JSON manifests. Numbers (version, chunk hash, group, sizes, offsets) and the file
+     * SHA-1 are "blob" strings, chunk SHA-1s are hex (Legendary's json_manifest.py, GameNative's
+     * JsonManifestParser).
+     */
+    static EpicManifest.ParsedManifest parseJsonManifest(byte[] bytes) {
         try {
             String jsonStr = new String(bytes, StandardCharsets.UTF_8);
             JSONObject root = new JSONObject(jsonStr);
 
-            int manifestVersion = 0;
-            try { manifestVersion = Integer.parseInt(root.optString("ManifestFileVersion", "0")); }
-            catch (NumberFormatException ignored) {}
-            String chunkDir;
-            if      (manifestVersion >= 15) chunkDir = "ChunksV4";
-            else if (manifestVersion >= 6)  chunkDir = "ChunksV3";
-            else if (manifestVersion >= 3)  chunkDir = "ChunksV2";
-            else                            chunkDir = "ChunksV4";
+            // Legendary's default when the field is missing: "013000000000" (version 13).
+            int manifestVersion = (int) blobToLong(root.optString("ManifestFileVersion", "013000000000"));
+            String chunkDir = chunkDirForVersion(manifestVersion);
 
             JSONObject chunkHashList     = root.optJSONObject("ChunkHashList");
             JSONObject dataGroupList     = root.optJSONObject("DataGroupList");
             JSONObject chunkFilesizeList = root.optJSONObject("ChunkFilesizeList");
+            JSONObject chunkShaList      = root.optJSONObject("ChunkShaList");
 
             if (chunkHashList == null) {
                 Log.e(TAG, "JSON manifest: no ChunkHashList");
@@ -1122,19 +1227,12 @@ public class EpicDownloadManager {
                 c.guid[2] = (int) Long.parseLong(guidHex.substring(16, 24), 16);
                 c.guid[3] = (int) Long.parseLong(guidHex.substring(24, 32), 16);
 
-                if (hashHex != null && hashHex.length() >= 16) {
-                    try { c.hash = Long.parseUnsignedLong(hashHex.substring(0, 16), 16); }
-                    catch (Exception ignored) { c.hash = 0; }
-                }
-                if (dataGroupList != null) {
-                    try { c.groupNum = Integer.parseInt(dataGroupList.optString(guidHex, "0")); }
-                    catch (NumberFormatException ignored) { c.groupNum = 0; }
-                }
-                if (chunkFilesizeList != null) {
-                    try { c.fileSize = Long.parseLong(chunkFilesizeList.optString(guidHex, "0"), 16); }
-                    catch (NumberFormatException ignored) { c.fileSize = 0; }
-                }
-                c.windowSize = 0;
+                c.hash = blobToLong(hashHex);
+                if (dataGroupList != null) c.groupNum = (int) blobToLong(dataGroupList.optString(guidHex, "0"));
+                if (chunkFilesizeList != null) c.fileSize = blobToLong(chunkFilesizeList.optString(guidHex, "0"));
+                if (chunkShaList != null) c.sha1 = sha1FromHex(chunkShaList.optString(guidHex, ""));
+                // JSON manifests carry no window size; Legendary uses 1 MiB.
+                c.windowSize = 1048576;
                 chunkMap.put(guidHex, c);
             }
 
@@ -1150,9 +1248,9 @@ public class EpicDownloadManager {
                 FileInfo fi = new FileInfo();
                 fi.filename = fileObj.optString("Filename", "");
 
-                // Optional per-file install tags (older JSON manifests). SHA-1 is left null:
-                // JSON manifests encode hashes in a per-byte "blob" form we don't parse, so
-                // full-file verification simply falls back to re-download for these games.
+                fi.sha1 = blobToBytes(fileObj.optString("FileHash", ""), 20);
+
+                // Optional per-file install tags (older JSON manifests).
                 JSONArray installTags = fileObj.optJSONArray("InstallTags");
                 if (installTags != null) {
                     for (int t = 0; t < installTags.length(); t++) {
@@ -1173,10 +1271,8 @@ public class EpicDownloadManager {
                             part.guid[2] = (int) Long.parseLong(partGuid.substring(16, 24), 16);
                             part.guid[3] = (int) Long.parseLong(partGuid.substring(24, 32), 16);
                         }
-                        try { part.offset = Integer.parseInt(partObj.optString("Offset", "0")); }
-                        catch (NumberFormatException ignored) { part.offset = 0; }
-                        try { part.size = Integer.parseInt(partObj.optString("Size", "0")); }
-                        catch (NumberFormatException ignored) { part.size = 0; }
+                        part.offset = (int) blobToLong(partObj.optString("Offset", "0"));
+                        part.size = (int) blobToLong(partObj.optString("Size", "0"));
                         fi.parts.add(part);
                     }
                 }
@@ -1189,6 +1285,8 @@ public class EpicDownloadManager {
             result.files        = files;
             result.prereqName   = root.optString("PrereqName", "");
             result.prereqPath   = root.optString("PrereqPath", "");
+            result.appName      = root.optString("AppNameString", "");
+            result.launchCommand = root.optString("LaunchCommand", "");
             Log.i(TAG, "JSON manifest: chunkDir=" + chunkDir
                     + " chunks=" + result.uniqueChunks.size()
                     + " files=" + files.size());
@@ -1489,30 +1587,36 @@ public class EpicDownloadManager {
     // ── FString ───────────────────────────────────────────────────────────────
 
     /**
-     * The prerequisite {name, path} from a binary manifest's ManifestMeta, read from just after its
-     * size field: data version, feature level, is-file-data, app id, app name, build version, launch
-     * exe, launch command, prerequisite ids, then the prerequisite's name and path. {"", ""} when it
-     * can't be read; the caller re-positions past the section either way.
+     * {prerequisite name, prerequisite path, app name, launch command} from a binary manifest's
+     * ManifestMeta, read from just after its size field: data version, feature level, is-file-data,
+     * app id, app name, build version, launch exe, launch command, prerequisite ids, then the
+     * prerequisite's name and path. A field that can't be read is ""; the caller re-positions past
+     * the section either way.
      */
-    private static String[] readMetaPrereq(ByteBuffer body) {
+    private static String[] readMeta(ByteBuffer body) {
+        String[] out = {"", "", "", ""};
         try {
             body.get();      // data version
             body.getInt();   // feature level
             body.get();      // is file data
             body.getInt();   // app id
-            readFString(body); // app name
+            String appName = readFString(body);
+            if (appName != null) out[2] = appName;
             readFString(body); // build version
             readFString(body); // launch exe
-            readFString(body); // launch command
+            String launchCommand = readFString(body);
+            if (launchCommand != null) out[3] = launchCommand;
             int ids = body.getInt();
-            if (ids < 0 || ids > 64) return new String[] {"", ""};
+            if (ids < 0 || ids > 64) return out;
             for (int i = 0; i < ids; i++) readFString(body);
             String name = readFString(body);
             String path = readFString(body);
-            return new String[] {name != null ? name : "", path != null ? path : ""};
+            out[0] = name != null ? name : "";
+            out[1] = path != null ? path : "";
         } catch (Throwable t) {
-            return new String[] {"", ""};
+            // keep what was read
         }
+        return out;
     }
 
     public static String readFString(ByteBuffer buf) {
@@ -1669,12 +1773,14 @@ public class EpicDownloadManager {
      * (fall back = assume no update / no repair, never crash).
      */
     public static VerifyResult verifyInstall(
-            String manifestApiJson, String accessToken, String installDirPath,
+            android.content.Context ctx, String manifestApiJson, String accessToken, String installDirPath,
             List<String> installTags, ProgressCallback progressCallback) {
         try {
             EpicManifest.ParsedManifest manifest =
                     EpicManifest.parseManifestApiJson(manifestApiJson, accessToken);
             if (manifest == null) return null;
+            // Games installed before the launch command was kept get it here.
+            EpicLaunchArgs.rememberManifestLaunchCommand(ctx, manifest.appName, manifest.launchCommand);
             List<FileInfo> files = resolveInstallFiles(manifest, installTags);
             File installDir = new File(installDirPath);
             VerifyResult r = new VerifyResult();
@@ -1683,6 +1789,7 @@ public class EpicDownloadManager {
                 i++;
                 progress(progressCallback, "Verifying (" + i + "/" + files.size() + ")",
                         (int) (i * 100L / Math.max(files.size(), 1)));
+                if (!isSafeRelativePath(f.filename)) { r.checked++; r.corrupt++; continue; }
                 File out = new File(installDir, f.filename.replace("\\", "/"));
                 r.checked++;
                 if (!out.exists()) { r.missing++; continue; }
@@ -1728,6 +1835,21 @@ public class EpicDownloadManager {
         if (bps <= 0) return "";
         if (bps >= 1048576) return String.format("%.1f MB/s", bps / 1048576.0);
         return (bps / 1024) + " KB/s";
+    }
+
+    /**
+     * Chunk-download progress: the byte pair, smoothed speed and ETA via {@code onBytes}, then the
+     * usual message / pct via {@code onProgress} (same cadence as before; onBytes only hands over numbers).
+     * {@code netBytes} = bytes actually fetched so far (the speed basis); {@code done}/{@code total} =
+     * chunk bytes completed / to complete (the counter basis).
+     */
+    private static void downloadProgress(ProgressCallback cb, EpicSpeedMeter meter, long netBytes,
+                                         long done, long total, String msg, int pct) {
+        if (cb != null) {
+            long bps = meter.addNow(netBytes);
+            cb.onBytes(done, total, bps, meter.etaSeconds(done, total));
+        }
+        progress(cb, msg, pct);
     }
 
     private static void progress(ProgressCallback cb, String msg, int pct) {

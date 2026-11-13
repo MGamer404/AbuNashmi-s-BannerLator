@@ -7,16 +7,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The id -> tab rules of the container / game pages (ContainerLayout.kt): which of the six tabs (plus Game and Linux runtime) a
+ * The id -> tab rules of the XMB container / game pages (ContainerLayout.kt): which of the seven tabs (plus Game and Linux runtime) a
  * registry row lands on, what is hidden, and the order of the old categories inside a tab. Pure strings: no Compose, no icons.
  */
 class ContainerLayoutMapTest {
 
-    /** The XMB layout (seven tabs, Win components). */
-    private fun tab(id: String, category: String = "") = ContainerLayoutMap.tabFor(id, category, true)
+    private fun tab(id: String, category: String = "") = ContainerLayoutMap.tabFor(id, category)
 
-    /** The plain Deck layout (the six tabs it always had). */
-    private fun deckTab(id: String, category: String = "") = ContainerLayoutMap.tabFor(id, category, false)
+    private fun row(id: String, category: String, level: SettingLevel = SettingLevel.SIMPLE) = SettingDef(
+        id = id, category = category, group = "Group", label = id, level = level,
+        control = { _, _ -> Control.Toggle },
+    )
 
     // ---- General ----
 
@@ -69,7 +70,7 @@ class ContainerLayoutMapTest {
 
     @Test
     fun controlsHoldsEveryInputRow() {
-        for (id in listOf("input.controlsProfile", "input.touchMode", "input.relativeMouse", "input.mouseWarp", "input.gyro.enabled", "input.xr.primary", "input.slotOverrides")) {
+        for (id in listOf("input.controlsProfile", "input.touchMode", "input.aimMode", "input.mouseWarp", "input.gyro.enabled", "input.xr.primary", "input.slotOverrides")) {
             assertEquals(id, EditorTabs.CONTROLS, tab(id, "input"))
         }
     }
@@ -97,13 +98,19 @@ class ContainerLayoutMapTest {
 
     @Test
     fun everyComponentRowIsOneTheWinComponentsPageDraws() {
-        // The layout hides these rows from the list (tabOf = null) because the page draws them: the two rules must agree.
+        // The layout leaves these rows out of the list (unlisted) because the page draws them: the two rules must agree, and the
+        // rows stay on the tab (so its override badge, Reset and the editor's search still see them).
+        val layout = ContainerLayout.forScope(EditorScope.CONTAINER)
         for (id in listOf("components.direct3d", "components.vcrun2010", "windows.codecBackend", "windows.softwareDecoding")) {
             assertTrue(id, WinComponentsLogic.isComponentRow(id))
             assertEquals(id, EditorTabs.WINCOMP, tab(id, SettingsRegistry.CAT_COMPONENTS))
+            assertTrue(id, layout.unlisted(row(id, SettingsRegistry.CAT_COMPONENTS)))
+            val placed = layout.apply(listOf(row(id, SettingsRegistry.CAT_COMPONENTS)))
+            assertEquals(id, listOf(EditorTabs.WINCOMP), placed.map { it.category })
         }
         for (id in listOf("windows.locale", "windows.wineVersion", "windows.desktopBackground", "graphics.dxWrapper")) {
             assertFalse(id, WinComponentsLogic.isComponentRow(id))
+            assertFalse(id, layout.unlisted(row(id, "windows")))
         }
     }
 
@@ -165,10 +172,10 @@ class ContainerLayoutMapTest {
 
     @Test
     fun generalOrdersNameAndWineVersionThenDisplayThenAudio() {
-        val name = ContainerLayoutMap.rankOf("windows.containerName", true)
-        val wine = ContainerLayoutMap.rankOf("windows.wineVersion", true)
-        val display = ContainerLayoutMap.rankOf("display.resolution", true)
-        val audio = ContainerLayoutMap.rankOf("audio.driver", true)
+        val name = ContainerLayoutMap.rankOf("windows.containerName")
+        val wine = ContainerLayoutMap.rankOf("windows.wineVersion")
+        val display = ContainerLayoutMap.rankOf("display.resolution")
+        val audio = ContainerLayoutMap.rankOf("audio.driver")
         assertEquals(name, wine)
         assertTrue(name < display)
         assertTrue(display < audio)
@@ -176,10 +183,10 @@ class ContainerLayoutMapTest {
 
     @Test
     fun graphicsOrdersTheGraphicsRowsThenSupersamplingAndHdrThenTheEffects() {
-        val graphics = ContainerLayoutMap.rankOf("graphics.dxWrapper", true)
-        val renderScale = ContainerLayoutMap.rankOf("display.renderScale", true)
-        val hdr = ContainerLayoutMap.rankOf("display.hdrOutput", true)
-        val effects = ContainerLayoutMap.rankOf("visuals.vkbasalt", true)
+        val graphics = ContainerLayoutMap.rankOf("graphics.dxWrapper")
+        val renderScale = ContainerLayoutMap.rankOf("display.renderScale")
+        val hdr = ContainerLayoutMap.rankOf("display.hdrOutput")
+        val effects = ContainerLayoutMap.rankOf("visuals.vkbasalt")
         assertEquals(renderScale, hdr)
         assertTrue(graphics < renderScale)
         assertTrue(renderScale < effects)
@@ -187,40 +194,40 @@ class ContainerLayoutMapTest {
 
     @Test
     fun performanceOrdersTheTranslatorRowsBeforeTheOverlay() {
-        assertTrue(ContainerLayoutMap.rankOf("performance.fpsLimiter", true) < ContainerLayoutMap.rankOf("hud.show", true))
-        assertEquals(ContainerLayoutMap.rankOf("hud.show", true), ContainerLayoutMap.rankOf("hud.metric.cpu", true))
+        assertTrue(ContainerLayoutMap.rankOf("performance.fpsLimiter") < ContainerLayoutMap.rankOf("hud.show"))
+        assertEquals(ContainerLayoutMap.rankOf("hud.show"), ContainerLayoutMap.rankOf("hud.metric.cpu"))
     }
 
     @Test
     fun winComponentsKeepsTheRegistryOrderOfTheDllAndCodecRows() {
-        val dll = ContainerLayoutMap.rankOf("components.direct3d", true)
-        assertEquals(dll, ContainerLayoutMap.rankOf("components.vcrun2010", true))
-        assertEquals(dll, ContainerLayoutMap.rankOf("windows.codecBackend", true))
-        assertEquals(dll, ContainerLayoutMap.rankOf("windows.softwareDecoding", true))
+        val dll = ContainerLayoutMap.rankOf("components.direct3d")
+        assertEquals(dll, ContainerLayoutMap.rankOf("components.vcrun2010"))
+        assertEquals(dll, ContainerLayoutMap.rankOf("windows.codecBackend"))
+        assertEquals(dll, ContainerLayoutMap.rankOf("windows.softwareDecoding"))
     }
 
     // ---- Page extras ----
 
     @Test
     fun extrasOfEveryOldCategoryFeedTheirTab() {
-        assertEquals(setOf(EditorTabs.GAME), ContainerLayoutMap.extraTargets("game", true))
-        assertEquals(setOf(EditorTabs.GRAPHICS), ContainerLayoutMap.extraTargets("graphics", true))
-        assertEquals(setOf(EditorTabs.GRAPHICS), ContainerLayoutMap.extraTargets("visuals", true))
-        assertEquals(setOf(EditorTabs.PERFORMANCE), ContainerLayoutMap.extraTargets("performance", true))
-        assertEquals(setOf(EditorTabs.PERFORMANCE), ContainerLayoutMap.extraTargets("hud", true))
-        assertEquals(setOf(EditorTabs.GENERAL), ContainerLayoutMap.extraTargets("audio", true))
-        assertEquals(setOf(EditorTabs.CONTROLS), ContainerLayoutMap.extraTargets("input", true))
+        assertEquals(setOf(EditorTabs.GAME), ContainerLayoutMap.extraTargets("game"))
+        assertEquals(setOf(EditorTabs.GRAPHICS), ContainerLayoutMap.extraTargets("graphics"))
+        assertEquals(setOf(EditorTabs.GRAPHICS), ContainerLayoutMap.extraTargets("visuals"))
+        assertEquals(setOf(EditorTabs.PERFORMANCE), ContainerLayoutMap.extraTargets("performance"))
+        assertEquals(setOf(EditorTabs.PERFORMANCE), ContainerLayoutMap.extraTargets("hud"))
+        assertEquals(setOf(EditorTabs.GENERAL), ContainerLayoutMap.extraTargets("audio"))
+        assertEquals(setOf(EditorTabs.CONTROLS), ContainerLayoutMap.extraTargets("input"))
         // The install lists (the old components category) and the Win components page feed the new tab, not Windows.
-        assertEquals(setOf(EditorTabs.WINCOMP), ContainerLayoutMap.extraTargets(SettingsRegistry.CAT_COMPONENTS, true))
-        assertEquals(setOf(EditorTabs.WINCOMP), ContainerLayoutMap.extraTargets(WinComponentsLogic.EXTRAS_KEY, true))
-        assertEquals(setOf(EditorTabs.LINUX), ContainerLayoutMap.extraTargets("linux", true))
-        assertEquals(setOf(EditorTabs.ADVANCED), ContainerLayoutMap.extraTargets("expert", true))
-        assertTrue(ContainerLayoutMap.extraTargets("nonsense", true).isEmpty())
+        assertEquals(setOf(EditorTabs.WINCOMP), ContainerLayoutMap.extraTargets(SettingsRegistry.CAT_COMPONENTS))
+        assertEquals(setOf(EditorTabs.WINCOMP), ContainerLayoutMap.extraTargets(WinComponentsLogic.EXTRAS_KEY))
+        assertEquals(setOf(EditorTabs.LINUX), ContainerLayoutMap.extraTargets("linux"))
+        assertEquals(setOf(EditorTabs.ADVANCED), ContainerLayoutMap.extraTargets("expert"))
+        assertTrue(ContainerLayoutMap.extraTargets("nonsense").isEmpty())
     }
 
     @Test
     fun theWindowsExtrasSplitBetweenWindowsAndAdvanced() {
-        assertEquals(setOf(EditorTabs.WINDOWS, EditorTabs.ADVANCED), ContainerLayoutMap.extraTargets("windows", true))
+        assertEquals(setOf(EditorTabs.WINDOWS, EditorTabs.ADVANCED), ContainerLayoutMap.extraTargets("windows"))
         assertEquals(EditorTabs.ADVANCED, ContainerLayoutMap.extraTab("windows", "windows-reset:all"))
         assertEquals(EditorTabs.ADVANCED, ContainerLayoutMap.extraTab("windows", "windows-reset-label"))
         assertEquals(EditorTabs.WINDOWS, ContainerLayoutMap.extraTab("windows", "drives"))
@@ -231,70 +238,41 @@ class ContainerLayoutMapTest {
 
     @Test
     fun theWinComponentsPageSortsAboveTheInstallLists() {
-        assertTrue(ContainerLayoutMap.extraRank(WinComponentsLogic.EXTRAS_KEY, true) < ContainerLayoutMap.extraRank(SettingsRegistry.CAT_COMPONENTS, true))
+        assertTrue(ContainerLayoutMap.extraRank(WinComponentsLogic.EXTRAS_KEY) < ContainerLayoutMap.extraRank(SettingsRegistry.CAT_COMPONENTS))
     }
 
     @Test
     fun theWinComponentsTabIsFedByBothSourcesAndWindowsByNeitherOfThem() {
-        val l = ContainerLayout.forScope(EditorScope.CONTAINER, xmb = true)
+        val l = ContainerLayout.forScope(EditorScope.CONTAINER)
         assertEquals(EditorTabs.WINCOMP, l.extraTabOf(SettingsRegistry.CAT_COMPONENTS, "components-search"))
         assertEquals(EditorTabs.WINCOMP, l.extraTabOf(WinComponentsLogic.EXTRAS_KEY, "wincomp-row:components.direct3d"))
         assertEquals(EditorTabs.WINDOWS, l.extraTabOf("windows", "windows-drives-add"))
         assertEquals(7, l.tabs.size)
     }
 
-    // ---- The plain Deck (XMB only: no Win components tab) ----
-
     @Test
-    fun thePlainDeckKeepsTheComponentsAndCodecRowsOnWindows() {
-        for (id in listOf("components.direct3d", "components.directsound", "components.vcrun2010")) {
-            assertEquals(id, EditorTabs.WINDOWS, deckTab(id, SettingsRegistry.CAT_COMPONENTS))
-        }
-        assertEquals(EditorTabs.WINDOWS, deckTab("windows.codecBackend", SettingsRegistry.CAT_COMPONENTS))
-        assertEquals(EditorTabs.WINDOWS, deckTab("windows.softwareDecoding", SettingsRegistry.CAT_COMPONENTS))
-        assertEquals(EditorTabs.WINDOWS, deckTab("something.new", SettingsRegistry.CAT_COMPONENTS))
-        // They come after the session / desktop rows, as before.
-        assertTrue(ContainerLayoutMap.rankOf("windows.locale", false) < ContainerLayoutMap.rankOf("components.direct3d", false))
-        assertEquals(ContainerLayoutMap.rankOf("components.direct3d", false), ContainerLayoutMap.rankOf("windows.codecBackend", false))
-    }
-
-    @Test
-    fun everythingElseIsTheSameInBothLayouts() {
-        val ids = listOf(
-            "windows.containerName" to "windows", "windows.wineVersion" to "windows", "display.resolution" to "display", "display.renderScale" to "display",
-            "audio.driver" to "audio", "graphics.dxWrapper" to "graphics", "visuals.vkbasalt" to "visuals", "performance.fpsLimiter" to "performance",
-            "hud.show" to "hud", "hud.enabled" to "hud", "input.touchMode" to "input", "windows.locale" to "windows", "expert.env" to "expert",
-            "game.name" to "game", "launch.method" to "launch", "linux.clientCores" to "linux", "something.new" to "nonsense",
+    fun theTurnipPresentModeAndTheWineVersionReadDifferentlyHereThanInTheRegistry() {
+        val l = ContainerLayout.forScope(EditorScope.CONTAINER)
+        val present = SettingDef(
+            id = "graphics.gdc.presentMode", category = "graphics", group = "Driver tuning", label = "Driver present mode",
+            hint = "H", level = SettingLevel.EXPERT, control = { _, _ -> Control.Toggle },
         )
-        for ((id, cat) in ids) {
-            assertEquals(id, tab(id, cat), deckTab(id, cat))
-            assertEquals(id, ContainerLayoutMap.rankOf(id, true), ContainerLayoutMap.rankOf(id, false))
-        }
-    }
-
-    @Test
-    fun thePlainDeckFeedsTheInstallListsToWindowsAfterItsOwnExtrasAndHasNoWinComponentsPage() {
-        assertEquals(setOf(EditorTabs.WINDOWS), ContainerLayoutMap.extraTargets(SettingsRegistry.CAT_COMPONENTS, false))
-        assertTrue(ContainerLayoutMap.extraTargets(WinComponentsLogic.EXTRAS_KEY, false).isEmpty())
-        assertTrue(ContainerLayoutMap.extraRank("windows", false) < ContainerLayoutMap.extraRank(SettingsRegistry.CAT_COMPONENTS, false))
-        // The other categories are unchanged.
-        for (old in listOf("game", "graphics", "visuals", "performance", "hud", "audio", "input", "windows", "linux", "expert")) {
-            assertEquals(old, ContainerLayoutMap.extraTargets(old, true), ContainerLayoutMap.extraTargets(old, false))
-            assertEquals(old, ContainerLayoutMap.extraRank(old, true), ContainerLayoutMap.extraRank(old, false))
-        }
-    }
-
-    @Test
-    fun thePlainDeckLayoutHasSixTabsAndNoWinComponents() {
-        val l = ContainerLayout.forScope(EditorScope.CONTAINER, xmb = false)
-        assertEquals(6, l.tabs.size)
-        assertFalse(l.tabs.any { it.id == EditorTabs.WINCOMP })
-        assertEquals(EditorTabs.WINDOWS, l.extraTabOf(SettingsRegistry.CAT_COMPONENTS, "components-search"))
-        assertEquals(EditorTabs.WINDOWS, l.extraTabOf("windows", "windows-drives-add"))
+        val wine = SettingDef(
+            id = ContainerLayoutMap.ID_WINE_VERSION, category = "windows", group = "Wine", label = "Wine / Proton version",
+            hint = "The Wine layer this container runs. Download more below.", level = SettingLevel.ADVANCED, control = { _, _ -> Control.Toggle },
+        )
+        val other = row("graphics.dxWrapper", "graphics")
+        val out = l.apply(listOf(present, wine, other)).associateBy { it.id }
+        assertEquals("Turnip driver present mode", out.getValue("graphics.gdc.presentMode").label)
+        assertEquals("The Wine layer this container runs.", out.getValue(ContainerLayoutMap.ID_WINE_VERSION).hint)
+        assertEquals(SettingLevel.SIMPLE, out.getValue(ContainerLayoutMap.ID_WINE_VERSION).level)
+        // Every other row keeps its label and hint; the registry's own rows are never changed.
+        assertEquals("graphics.dxWrapper", out.getValue("graphics.dxWrapper").label)
+        assertEquals("Driver present mode", present.label)
     }
 
     @Test
     fun theEnvironmentVariablesComeBeforeTheResetAction() {
-        assertTrue(ContainerLayoutMap.extraRank("expert", true) < ContainerLayoutMap.extraRank("windows", true))
+        assertTrue(ContainerLayoutMap.extraRank("expert") < ContainerLayoutMap.extraRank("windows"))
     }
 }

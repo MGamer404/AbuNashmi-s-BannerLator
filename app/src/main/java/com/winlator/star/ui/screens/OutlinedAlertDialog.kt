@@ -51,6 +51,9 @@ import com.winlator.star.ui.deck.xmbPanel
 // XMB interface: all the slots of one dialog share ONE gliding highlight (see XmbSharedHost), so the outline travels between the
 // rows in the text and the confirm / dismiss buttons instead of fading out in one slot and in again in the next. The
 // confirm / dismiss slots are one flat stop each (the whole button outlined); the rows in the text slot register themselves.
+/** True inside a screen that wears the Lab look in every interface (the store screens): its dialogs and menus follow. */
+internal val LocalLabLook = androidx.compose.runtime.staticCompositionLocalOf { false }
+
 @Composable
 internal fun OutlinedAlertDialog(
     onDismissRequest: () -> Unit,
@@ -75,7 +78,7 @@ internal fun OutlinedAlertDialog(
     // XMB interface only (null elsewhere: the slots are wrapped exactly as they always were).
     val shared = if (rememberXmbHome()) remember { XmbSharedHost() } else null
     // Lab: square Lab corners and line, Lab's title font, Lab's focus outline on the cards and buttons inside.
-    val lab = com.winlator.star.ui.theme.AppThemeState.simpleLook
+    val lab = com.winlator.star.ui.theme.AppThemeState.simpleLook || LocalLabLook.current
     if (lab) {
         val accent = MaterialTheme.colorScheme.primary
         val labShape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)

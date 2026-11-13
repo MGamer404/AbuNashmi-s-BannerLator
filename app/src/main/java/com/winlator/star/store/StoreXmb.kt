@@ -1,5 +1,6 @@
 package com.winlator.star.store
 
+import androidx.compose.ui.graphics.compositeOver
 import android.os.SystemClock
 import android.view.InputDevice
 import android.view.KeyEvent
@@ -94,6 +95,7 @@ import com.winlator.star.R
 import com.winlator.star.ui.LocalXmbHintInset
 import com.winlator.star.ui.deck.DeckFloatingHint
 import com.winlator.star.ui.deck.GlyphKind
+import com.winlator.star.ui.deck.HINT_BOTTOM_GAP
 import com.winlator.star.ui.deck.LocalXmbKeyboard
 import com.winlator.star.ui.deck.ScreenScale
 import com.winlator.star.ui.deck.XmbEditTapCatcher
@@ -142,31 +144,58 @@ internal val LocalStoreXmb = staticCompositionLocalOf { false }
 @Composable
 internal fun StoreXmbScreen(content: @Composable () -> Unit) {
     val xmb = rememberXmbHome()
-    XmbScreenWindow(xmb)
-    // XMB home: the XMB keyboard replaces Android's for every text field on the screen. The Back hint is inside it, so it can
-    // step aside while the keyboard panel is up.
-    val hosted: @Composable () -> Unit = { XmbKeyboardHost(xmb) { XmbBackHintLayer(xmb, content = content) } }
-    // XMB home: the screen sits on the charcoal glass and the theme's own background is clear, so the glass shows through every
-    // rail, tab row and page inside it, and their cards are glass over it. The highlight host wraps all of it: the one gliding
-    // outline of the window draws over every page, rail and card (dialogs and sheets bring their own host).
-    XmbGlassTheme(xmb) {
-        CompositionLocalProvider(LocalStoreXmb provides xmb) {
-            if (!xmb) {
-                hosted()
-            } else {
-                XmbHighlightHost(enabled = true, modifier = Modifier.fillMaxSize()) {
-                    XmbGlassBackdrop(Modifier.matchParentSize())
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .windowInsetsPadding(WindowInsets.ime)
-                            .padding(horizontal = xmbFrame()),
-                    ) { hosted() }
+    // Every store screen is full screen in every interface: no status bar, no navigation bar.
+    XmbScreenWindow(true)
+    // One look everywhere: the Lab's colours (dark or light, as the Lab is set) with the theme's accent, the Lab's type
+    // and its smaller scale. XMB home keeps only its keyboard.
+    val base = MaterialTheme.colorScheme
+    val light = com.winlator.star.ui.theme.AppThemeState.labLight
+    val lab = if (light) com.winlator.star.ui.simple.labLightScheme(base) else storeLabScheme(base)
+    // No accent colour in the stores: what the theme paints in its accent is drawn in the ink colour instead
+    // (selected chips and tabs, the main button, progress, focus). Green for "installed" and prices stays.
+    val ink = if (light) Color(0xFF111722) else Color(0xFFEEF1F6)
+    val onInk = if (light) Color(0xFFF8FAFC) else Color(0xFF0B0D12)
+    val scheme = lab.copy(
+        primary = ink, onPrimary = onInk,
+        secondary = ink, onSecondary = onInk,
+        tertiary = ink, onTertiary = onInk,
+        primaryContainer = ink.copy(alpha = 0.16f).compositeOver(lab.background), onPrimaryContainer = ink,
+        secondaryContainer = ink.copy(alpha = 0.12f).compositeOver(lab.background), onSecondaryContainer = ink,
+    )
+    MaterialTheme(colorScheme = scheme, typography = MaterialTheme.typography, shapes = MaterialTheme.shapes) {
+        com.winlator.star.ui.deck.DeckTheme {
+            CompositionLocalProvider(
+                LocalStoreXmb provides false,
+                com.winlator.star.ui.screens.LocalLabLook provides true,
+                LocalAccentDim provides ink.copy(alpha = 0.14f).compositeOver(lab.background),
+            ) {
+                Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).windowInsetsPadding(WindowInsets.ime)) {
+                    // The Back hint of XMB home floats over the page, inside the keyboard host so it steps aside while the keyboard is up.
+                    XmbKeyboardHost(xmb) { XmbBackHintLayer(xmb, content = content) }
                 }
             }
         }
     }
 }
+
+/** The Lab's dark look as a colour scheme: its panel and ink colours, the theme's accent untouched. */
+internal fun storeLabScheme(base: androidx.compose.material3.ColorScheme): androidx.compose.material3.ColorScheme = base.copy(
+    background = Color(0xFF0B0D12),
+    onBackground = Color(0xFFEEF1F6),
+    surface = Color(0xFF12151C),
+    onSurface = Color(0xFFEEF1F6),
+    surfaceVariant = Color(0xFF1A1E28),
+    onSurfaceVariant = Color(0xFFA9B2C1),
+    surfaceContainerLowest = Color(0xFF0B0D12),
+    surfaceContainerLow = Color(0xFF0E1016),
+    surfaceContainer = Color(0xFF12151C),
+    surfaceContainerHigh = Color(0xFF171A23),
+    surfaceContainerHighest = Color(0xFF1C2130),
+    outline = Color(0x33FFFFFF),
+    outlineVariant = Color(0x1AFFFFFF),
+    // No accent tint on raised surfaces: menus and dialogs stay the Lab's dark panel.
+    surfaceTint = Color.Transparent,
+)
 
 /**
  * XMB home: the content of a store screen with a muted "B Back" hint floating at the bottom right, the look of the shell's
@@ -190,7 +219,7 @@ internal fun XmbBackHintLayer(enabled: Boolean, content: @Composable () -> Unit)
     val hintDensity = rememberXmbHintDensity()
     val k = hintDensity.density / outer.density
     val cutoutBottom = WindowInsets.displayCutout.asPaddingValues().calculateBottomPadding()
-    CompositionLocalProvider(LocalXmbHintInset provides (ss.dp(12f) + XMB_BACK_HINT_HEIGHT) * k + cutoutBottom) {
+    CompositionLocalProvider(LocalXmbHintInset provides (ss.dp(HINT_BOTTOM_GAP) + XMB_BACK_HINT_HEIGHT) * k + cutoutBottom) {
         Box(Modifier.fillMaxSize()) {
             content()
             if (keyboard?.panelOpen != true) {
@@ -206,7 +235,7 @@ internal fun XmbBackHintLayer(enabled: Boolean, content: @Composable () -> Unit)
                             .align(Alignment.BottomEnd)
                             .padding(
                                 end = ss.dp(16f) + cutout.calculateEndPadding(dir),
-                                bottom = ss.dp(12f) + cutout.calculateBottomPadding(),
+                                bottom = ss.dp(HINT_BOTTOM_GAP) + cutout.calculateBottomPadding(),
                             ),
                     )
                 }
@@ -418,8 +447,10 @@ internal fun ScreenScale.xmbCoverWidth(): Dp = w(0.12f, min = 96.dp, max = 170.d
 
 /** The catalog stores' library grid column: the XMB cover in XMB home, else their own 132 / 118 dp. */
 @Composable
-internal fun storeGridCell(wide: Boolean): Dp =
-    if (LocalStoreXmb.current) rememberScreenScale().xmbCoverWidth() else if (wide) 132.dp else 118.dp
+internal fun storeGridCell(wide: Boolean): Dp {
+    StoreViewMode.load(androidx.compose.ui.platform.LocalContext.current)
+    return StoreViewMode.cell(wide)
+}
 
 /** Steam's 600x900 library cover: the published one when the snapshot has it, else the CDN path. */
 internal fun steamTallArt(appId: Int): String =

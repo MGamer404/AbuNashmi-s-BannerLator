@@ -316,6 +316,7 @@ private class XmbLogPanel(private val v: XmbLogView, private val xmb: XmbScope) 
             XmbKey.Right -> if (!v.wrap) xmb.scope.launch { v.hScroll.scrollBy(hStepPx) }
             XmbKey.A -> v.following = !v.following
             XmbKey.B -> return false
+            XmbKey.X -> return false
         }
         return true
     }

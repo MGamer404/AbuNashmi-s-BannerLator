@@ -33,7 +33,7 @@ import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import com.winlator.star.store.StoreGlassIconButton as IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -92,11 +92,6 @@ import kotlinx.coroutines.withContext
  * Games are PC (MSIXVC) packages downloaded with the user's own license and run in a Wine container.
  */
 class XboxMainActivity : ComponentActivity() {
-    // English and left-to-right whatever the phone's language (see AppLocale).
-    override fun attachBaseContext(newBase: android.content.Context) {
-        super.attachBaseContext(com.winlator.star.AppLocale.wrap(newBase))
-    }
-
 
     companion object {
         const val EXTRA_TAB = "xbox_tab"
@@ -362,6 +357,7 @@ private fun XboxLibraryTab(state: XboxLibraryState, wide: Boolean, onOpen: (Xbox
                 StoreFilterChip("Game Pass", filter == 2) { filter = 2 }
                 StoreFilterChip("Owned", filter == 3) { filter = 3 }
                 StoreFilterChip("Cloud", filter == 4) { filter = 4 }
+                com.winlator.star.store.StoreViewButton()
                 Spacer(Modifier.weight(1f))
                 Text(state.statusText, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
             }
@@ -384,8 +380,8 @@ private fun XboxLibraryTab(state: XboxLibraryState, wide: Boolean, onOpen: (Xbox
                 columns = GridCells.Adaptive(storeGridCell(wide)),
                 modifier = Modifier.fillMaxSize().focusGroup(),
                 contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 24.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 items(shown, key = { it.id }) { g ->
                     val installed = g.id in state.installedIds

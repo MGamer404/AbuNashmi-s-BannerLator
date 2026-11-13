@@ -98,6 +98,8 @@ internal fun DeckControlsPage() {
         return
     }
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    // The Controller tab's selected pad, kept here: the tab's own state would reset every time another tab is shown.
+    var padId by rememberSaveable { mutableStateOf(ControlsProfile.DEFAULT_CONTROLLER_ID) }
     val tabs = listOf(
         DeckTabItem("On-screen", Icons.Filled.TouchApp),
         DeckTabItem("Controller", Icons.Filled.Gamepad),
@@ -108,7 +110,7 @@ internal fun DeckControlsPage() {
         // Landscape: the shell draws the tabs as the rail beside the page and the title line is left out, so the page gets the room.
         DeckTabStrip(tabs = tabs, selected = tab, onSelect = { tab = it }, label = "Tab")
         Box(modifier = Modifier.fillMaxSize()) {
-            InputControlsScreen(deckHost = { s -> DeckControlsContent(tab, s) })
+            InputControlsScreen(deckHost = { s -> DeckControlsContent(tab, s, padId) { padId = it } })
         }
         return
     }
@@ -124,14 +126,14 @@ internal fun DeckControlsPage() {
         )
         Spacer(Modifier.height(4.dp))
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            InputControlsScreen(deckHost = { s -> DeckControlsContent(tab, s) })
+            InputControlsScreen(deckHost = { s -> DeckControlsContent(tab, s, padId) { padId = it } })
         }
     }
 }
 
 /** The content of the [tab] picked on the strip. */
 @Composable
-private fun DeckControlsContent(tab: Int, s: InputControlsDeckState) {
+private fun DeckControlsContent(tab: Int, s: InputControlsDeckState, padId: String, onPadId: (String) -> Unit) {
     // Nothing selected yet: take the first profile, so the layout and the bindings have something to show.
     LaunchedEffect(s.profiles.size, s.current) {
         if (s.current == null) {
@@ -141,7 +143,7 @@ private fun DeckControlsContent(tab: Int, s: InputControlsDeckState) {
     }
     when (tab) {
         0 -> DeckOnScreenTab(s)
-        1 -> DeckControllerTab(s)
+        1 -> DeckControllerTab(s, padId, onPadId)
         2 -> DeckAssignTab(s)
         else -> DeckDeviceTab(s)
     }
@@ -522,9 +524,8 @@ private fun ctlPadLine(pad: CtlPad, bindings: Int): String {
 /** The pads (and the Default / Any template) on the left, the selected one's bindings and actions on the right. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun DeckControllerTab(s: InputControlsDeckState) {
+private fun DeckControllerTab(s: InputControlsDeckState, selId: String, onSelId: (String) -> Unit) {
     val defaultId = ControlsProfile.DEFAULT_CONTROLLER_ID
-    var selId by rememberSaveable { mutableStateOf(defaultId) }
     val pads = s.controllers
     // A pad that was unplugged and has no saved bindings is gone from the list: fall back to the template.
     val activeId = if (selId == defaultId || pads.any { it.getId() == selId }) selId else defaultId
@@ -544,7 +545,7 @@ private fun DeckControllerTab(s: InputControlsDeckState) {
                     onPick = { i -> s.select(s.profiles.getOrNull(i)) },
                 )
                 DeckRowDivider()
-                CtlRow(onClick = { selId = defaultId }, selected = isDefault) { cs ->
+                CtlRow(onClick = { onSelId(defaultId) }, selected = isDefault) { cs ->
                     Icon(Icons.Filled.Gamepad, contentDescription = null, tint = cs.primary, modifier = Modifier.size(20.dp))
                     Column(Modifier.weight(1f)) {
                         Text("Default / Any controller", color = cs.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -565,7 +566,7 @@ private fun DeckControllerTab(s: InputControlsDeckState) {
                 for (c in pads) {
                     DeckRowDivider()
                     val pad = ctlPadOf(c)
-                    CtlRow(onClick = { selId = c.getId() }, selected = activeId == c.getId()) { cs ->
+                    CtlRow(onClick = { onSelId(c.getId()) }, selected = activeId == c.getId()) { cs ->
                         CtlDot(if (pad.connected) CTL_GREEN else CTL_RED)
                         Column(Modifier.weight(1f)) {
                             Text(c.getName() ?: c.getId(), color = cs.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)

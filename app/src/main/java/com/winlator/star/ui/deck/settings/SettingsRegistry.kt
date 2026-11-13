@@ -3,6 +3,7 @@ package com.winlator.star.ui.deck.settings
 import com.winlator.star.ui.simple.L
 import com.winlator.star.ui.simple.T
 import androidx.compose.material.icons.Icons
+import androidx.preference.PreferenceManager
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Build
@@ -29,6 +30,7 @@ import com.winlator.star.core.KeyValueSet
 import com.winlator.star.core.LinuxVulkanDriver
 import com.winlator.star.core.MediaDecoder
 import com.winlator.star.core.RumbleMotors
+import com.winlator.star.core.TouchAimSettings
 import com.winlator.star.core.StickPacing
 import com.winlator.star.core.StringUtils
 import com.winlator.star.core.SyncMode
@@ -263,8 +265,8 @@ internal object SettingsRegistry {
             compositorDriverMaliSystem(version, loaded) -> MALI_SYSTEM_DRIVER_NOTE
             compositorDriverUnusable(version, loaded, true) ->
                 if (env.isLinuxEntry) T("This driver cannot show the session. \"System\" or a driver that is no longer installed leaves the compositor on the system Vulkan, which shows a black screen.")
-                // The Deck / XMB editor has a "Get more" link on this row; the Lab style still lists the download below.
-                else if (com.winlator.star.ui.theme.AppThemeState.simpleLook) T("Wayland needs a Turnip driver here. \"System\" or a missing driver cannot import the game's frames and shows a black screen. Download one below (Download a Turnip driver).")
+                // The XMB editor has a "Get more" link on this row; the plain Deck, Lab and Classic still list the download below.
+                else if (!com.winlator.star.ui.theme.AppThemeState.deckXmbHome.value) T("Wayland needs a Turnip driver here. \"System\" or a missing driver cannot import the game's frames and shows a black screen. Download one below (Download a Turnip driver).")
                 else T("Wayland needs a Turnip driver here. \"System\" or a missing driver cannot import the game's frames and shows a black screen. Use Get more to download one.")
             vm != null && vm.compositorDriverAutoPicked == version ->
                 if (vm.compositorDriverPickedFromDefaults) T("Picked for you: the driver in your New Container Defaults.")
@@ -469,6 +471,13 @@ internal object SettingsRegistry {
             control = { _, _ -> Control.Toggle },
             game = builtIn10("epicOverlay", false),
             visible = { env, _ -> gameScope(env) && env.isEpic && FeatureFlags.EPIC_OVERLAY_ENABLED },
+        ),
+        SettingDef(
+            id = "launch.steamBigPicture", category = "launch", group = T("Windows Steam"), level = SIMPLE,
+            label = T("Start in Big Picture"), hint = T("Opens Steam in Big Picture mode."), tech = "steamBigPicture",
+            control = { _, _ -> Control.Toggle },
+            game = builtIn10(com.winlator.star.store.WindowsSteamClient.EXTRA_BIG_PICTURE, false),
+            visible = { env, _ -> gameScope(env) && env.isWindowsSteam },
         ),
         SettingDef(
             id = "launch.xboxNexusRuntime", category = "launch", group = "Xbox", level = SIMPLE,
@@ -812,6 +821,7 @@ internal object SettingsRegistry {
                     Opt("bionic", T("Built-in (Win-FG)")),
                     Opt("lsfg-native", T("Lossless Scaling"),
                         disabledReason = if (env.lsfgDllAvailable) null else T("Import Lossless.dll in Settings › Performance first.")),
+                    Opt("wfg", T("WFG")),
                 ))
             },
             vm = vmString({ if (it.frameGenEngine == "lsfg") "lsfg-native" else it.frameGenEngine }, { vm, v -> vm.frameGenEngine = v }),
@@ -980,7 +990,7 @@ internal object SettingsRegistry {
             visible = { env, _ -> env.arm64ec },
             disabled = { env, _ ->
                 if (env.box64ECInstalled) null
-                else if (com.winlator.star.ui.theme.AppThemeState.simpleLook) T("No Box64EC installed. Download one below (Translator downloads).")
+                else if (!com.winlator.star.ui.theme.AppThemeState.deckXmbHome.value) T("No Box64EC installed. Download one below (Translator downloads).")
                 else T("No Box64EC installed. Use Get more to download one.")
             },
             getMore = "box64ec",
@@ -1194,14 +1204,6 @@ internal object SettingsRegistry {
             visible = { env, _ -> gameScope(env) },
         ),
         SettingDef(
-            id = "input.touchMode", category = "input", group = T("Controllers"), level = ADVANCED,
-            label = T("Touch acts as"), hint = T("Touchscreen sends real touches to the game."), tech = T("Touchscreen Mode"),
-            control = { _, _ -> seg("0" to T("Mouse / touchpad"), "1" to T("Touchscreen")) },
-            game = builtIn10("simTouchScreen", false),
-            visible = { env, _ -> gameScope(env) },
-            worlds = WINE_LINUX,
-        ),
-        SettingDef(
             id = "input.hideOnController", category = "input", group = T("Player slots"), level = SIMPLE,
             label = T("Hide on-screen controls when a controller connects"),
             control = { _, _ -> Control.Toggle },
@@ -1220,14 +1222,44 @@ internal object SettingsRegistry {
             vm = vmInt({ it.onScreenControllerMode }, { vm, v -> vm.onScreenControllerMode = v }),
             game = intKey("onScreenControllerMode"),
         ),
+        // Touch and Aim mode (TouchAimSettings): the in-game menu's Controls › Mouse choices, saved for the
+        // game. An unset game follows Settings › Mouse & keyboard. Touchscreen is the old "Touch acts as".
         SettingDef(
-            id = "input.relativeMouse", category = "input", group = T("Mouse & touch"), level = ADVANCED,
-            label = T("Relative mouse (for 3D camera games)"), hint = T("Also switchable in-game from the side menu."),
-            control = { _, _ -> Control.Toggle },
-            game = key10("relativeMouse").let {
-                GameBinding(it.keys, it.read, it.write, Inherit.CONTAINER,
-                    inherited = { env -> if (env.vm?.container?.getExtra("relativeMouse", "0") == "1") "1" else "0" }, builtIn = "0")
-            },
+            id = "input.touchMode", category = "input", group = T("Mouse & touch"), level = ADVANCED,
+            label = T("Touch"), tech = "touchMode · simTouchScreen",
+            control = { _, _ -> seg(TouchAimSettings.TOUCHPAD to T("Touchpad"), TouchAimSettings.DIRECT to T("Direct"), TouchAimSettings.TOUCHSCREEN to T("Touchscreen")) },
+            game = GameBinding(
+                keys = listOf(TouchAimSettings.EXTRA_TOUCH, TouchAimSettings.EXTRA_SIM_TOUCH),
+                read = { e -> TouchAimSettings.gameTouch { k: String -> e.get(k) } },
+                write = { e, v ->
+                    val screen = v == TouchAimSettings.TOUCHSCREEN
+                    e.put(TouchAimSettings.EXTRA_SIM_TOUCH, if (screen) "1" else null)
+                    e.put(TouchAimSettings.EXTRA_TOUCH, if (screen) null else v)
+                },
+                inherit = Inherit.APP,
+                inherited = { env -> TouchAimSettings.appTouch(PreferenceManager.getDefaultSharedPreferences(env.context)) },
+            ),
+            visible = { env, _ -> gameScope(env) },
+            worlds = WINE_LINUX,
+        ),
+        SettingDef(
+            id = "input.aimMode", category = "input", group = T("Mouse & touch"), level = ADVANCED,
+            label = T("Aim mode"), tech = "aimMode · relativeMouse",
+            control = { _, _ -> seg(TouchAimSettings.AUTO to T("Auto"), TouchAimSettings.ON to T("On"), TouchAimSettings.OFF to T("Off")) },
+            game = GameBinding(
+                keys = listOf(TouchAimSettings.EXTRA_AIM, TouchAimSettings.EXTRA_RELATIVE_MOUSE),
+                read = { e -> TouchAimSettings.ownAim { k: String -> e.get(k) } },
+                write = { e, v ->
+                    e.put(TouchAimSettings.EXTRA_AIM, v)
+                    e.put(TouchAimSettings.EXTRA_RELATIVE_MOUSE, if (v == TouchAimSettings.ON) "1" else "0")
+                },
+                inherit = Inherit.APP,
+                inherited = { env ->
+                    val c = env.vm?.container
+                    TouchAimSettings.resolveAim(null, c?.let { ct -> java.util.function.Function { k: String -> ct.getExtra(k) } },
+                        TouchAimSettings.appAim(PreferenceManager.getDefaultSharedPreferences(env.context)))
+                },
+            ),
             visible = { env, _ -> gameScope(env) },
         ),
         SettingDef(

@@ -77,6 +77,7 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.AddToHomeScreen
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -85,6 +86,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -144,6 +146,9 @@ import java.io.File
  * [compactToolbar] (the Deck shell's Tools > Files) swaps the tall toolbar pill, the paste capsule and the
  * path line for one slim row: back, up, the path, then the actions. The clipboard then shows as a floating paste button
  * (with a small clear button) at the bottom right, above the shell's hint row, only while something is copied or cut.
+ *
+ * [dense] (the XMB mode's picker) tightens everything further: a slimmer toolbar row with smaller icons, rows about 40 dp tall with
+ * smaller text, smaller crumbs and Home tiles, a slim title and Select bar. See [LocalFmDense]. Behaviour is unchanged.
  */
 @Composable
 fun FileManagerRoot(
@@ -155,6 +160,7 @@ fun FileManagerRoot(
     driveCPath: File? = null,
     onPick: ((File) -> Unit)? = null,
     compactToolbar: Boolean = false,
+    dense: Boolean = false,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -785,13 +791,16 @@ fun FileManagerRoot(
     // ── Layout ──
 
     // The Box lets the compact (XMB) layout float the paste button over the page.
+    CompositionLocalProvider(LocalFmDense provides dense) {
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().fmBackdrop()) {
             if (pick != null && !pickerTitle.isNullOrEmpty()) {
                 Text(
                     pickerTitle,
-                    color = cs.onSurface, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 2.dp),
+                    color = cs.onSurface, fontSize = if (dense) 13.sp else 16.sp, fontWeight = FontWeight.SemiBold,
+                    maxLines = if (dense) 1 else Int.MAX_VALUE,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth().padding(start = if (dense) 12.dp else 16.dp, end = if (dense) 12.dp else 16.dp, top = if (dense) 4.dp else 10.dp, bottom = if (dense) 0.dp else 2.dp),
                 )
             }
 
@@ -802,6 +811,9 @@ fun FileManagerRoot(
                 // Two panes keep their own path line over each pane, so the row then has no path of its own.
                 BoxWithConstraints(Modifier.fillMaxWidth()) {
                     val narrow = maxWidth < 560.dp
+                    // The slim toolbar row: 40 dp buttons, or 32 dp in the dense (XMB picker) look.
+                    val tb = if (dense) 32.dp else 40.dp
+                    val tbIcon = if (dense) 19.dp else 22.dp
                     val dualBar = dualPref && pick == null && maxWidth >= 640.dp
                     val barDir = pane.currentDir
                     val barLoc = pane.loc
@@ -816,46 +828,46 @@ fun FileManagerRoot(
                     Column(Modifier.fillMaxWidth()) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp).height(40.dp).fmGlass(RoundedCornerShape(20.dp)).padding(horizontal = 2.dp),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp).height(tb).fmGlass(RoundedCornerShape(20.dp)).padding(horizontal = 2.dp),
                         ) {
-                            IconButton(onClick = { pane.goBack() }, enabled = pane.canGoBack, modifier = Modifier.size(40.dp)) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = if (pane.canGoBack) cs.primary else cs.onSurfaceVariant, modifier = Modifier.size(22.dp))
+                            IconButton(onClick = { pane.goBack() }, enabled = pane.canGoBack, modifier = Modifier.size(tb)) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = if (pane.canGoBack) cs.primary else cs.onSurfaceVariant, modifier = Modifier.size(tbIcon))
                             }
-                            IconButton(onClick = { pane.up() }, enabled = pane.loc != FmLoc.Home, modifier = Modifier.size(40.dp)) {
-                                Icon(Icons.Filled.ArrowUpward, "Up", tint = if (pane.loc != FmLoc.Home) cs.primary else cs.onSurfaceVariant, modifier = Modifier.size(22.dp))
+                            IconButton(onClick = { pane.up() }, enabled = pane.loc != FmLoc.Home, modifier = Modifier.size(tb)) {
+                                Icon(Icons.Filled.ArrowUpward, "Up", tint = if (pane.loc != FmLoc.Home) cs.primary else cs.onSurfaceVariant, modifier = Modifier.size(tbIcon))
                             }
                             if (dualBar) {
                                 Spacer(Modifier.weight(1f))
                             } else {
                                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f).padding(start = 2.dp)) {
-                                    FmCrumbs(crumbsFor(pane, containers, imagefsDir, driveCPath), Modifier.weight(1f), vPad = 9.dp)
+                                    FmCrumbs(crumbsFor(pane, containers, imagefsDir, driveCPath), Modifier.weight(1f), vPad = if (dense) 5.dp else 9.dp)
                                     if (!narrow && sizeText != null) {
-                                        Text(sizeText, color = cs.onSurfaceVariant, fontSize = 11.sp, maxLines = 1, modifier = Modifier.padding(horizontal = 6.dp))
+                                        Text(sizeText, color = cs.onSurfaceVariant, fontSize = if (dense) 10.sp else 11.sp, maxLines = 1, modifier = Modifier.padding(horizontal = 6.dp))
                                     }
                                 }
                             }
-                            IconButton(onClick = { searchOpen = !searchOpen; if (!searchOpen) pane.clearSearch() }, enabled = pane.loc != FmLoc.Home, modifier = Modifier.size(40.dp)) {
-                                Icon(Icons.Filled.Search, "Search", modifier = Modifier.size(22.dp))
+                            IconButton(onClick = { searchOpen = !searchOpen; if (!searchOpen) pane.clearSearch() }, enabled = pane.loc != FmLoc.Home, modifier = Modifier.size(tb)) {
+                                Icon(Icons.Filled.Search, "Search", modifier = Modifier.size(tbIcon))
                             }
                             IconButton(onClick = {
                                 val next = when (pane.viewMode) { FmViewMode.LIST -> FmViewMode.COMPACT; FmViewMode.COMPACT -> FmViewMode.GRID; FmViewMode.GRID -> FmViewMode.LIST }
                                 panes.forEach { it.applyViewMode(next) }
-                            }, modifier = Modifier.size(40.dp)) {
+                            }, modifier = Modifier.size(tb)) {
                                 Icon(
                                     when (pane.viewMode) { FmViewMode.LIST -> Icons.Filled.ViewAgenda; FmViewMode.COMPACT -> Icons.Filled.ViewList; FmViewMode.GRID -> Icons.Filled.GridView },
                                     "View",
-                                    modifier = Modifier.size(22.dp),
+                                    modifier = Modifier.size(tbIcon),
                                 )
                             }
-                            IconButton(onClick = { sortFor = pane }, modifier = Modifier.size(40.dp)) { Icon(Icons.Filled.Sort, "Sort", modifier = Modifier.size(22.dp)) }
+                            IconButton(onClick = { sortFor = pane }, modifier = Modifier.size(tb)) { Icon(Icons.Filled.Sort, "Sort", modifier = Modifier.size(tbIcon)) }
                             if (pick == null && barDir != null) {
                                 Box {
-                                    IconButton(onClick = { newOpen = true }, modifier = Modifier.size(40.dp)) { Icon(Icons.Filled.Add, "New", tint = cs.primary, modifier = Modifier.size(22.dp)) }
+                                    IconButton(onClick = { newOpen = true }, modifier = Modifier.size(tb)) { Icon(Icons.Filled.Add, "New", tint = cs.primary, modifier = Modifier.size(tbIcon)) }
                                     if (newOpen) FmMenu(true, { newOpen = false }, newMenuEntries(barDir))
                                 }
                             }
                             Box {
-                                IconButton(onClick = { moreOpen = true }, modifier = Modifier.size(40.dp)) { Icon(Icons.Filled.MoreVert, "More", modifier = Modifier.size(22.dp)) }
+                                IconButton(onClick = { moreOpen = true }, modifier = Modifier.size(tb)) { Icon(Icons.Filled.MoreVert, "More", modifier = Modifier.size(tbIcon)) }
                                 if (moreOpen) FmMenu(true, { moreOpen = false }, moreMenuEntries(barDir, if (narrow) sizeText else null))
                             }
                         }
@@ -1008,11 +1020,19 @@ fun FileManagerRoot(
                 Button(
                     onClick = { dir?.let { FmPrefs.setLastPickerDir(context, it); onPick?.invoke(it) } },
                     enabled = dir != null,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    // Dense (the XMB picker): a slim bar, 36 dp tall instead of 40 + 16 of padding.
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = if (dense) 10.dp else 16.dp, vertical = if (dense) 3.dp else 8.dp)
+                        .then(if (dense) Modifier.height(36.dp) else Modifier),
+                    contentPadding = if (dense) PaddingValues(horizontal = 12.dp, vertical = 0.dp) else ButtonDefaults.ContentPadding,
                 ) {
-                    Icon(Icons.Filled.Folder, null, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Filled.Folder, null, modifier = Modifier.size(if (dense) 16.dp else 18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text(if (dir != null) "Select \"${dir.name.ifBlank { dir.absolutePath }}\"" else "Open a folder to select it", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        if (dir != null) "Select \"${dir.name.ifBlank { dir.absolutePath }}\"" else "Open a folder to select it",
+                        fontSize = if (dense) 13.sp else androidx.compose.ui.unit.TextUnit.Unspecified,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
             }
         }
@@ -1027,6 +1047,7 @@ fun FileManagerRoot(
                 modifier = Modifier.align(Alignment.BottomEnd),
             )
         }
+    }
     }
 }
 
@@ -1090,9 +1111,9 @@ private fun PaneView(
                 val rootDir = pane.currentDir
                 if (pane.viewMode == FmViewMode.GRID) {
                     LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = 104.dp),
+                        columns = GridCells.Adaptive(minSize = if (LocalFmDense.current) 84.dp else 104.dp),
                         state = pane.gridState,
-                        contentPadding = PaddingValues(6.dp),
+                        contentPadding = PaddingValues(if (LocalFmDense.current) 3.dp else 6.dp),
                         modifier = Modifier.fillMaxSize(),
                     ) {
                         if (showParent) item(key = "..") { FmParentRow(compact = true) { pane.up() } }
@@ -1102,7 +1123,7 @@ private fun PaneView(
                     }
                 } else {
                     val compact = pane.viewMode == FmViewMode.COMPACT
-                    LazyColumn(state = pane.listState, contentPadding = PaddingValues(vertical = 4.dp), modifier = Modifier.fillMaxSize()) {
+                    LazyColumn(state = pane.listState, contentPadding = PaddingValues(vertical = if (LocalFmDense.current) 2.dp else 4.dp), modifier = Modifier.fillMaxSize()) {
                         if (showParent) item(key = "..") { FmParentRow(compact) { pane.up() } }
                         items(shown, key = { it.key }) { item ->
                             // Subfolder search results say where they were found.

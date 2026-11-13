@@ -127,6 +127,18 @@ target_link_libraries(locale_fix
         dl
 )
 
+# Hostname fix: Android's hostname is "localhost", so Epic Online Services found its own address as
+# 127.0.0.1 and online play had nothing to offer a peer. Loaded via LD_PRELOAD for every game (see hostname_fix.c).
+add_library(hostname_fix SHARED
+        winlator/hostname_fix.c
+)
+
+target_compile_options(hostname_fix PRIVATE -Wall -Wextra)
+
+target_link_libraries(hostname_fix
+        dl
+)
+
 add_library(vulkan_renderer SHARED
         winlator/vulkan_jni.cpp
         winlator/stream_jni.cpp
@@ -152,8 +164,20 @@ add_library(vulkan_renderer SHARED
         winlator/winfg/framegen.cpp
         winlator/winfg/winfg_vkd.cpp
         winlator/winfg/winfg_engine.cpp
+        winlator/wfg/wfg_engine.cpp
         scanout/ScanoutContext.cpp
 )
+
+# --- WFG (WinNative/Winlator Frame Generator, qwertypower / DEVAR Entertainment LLC, MIT) ---
+# COPIED unmodified from github.com/WinNative-Emu/WinNative app/src/main/cpp/wfg at WFG_UPSTREAM:
+# vkr_dis.c, vkr_dis.h, shaders/*.comp, LICENSE.wfg. Ours: vk_dispatch.h (stand-in for
+# WinNative's header), wfg_engine.{h,cpp}, gen_shaders.sh and the committed gen/shaders/*.spv.h
+# it produces. A static C library because the renderer targets force -std=c++17; the X11
+# renderer and the Wayland compositor each link it and keep their own dispatch table.
+set(WFG_UPSTREAM "WinNative 72d145bc")
+add_library(wfg STATIC winlator/wfg/vkr_dis.c)
+target_include_directories(wfg PRIVATE winlator/wfg winlator/wfg/gen)
+target_compile_options(wfg PRIVATE -fvisibility=hidden)
 
 # --- win-fg chain provenance -------------------------------------------------
 # The win-fg chain is COPIED into this tree from github.com/The412Banner/win-fg
@@ -189,6 +213,7 @@ message(STATUS "win-fg chain: ${WINFG_UPSTREAM} (src ${WINFG_CHAIN_HASH})")
 
 target_compile_definitions(vulkan_renderer PRIVATE
         WINFG_UPSTREAM="${WINFG_UPSTREAM}"
+        WFG_UPSTREAM="${WFG_UPSTREAM}"
         WINFG_CHAIN_HASH="${WINFG_CHAIN_HASH}"
 )
 
@@ -203,6 +228,7 @@ target_link_libraries(vulkan_renderer
         vulkan
         adrenotools
         dxbc
+        wfg
         dl
         atomic
 )

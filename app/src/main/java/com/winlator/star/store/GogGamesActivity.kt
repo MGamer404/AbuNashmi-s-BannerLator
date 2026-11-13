@@ -33,7 +33,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
+import com.winlator.star.ui.screens.OutlinedAlertDialog as AlertDialog
 import com.winlator.star.ui.screens.OutlinedAlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -83,11 +83,6 @@ import java.util.concurrent.Executors
 import java.util.function.Consumer
 
 class GogGamesActivity : ComponentActivity() {
-    // English and left-to-right whatever the phone's language (see AppLocale).
-    override fun attachBaseContext(newBase: android.content.Context) {
-        super.attachBaseContext(com.winlator.star.AppLocale.wrap(newBase))
-    }
-
 
     companion object {
         private const val TAG = "BH_GOG"
@@ -542,7 +537,7 @@ class GogGamesActivity : ComponentActivity() {
                 }
             }
 
-            return GogGame(id, titleStr, imageUrl, desc, developer, category, generation, verticalCover)
+            return GogGame(id, GogTitles.localized(prefs, id, titleStr, token), imageUrl, desc, developer, category, generation, verticalCover)
         } catch (e: Exception) {
             return null
         }
@@ -654,15 +649,7 @@ class GogGamesActivity : ComponentActivity() {
     // ── Game click handlers ──────────────────────────────────────────────────
 
     private fun onGameClick(game: GogGame) {
-        if (viewMode == "list") {
-            if (expandedGameId == game.gameId) {
-                openDetailScreen(game)
-            } else {
-                expandedGameId = game.gameId
-            }
-        } else {
-            expandedGameId = if (expandedGameId == game.gameId) null else game.gameId
-        }
+        openDetailScreen(game)
     }
 
     private fun onInstallClick(game: GogGame) {

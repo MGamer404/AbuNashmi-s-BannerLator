@@ -1,5 +1,6 @@
 package com.winlator.star.store
 
+import com.winlator.star.ui.screens.outlinedMenuCard
 import android.app.Activity
 import android.content.Intent
 import androidx.annotation.StringRes
@@ -51,6 +52,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -271,7 +273,7 @@ internal fun filterLibraryByQuery(
     val words = foldForSearch(query).trim().split(WHITESPACE_RUN).filter { it.isNotEmpty() }
     if (words.isEmpty()) return games
     return games.filter { g ->
-        val name = folded[g.appId] ?: foldForSearch(g.name)
+        val name = folded[g.appId] ?: foldForSearch(g.name + " " + g.englishName)
         words.all { name.contains(it) }
     }
 }
@@ -517,7 +519,16 @@ fun SteamLibraryTab(
     // are hoisted into the host (like [typeFilter]) so they survive a tab switch and rotation.
     val byType = remember(state.games, typeFilter) { typeFilter.filter(state.games) }
     val foldedNames = remember(state.games) {
-        state.games.associate { it.appId to foldForSearch(it.name) }
+        state.games.associate { it.appId to foldForSearch(it.name + " " + it.englishName) }
+    }
+    // Installed games whose language (the app's, or their own pick) asks for files they do not have.
+    val languageFilesCount by produceState(0, state.games) {
+        value = withContext(Dispatchers.IO) {
+            state.games.count { it.isInstalled && SteamGameLanguage.missingPack(it.appId, true) != null }
+        }
+    }
+    var languageNoticeHidden by remember {
+        mutableStateOf(runCatching { SteamPrefs.getLanguageNoticeDismissed() == StoreLang.steam() }.getOrDefault(false))
     }
     val shown = remember(byType, foldedNames, query, sort) {
         filterLibraryByQuery(byType, foldedNames, query).sortedWith(sort.comparator())
@@ -659,6 +670,7 @@ fun SteamLibraryTab(
                     LibraryTypeChips(typeFilter, onTypeFilter)
                     searchField(Modifier.weight(1f))
                     LibrarySortButton(sort, onSort)
+                    StoreViewButton()
                 }
             } else {
                 Row(
@@ -671,6 +683,7 @@ fun SteamLibraryTab(
                 ) {
                     searchField(Modifier.weight(1f))
                     LibrarySortButton(sort, onSort)
+                    StoreViewButton()
                 }
                 // The chips are one short line, so they keep the same single row as before.
                 Row(
@@ -679,6 +692,25 @@ fun SteamLibraryTab(
                         .padding(horizontal = 14.dp, vertical = 8.dp)
                         .focusGroup(),
                 ) { LibraryTypeChips(typeFilter, onTypeFilter) }
+            }
+
+            if (languageFilesCount > 0 && !languageNoticeHidden) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = if (languageFilesCount == 1) "1 installed game has language files to download. Open it to download them."
+                               else "$languageFilesCount installed games have language files to download. Open a game to download them.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = {
+                        languageNoticeHidden = true
+                        runCatching { SteamPrefs.setLanguageNoticeDismissed(StoreLang.steam()) }
+                    }) { Text("OK") }
+                }
             }
 
             // The rating sort is only as complete as the backfill: say so while it is still working,
@@ -740,51 +772,29 @@ fun SteamLibraryTab(
                     modifier = Modifier.align(Alignment.Center),
                 )
 
-                viewMode == "list" -> LazyColumn(
-                    state = header.trackedListState(),
-                    modifier = Modifier.fillMaxSize().focusGroup(),
-                    contentPadding = PaddingValues(vertical = 4.dp),
-                ) {
-                    val row: @Composable (SteamGame) -> Unit = { game ->
-                        LibraryDetailRow(
-                            game = game,
-                            onClick = { onOpenApp(game.appId) },
-                            onLaunch = { launchInstalled(game) },
-                            onUninstall = { uninstall(game) },
-                        )
-                    }
-                    if (sections == null) {
-                        items(shown, key = { it.appId }) { game -> row(game) }
-                    } else {
-                        sections.forEach { section ->
-                            item(key = "section_${section.level}", contentType = "section") {
-                                LibrarySectionHeader(section, Modifier.padding(horizontal = 16.dp))
-                            }
-                            items(section.games, key = { it.appId }) { game -> row(game) }
-                        }
-                    }
-                }
-
                 else -> LazyVerticalGrid(
                     state = header.trackedGridState(),
                     // Adaptive rather than a fixed count: 2 columns on a portrait phone, 4-6 across a
                     // handheld in landscape, from one declaration.
                     // XMB home: portrait covers, a bit smaller, with room for the focused one's pop.
-                    columns = GridCells.Adaptive(
-                        minSize = if (xmb) rememberScreenScale().xmbCoverWidth() else if (wide) 190.dp else 165.dp,
-                    ),
+                    columns = GridCells.Adaptive(minSize = storeGridCell(wide)),
                     modifier = Modifier.fillMaxSize().focusGroup(),
-                    contentPadding = PaddingValues(14.dp),
-                    horizontalArrangement = Arrangement.spacedBy(if (xmb) 12.dp else 11.dp),
-                    verticalArrangement = Arrangement.spacedBy(if (xmb) 14.dp else 11.dp),
+                    contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 24.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
+                    // The same card as every other store: a tap opens the game's page.
                     val card: @Composable (SteamGame) -> Unit = { game ->
-                        LibraryCapsuleCard(
-                            game = game,
+                        StoreLibraryCard(
+                            item = CatalogItem(
+                                store = com.winlator.star.store.download.Store.STEAM,
+                                id = game.appId.toString(),
+                                title = game.name,
+                                imageUrl = "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/${game.appId}/header.jpg",
+                                tallImageUrl = steamTallArt(game.appId),
+                            ),
+                            installed = game.isInstalled,
                             onOpen = { onOpenApp(game.appId) },
-                            onAction = {
-                                if (game.isInstalled) launchInstalled(game) else onOpenApp(game.appId)
-                            },
                         )
                     }
                     if (sections == null) {
@@ -863,11 +873,13 @@ private fun LibraryTypeChips(
     typeFilter: LibraryTypeFilter,
     onTypeFilter: (LibraryTypeFilter) -> Unit,
 ) {
+    androidx.compose.runtime.LaunchedEffect(typeFilter) { if (typeFilter == LibraryTypeFilter.GAMES) onTypeFilter(LibraryTypeFilter.ALL) }
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        LibraryTypeFilter.entries.forEach { f ->
+        // All, Demos, Installed: the Games chip is gone (a saved Games choice shows as All).
+        listOf(LibraryTypeFilter.ALL, LibraryTypeFilter.DEMOS, LibraryTypeFilter.INSTALLED).forEach { f ->
             StoreFilterChip(
                 label = f.label,
-                selected = typeFilter == f,
+                selected = typeFilter == f || (f == LibraryTypeFilter.ALL && typeFilter == LibraryTypeFilter.GAMES),
                 onClick = { onTypeFilter(f) },
             )
         }
@@ -898,7 +910,7 @@ private fun LibrarySortButton(
                 else MaterialTheme.colorScheme.primary,
             )
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, modifier = Modifier.outlinedMenuCard()) {
             LibrarySort.entries.forEach { option ->
                 DropdownMenuItem(
                     text = {

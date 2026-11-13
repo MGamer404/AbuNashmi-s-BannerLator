@@ -1147,7 +1147,7 @@ internal fun OnScreenLayoutPreview(profileId: Int, refreshKey: Int, onOpenEditor
  * instance nobody else lays out — see the GOTCHA on OnScreenLayoutPreview.
  */
 @Composable
-private fun LayoutPreviewFrame(profile: ControlsProfile?, onTap: (() -> Unit)?) {
+internal fun LayoutPreviewFrame(profile: ControlsProfile?, onTap: (() -> Unit)?) {
     val context = LocalContext.current
     val cs = MaterialTheme.colorScheme
     // Game-screen aspect (device long:short, clamped; 16:9 fallback) so it reads as a mini game screen.

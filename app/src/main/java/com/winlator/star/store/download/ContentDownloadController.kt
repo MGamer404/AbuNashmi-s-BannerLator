@@ -12,14 +12,17 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.InterruptedIOException
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.resume
 
@@ -73,6 +76,10 @@ data class ContentDownloadState(
     // Contents hub "Save archive only": the archive is downloaded and filed in My Files, nothing is
     // installed. The popup/row relabel DONE as "Saved" (never "Installed") and INSTALLING as "Saving".
     val saveOnly: Boolean = false,
+    // DONE: shown in place of "Installed" (a GPU driver that went into the Linux or Wayland list says so).
+    val note: String? = null,
+    // ERROR: a driver with the same name is installed; the row offers Replace.
+    val replaceable: Boolean = false,
 ) {
     val terminal: Boolean get() = phase == ContentDownloadPhase.DONE || phase == ContentDownloadPhase.ERROR
 }
@@ -156,13 +163,15 @@ fun startContentDownload(appContext: Context, profile: ContentProfile) {
     val job = DownloadScope.io.launch {
         try {
             // ── Download phase ────────────────────────────────────────────────
-            val uri = com.winlator.star.ui.screens.downloadToCache(ctx, profile) { frac ->
+            val uri = com.winlator.star.ui.screens.downloadToCache(ctx, profile, isCancelled = { !isActive }) { frac ->
                 val f = frac.coerceIn(0f, 1f)
                 ContentDownloadRegistry.update(key) {
                     it.copy(phase = ContentDownloadPhase.DOWNLOADING, fraction = f)
                 }
                 DownloadForegroundService.setProgress(key, "$title — Downloading ${(f * 100).toInt()}%")
             }
+            // A Cancel during the download ends here, before anything is unpacked or installed.
+            ensureActive()
             if (uri == null) {
                 ContentDownloadRegistry.update(key) {
                     it.copy(phase = ContentDownloadPhase.ERROR, error = "Download failed.")
@@ -195,6 +204,8 @@ fun startContentDownload(appContext: Context, profile: ContentProfile) {
         } catch (c: CancellationException) {
             // A user Cancel: requestCancel already set the cancelled-terminal state — keep it and let
             // the finally close the bracket. Never swallow a CancellationException.
+            // The partial download goes too, so a later Download starts fresh.
+            runCatching { com.winlator.star.ui.screens.contentDownloadPartFile(ctx, profile).delete() }
             throw c
         } catch (e: Exception) {
             Log.w(TAG, "Component download/install failed for $key", e)
@@ -239,6 +250,8 @@ private suspend fun installContentBlocking(
     val etaTracker = ImportEtaTracker()
     try {
         val progress = TarCompressorUtils.OnReadProgressListener { read, tot ->
+            // A Cancel stops the unpack: the extractor reads this as a failed read and gives up.
+            if (!cont.isActive) throw InterruptedIOException("Cancelled")
             if (tot > 0) {
                 etaTracker.update(read, tot)
                 onProgress((read.toFloat() / tot).coerceIn(0f, 1f))
@@ -261,6 +274,8 @@ private suspend fun installContentBlocking(
             override fun onSucceed(profile: ContentProfile) {
                 try {
                     if (phase == 0) {
+                        // Cancelled while unpacking: the unpacked files are never moved into place.
+                        if (!cont.isActive) return
                         phase = 1
                         cm.finishInstallContent(profile, this)
                     } else {

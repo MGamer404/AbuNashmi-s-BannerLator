@@ -50,9 +50,11 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -80,6 +82,8 @@ import com.winlator.star.ui.deck.SoraFamily
 import com.winlator.star.ui.screens.OutlinedAlertDialog
 import com.winlator.star.ui.screens.UnsavedChangesDialog
 import com.winlator.star.ui.simple.L
+import com.winlator.star.ui.simple.LabDownloadPicker
+import com.winlator.star.ui.simple.LabDownloads
 import com.winlator.star.ui.simple.SIn
 import com.winlator.star.ui.simple.SimpleCover
 import com.winlator.star.ui.simple.SimpleDim
@@ -101,6 +105,7 @@ import com.winlator.star.ui.simple.simpleInputOf
 import com.winlator.star.ui.simple.simpleTap
 import com.winlator.star.ui.theme.AppThemeState
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.max
 
 // The Simple style's container, new-container, All-containers and game menus, laid out like the Classic editors:
@@ -131,6 +136,9 @@ private fun pre(vararg p: String): (SettingDef) -> Boolean = { d -> p.any { d.id
 
 /** The Wayland compositor's driver (SettingsRegistry's own id; the X11 driver configuration's version is graphics.gdc.version). */
 private const val COMPOSITOR_DRIVER = "graphics.compositorDriver"
+
+/** DeckWrapperDetectedSection's invisible extra that reads the picked wrapper's detected keys (kept running like GRAPHICS_PROBES). */
+private const val WRAPPER_DETECTED_PROBE = "wrapper-detected-probe"
 
 private fun graphicsItems(game: Boolean): List<CItem> = listOf(
     CHead(L("Graphics")),
@@ -278,12 +286,12 @@ private fun controllerItems(game: Boolean): List<CItem> = listOf(
     CRow("input.vibrationIntensity", L("Rumble Intensity")),
     CRow("input.rumbleMotors", L("Rumble Motors")),
     CHead(if (game) L("Input") else L("Player Slots")),
-    CRow("input.touchMode", L("Touchscreen Mode")),
     CRow("input.numControllers", L("Num Controllers")),
     CRow("input.onScreenPriority", L("On-screen priority")),
     CRow("input.hideOnController", L("Hide on-screen controls when a controller connects")),
     CPage(L("Player Slots"), listOf(CExtra("input", L("Slots"), { it.startsWith("slots") }))),
-    CRow("input.relativeMouse", L("Relative mouse")),
+    CRow("input.touchMode", L("Touch")),
+    CRow("input.aimMode", L("Aim mode")),
     CHead(L("Gyro (Motion Aim)")),
     CRow("input.gyro.enabled", L("Enable Motion Aim")),
     CRow("input.gyro.mode", L("Motion Mode")),
@@ -401,7 +409,8 @@ private fun resolve(
     val placed = HashSet<SettingDef>()
     val extraItems: Map<String, List<Pair<PageExtra, Boolean>>> =
         extras.mapValues { (_, e) -> e.top().map { it to true } + e.bottom().map { it to false } }
-    val placedExtra = HashSet<String>()
+    // The Graphics lists reader and the wrapper keys reader draw nothing; the editor keeps them running itself (see SimpleClassicEditor).
+    val placedExtra = hashSetOf("graphics|$GRAPHICS_PROBES", "graphics|$WRAPPER_DETECTED_PROBE")
     fun res(items: List<CItem>): List<RLine> = buildList {
         for (item in items) when (val it = item) {
             is CHead -> add(RHead(it.title))
@@ -479,6 +488,13 @@ internal fun SimpleClassicEditor(
         handoffs.mapValues { (_, list) -> list.filter { env.world in it.worlds } }.filterValues { it.isNotEmpty() }
     }
     LaunchedEffect(env) { env.loadAsync() }
+    // Driver versions, DXVK/VKD3D/VEGAS/D7VK builds and the GPU names are read by this extra while it is
+    // composed. Lab has no Graphics page to host it, so it runs for as long as the editor is open.
+    val graphicsProbes = remember(extras) { extras["graphics"]?.top()?.filter { it.key == GRAPHICS_PROBES }.orEmpty() }
+    graphicsProbes.forEach { it.content() }
+    // The picked wrapper's detected keys, so "Detected in this wrapper" only shows when it has rows. Read on every
+    // composition: it applies only to X11 Wine containers and games, which the backend row can change.
+    extras["graphics"]?.top()?.filter { it.key == WRAPPER_DETECTED_PROBE }.orEmpty().forEach { p -> key(p.key) { p.content() } }
     val catLabels = remember(categories) { categories.associate { it.id to it.label } }
     val tabs = resolve(
         if (game) gameLayout() else containerLayout(),
@@ -517,6 +533,9 @@ internal fun SimpleClassicEditor(
 
     // Dialogs and pickers.
     var pickerFor by remember { mutableStateOf<SettingDef?>(null) }
+    // The setting whose "+ Download from source" pages are open.
+    var downloadFor by remember { mutableStateOf<SettingDef?>(null) }
+    val downloadScope = rememberCoroutineScope()
     var textFor by remember { mutableStateOf<SettingDef?>(null) }
     var coresFor by remember { mutableStateOf<SettingDef?>(null) }
     var checklistFor by remember { mutableStateOf<SettingDef?>(null) }
@@ -525,7 +544,7 @@ internal fun SimpleClassicEditor(
     var pendingConfirm by remember { mutableStateOf<Pair<SettingDef, String>?>(null) }
     var afterUnsaved by remember { mutableStateOf<(() -> Unit)?>(null) }
     var saving by remember { mutableStateOf(false) }
-    val dialogOpen = pickerFor != null || textFor != null || coresFor != null || checklistFor != null ||
+    val dialogOpen = pickerFor != null || downloadFor != null || textFor != null || coresFor != null || checklistFor != null ||
         customFor != null || helpFor != null || pendingConfirm != null || afterUnsaved != null
 
     val pick: (SettingDef, String) -> Unit = { def, v ->
@@ -795,7 +814,25 @@ internal fun SimpleClassicEditor(
             onDismiss = { pickerFor = null },
             onPick = { v -> pickerFor = null; pick(def, v) },
             onCustom = { pickerFor = null; customFor = def },
+            onDownload = LabDownloads.typesFor(def.id, env)?.let { { pickerFor = null; downloadFor = def } },
         )
+    }
+    downloadFor?.let { def ->
+        val types = LabDownloads.typesFor(def.id, env)
+        if (types == null) downloadFor = null
+        else LabDownloadPicker(types, onClose = {
+            downloadFor = null
+            downloadScope.launch {
+                // Back to the picker with the list read again; nothing is picked for the user.
+                runCatching { LabDownloads.refresh(def.id, env) }
+                pickerFor = def
+                // A download still running when the pages closed is listed once it has installed.
+                if (LabDownloads.downloading()) {
+                    LabDownloads.awaitDownloads()
+                    runCatching { LabDownloads.refresh(def.id, env) }
+                }
+            }
+        })
     }
     customFor?.let { def ->
         val control = def.control(env, values) as? Control.Select

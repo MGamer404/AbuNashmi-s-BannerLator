@@ -24,19 +24,18 @@ import java.io.File
 // screen only ever talks to a SettingsSource, so the same rows serve all four scopes.
 
 /**
- * How much the editor shows: Simple is the handful most people touch, Advanced is everything. [EXPERT] is only
- * kept so the many rows (and SimpleSettingsEditor) that still name it keep compiling: it is an alias of
- * [ADVANCED]. A [SettingDef] stores its level through [effective], so no row is ever EXPERT, and a stored
- * "EXPERT" preference reads back as ADVANCED ([parse]).
+ * How much the editor shows: Simple is the handful most people touch, Advanced more, Expert everything. The plain Deck, Lab and
+ * Classic keep all three. The XMB editor has two: there [EXPERT] reads as ADVANCED ([effective], [parse]), folded where the
+ * rows are filed into its tabs ([EditorLayout.apply]) and where its level choice is read and written.
  */
 internal enum class SettingLevel(val label: String) {
-    SIMPLE("Simple"), ADVANCED("Advanced"), EXPERT("Advanced");
+    SIMPLE("Simple"), ADVANCED("Advanced"), EXPERT("Expert");
 
-    /** This level with the EXPERT alias folded into ADVANCED: the only two levels the editor works with. */
+    /** XMB: this level with EXPERT folded into ADVANCED, the only two levels its editor works with. */
     val effective: SettingLevel get() = if (this == EXPERT) ADVANCED else this
 
     companion object {
-        /** A stored level name; anything unknown (or absent) is SIMPLE, and the old "EXPERT" is ADVANCED. */
+        /** XMB: a stored level name; anything unknown (or absent) is SIMPLE, and the third level "EXPERT" is ADVANCED. */
         fun parse(s: String?): SettingLevel = when (s) {
             "ADVANCED", "EXPERT" -> ADVANCED
             else -> SIMPLE
@@ -163,7 +162,7 @@ internal class SettingDef(
     val help: String? = null,
     /** The old label or raw key, shown small from Advanced up. */
     val tech: String? = null,
-    level: SettingLevel,
+    val level: SettingLevel,
     val control: (SettingsEnv, (String) -> String) -> Control,
     val vm: VmBinding? = null,
     val game: GameBinding? = null,
@@ -188,15 +187,18 @@ internal class SettingDef(
      */
     val getMore: String? = null,
 ) {
-    /** The row's level, with the EXPERT alias folded into ADVANCED (see [SettingLevel]). */
-    val level: SettingLevel = level.effective
-
     /**
-     * The same row in another category / group / level, every other field carried over. The Deck editor's
-     * [EditorLayout] uses it to move rows into its tabs without touching the registries. A field added to
-     * this class must be added here too, or a copied row silently loses it.
+     * The same row in another category / group / level (and, for the XMB layout, another label / hint), every other field
+     * carried over. The XMB editor's [EditorLayout] uses it to move rows into its tabs without touching the registries. A field
+     * added to this class must be added here too, or a copied row silently loses it.
      */
-    fun copyWith(category: String = this.category, group: String = this.group, level: SettingLevel = this.level): SettingDef = SettingDef(
+    fun copyWith(
+        category: String = this.category,
+        group: String = this.group,
+        level: SettingLevel = this.level,
+        label: String = this.label,
+        hint: String? = this.hint,
+    ): SettingDef = SettingDef(
         id = id, category = category, group = group, label = label, hint = hint, help = help, tech = tech, level = level,
         control = control, vm = vm, game = game, app = app, onDefaults = onDefaults, showInGame = showInGame,
         visible = visible, disabled = disabled, confirm = confirm, worlds = worlds, note = note, getMore = getMore,
@@ -221,6 +223,7 @@ internal class SettingsEnv(
     val isAndroid: Boolean = shortcut?.let { AndroidGames.isAndroidEntry(it) } == true
     val isSteam: Boolean = shortcut?.let { s -> runCatching { isSteamOriginShortcut(s) }.getOrDefault(false) } == true
     val isEpic: Boolean = shortcut?.getExtra("storeSource") == "epic"
+    val isWindowsSteam: Boolean = shortcut?.let { com.winlator.star.store.WindowsSteamClient.isWindowsSteamShortcut(it) } == true
     /** An Xbox game whose install ships Microsoft's xgameruntime.dll (the "Xbox runtime" setting applies). */
     val xboxShipsRuntime: Boolean = shortcut?.takeIf { it.getExtra("storeSource") == "xbox" }?.getExtra("xboxProductId")
         ?.takeIf { it.isNotEmpty() }

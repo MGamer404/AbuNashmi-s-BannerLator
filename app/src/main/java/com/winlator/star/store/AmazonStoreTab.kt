@@ -123,7 +123,7 @@ fun AmazonStoreTab(
                 }
             }
 
-            if (wide) {
+            if (STORE_SPLIT && wide) {
                 Row(modifier = Modifier.weight(1f).fillMaxSize()) {
                     LazyColumn(
                         state = rememberTrackedListState(),

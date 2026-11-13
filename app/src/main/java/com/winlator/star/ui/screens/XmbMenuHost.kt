@@ -146,7 +146,7 @@ private fun XmbRow.disabled(): String? = when (this) {
     is XmbRow.Action -> disabledReason
     is XmbRow.Header, is XmbRow.Info, is XmbRow.External -> null
 }
-private fun XmbRow.sub(): String? = disabled() ?: when (this) {
+private fun XmbRow.sub(): String? = disabled() ?: (when (this) {
     is XmbRow.Toggle -> subtitle
     is XmbRow.Choice -> subtitle
     is XmbRow.Text -> subtitle
@@ -156,7 +156,7 @@ private fun XmbRow.sub(): String? = disabled() ?: when (this) {
     is XmbRow.Info -> subtitle
     is XmbRow.External -> subtitle
     is XmbRow.Header -> null
-}
+} ?: editorHint)
 private fun XmbRow.iconOrNull(): ImageVector? = when (this) {
     is XmbRow.Toggle -> icon
     is XmbRow.Choice -> icon
@@ -261,6 +261,8 @@ private fun XmbNavState.switchSibling(d: Int) {
 /** One key press while menus are open. Always consumes (the XMB owns the keys while nested). */
 internal fun XmbNavState.onKey(k: XmbKey, xmb: XmbScope): Boolean {
     val m = top ?: return false
+    // X only means "reset this row" on a plain row list: while typing, choosing or in a panel it stays unhandled, as before.
+    if (k == XmbKey.X && (editingKey != null || picker != null || m.panel != null)) return false
     if (editingKey != null) {
         when (k) { XmbKey.A -> commitEdit(xmb); XmbKey.B -> pop(); else -> {} }
         return true
@@ -287,12 +289,14 @@ internal fun XmbNavState.onKey(k: XmbKey, xmb: XmbScope): Boolean {
         XmbKey.B -> pop()
         XmbKey.L1 -> switchSibling(-1)
         XmbKey.R1 -> switchSibling(1)
+        // Only a row changed for this game has something to reset; on any other X goes on to whoever wanted it.
+        XmbKey.X -> { val ov = row?.overridden ?: return false; ov.reset() }
     }
     return true
 }
 
 /** What the A hint should say, and whether ◀▶ / L1 R1 apply right now. */
-internal data class XmbHint(val a: String, val change: Boolean, val sections: Boolean)
+internal data class XmbHint(val a: String, val change: Boolean, val sections: Boolean, val reset: Boolean = false)
 internal fun XmbNavState.hint(xmb: XmbScope): XmbHint {
     val m = top ?: return XmbHint("Select", false, false)
     if (editingKey != null) return XmbHint("Done", false, false)
@@ -307,7 +311,7 @@ internal fun XmbNavState.hint(xmb: XmbScope): XmbHint {
         is XmbRow.External -> "Open ↗"
         else -> "Select"
     }
-    return XmbHint(a, row != null && row.adjustable(), m.siblings != null)
+    return XmbHint(a, row != null && row.adjustable(), m.siblings != null, reset = row?.overridden != null)
 }
 
 // ── rendering ──
@@ -522,18 +526,32 @@ private fun XmbRowView(
             }
         }
         Column(Modifier.weight(1f)) {
-            Text(
-                row.label,
-                color = when { danger && !selected -> Color(0xFFE8A197); selected -> Color.White; else -> Color.White.copy(alpha = 0.64f) },
-                fontSize = if (selected) 15.sp else 13.5.sp,
-                fontWeight = if (selected) FontWeight.Normal else FontWeight.Light,
-                maxLines = if (row is XmbRow.Info && row.value.isEmpty()) 2 else 1, overflow = TextOverflow.Ellipsis,
-                lineHeight = 17.sp,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    row.editorLabel ?: row.label,
+                    color = when { danger && !selected -> Color(0xFFE8A197); selected -> Color.White; else -> Color.White.copy(alpha = 0.64f) },
+                    fontSize = if (selected) 15.sp else 13.5.sp,
+                    fontWeight = if (selected) FontWeight.Normal else FontWeight.Light,
+                    maxLines = if (row is XmbRow.Info && row.value.isEmpty()) 2 else 1, overflow = TextOverflow.Ellipsis,
+                    lineHeight = 17.sp,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                // Changed for this game only (the container's value is not in use): one small dot in the accent, nothing else.
+                if (row.overridden != null) Box(Modifier.size(5.dp).clip(CircleShape).background(accent))
+            }
             val sub = row.sub()
             if (selected && sub != null) {
                 Text(sub, color = Color.White.copy(alpha = 0.62f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
+        }
+        // The touch way to put the container's value back (a controller presses X): only on the highlighted row that is changed.
+        val ov = row.overridden
+        if (selected && ov != null && !editing) {
+            val resetSrc = remember { MutableInteractionSource() }
+            val chip = RoundedCornerShape(6.dp)
+            Text("Reset", color = Color.White.copy(alpha = 0.7f), fontSize = 10.5.sp, maxLines = 1,
+                modifier = Modifier.clip(chip).border(1.dp, Color.White.copy(alpha = 0.22f), chip)
+                    .xmbClick(resetSrc) { ov.reset() }.padding(horizontal = 7.dp, vertical = 2.dp))
         }
         if (editing && row is XmbRow.Text) {
             XmbEditField(row, nav, xmb, accent)
@@ -616,7 +634,7 @@ private fun XmbPickerPanel(
             .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f))
             .border(1.dp, Color.White.copy(alpha = 0.1f), shape),
     ) {
-        Text(p.row.label.uppercase(), color = Color(0xFF999999), fontSize = 10.5.sp, letterSpacing = 1.sp,
+        Text((p.row.editorLabel ?: p.row.label).uppercase(), color = Color(0xFF999999), fontSize = 10.5.sp, letterSpacing = 1.sp,
             modifier = Modifier.padding(start = 12.dp, top = 8.dp))
         p.row.options.forEachIndexed { j, opt ->
             val y = centerY - top - 18f + (j - p.sel) * 36f

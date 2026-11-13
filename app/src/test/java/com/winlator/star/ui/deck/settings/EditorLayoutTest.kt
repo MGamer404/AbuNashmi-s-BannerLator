@@ -8,7 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The pure parts of the XMB / Deck editor's tab layer (EditorLayout.kt) and the level alias (SettingsModel.kt): no Compose
+ * The pure parts of the XMB editor's tab layer (EditorLayout.kt) and the XMB level fold (SettingsModel.kt): no Compose
  * runtime and no Android classes involved, so no registry row is built (those need strings and storage).
  */
 class EditorLayoutTest {
@@ -35,15 +35,18 @@ class EditorLayoutTest {
     // ---- Levels ----
 
     @Test
-    fun expertIsAnAliasOfAdvanced() {
+    fun expertFoldsIntoAdvancedOnlyForTheXmbEditor() {
         assertEquals(SettingLevel.ADVANCED, SettingLevel.EXPERT.effective)
         assertEquals(SettingLevel.ADVANCED, SettingLevel.ADVANCED.effective)
         assertEquals(SettingLevel.SIMPLE, SettingLevel.SIMPLE.effective)
-        assertEquals("Advanced", SettingLevel.EXPERT.label)
+        // The enum itself keeps its three levels, in order, for the plain Deck, Lab and Classic.
+        assertEquals(listOf(SettingLevel.SIMPLE, SettingLevel.ADVANCED, SettingLevel.EXPERT), SettingLevel.entries.toList())
+        assertEquals("Expert", SettingLevel.EXPERT.label)
+        assertTrue(SettingLevel.ADVANCED < SettingLevel.EXPERT)
     }
 
     @Test
-    fun aStoredLevelReadsBackAsOneOfTwo() {
+    fun aStoredLevelReadsBackAsOneOfTwoInTheXmbEditor() {
         assertEquals(SettingLevel.SIMPLE, SettingLevel.parse(null))
         assertEquals(SettingLevel.SIMPLE, SettingLevel.parse(""))
         assertEquals(SettingLevel.SIMPLE, SettingLevel.parse("SIMPLE"))
@@ -53,11 +56,18 @@ class EditorLayoutTest {
     }
 
     @Test
-    fun aRowDeclaredExpertIsAdvanced() {
-        assertEquals(SettingLevel.ADVANCED, row("a", "x", level = SettingLevel.EXPERT).level)
+    fun aRowKeepsTheLevelItDeclaresAndOnlyTheXmbLayoutFoldsExpert() {
+        // The registry rows are never changed: Lab, the plain Deck and Classic read the declared level (Expert stays above Advanced).
+        val expert = row("a", "x", level = SettingLevel.EXPERT)
+        assertEquals(SettingLevel.EXPERT, expert.level)
         assertEquals(SettingLevel.SIMPLE, row("a", "x", level = SettingLevel.SIMPLE).level)
-        // So "shown at the chosen level" never needs a third step: nothing sits above ADVANCED.
-        assertTrue(row("a", "x", level = SettingLevel.EXPERT).level <= SettingLevel.ADVANCED)
+        assertTrue(expert.level > SettingLevel.ADVANCED)
+        // The XMB layout files a copy of it at Advanced, and the original is untouched.
+        val l = layout(EditorTabs.GENERAL, tabOf = { EditorTabs.GENERAL })
+        assertEquals(SettingLevel.ADVANCED, l.apply(listOf(expert))[0].level)
+        assertEquals(SettingLevel.EXPERT, expert.level)
+        // So at the XMB editor's top level (Advanced) a row declared Expert is shown.
+        assertTrue(l.apply(listOf(expert))[0].level <= SettingLevel.ADVANCED)
     }
 
     // ---- SettingDef.copyWith ----
@@ -87,7 +97,13 @@ class EditorLayoutTest {
         // The original is untouched; an argument left out keeps its value.
         assertEquals("graphics", original.category)
         assertEquals("Old", original.copyWith(category = "t").group)
-        assertEquals(SettingLevel.ADVANCED, original.copyWith(group = "g").level)
+        assertEquals(SettingLevel.EXPERT, original.copyWith(group = "g").level)
+        // The label and hint can be swapped for a layout; left out they stay.
+        val reworded = original.copyWith(label = "Other", hint = null)
+        assertEquals("Other", reworded.label)
+        assertNull(reworded.hint)
+        assertEquals("Label", original.copyWith(group = "g").label)
+        assertEquals("Hint", original.copyWith(group = "g").hint)
     }
 
     // ---- EditorLayout.apply ----
@@ -130,6 +146,58 @@ class EditorLayoutTest {
     fun applyNormalisesAnExpertLevelAFunctionReturns() {
         val l = layout(EditorTabs.GENERAL, tabOf = { EditorTabs.GENERAL }, levelOf = { SettingLevel.EXPERT })
         assertEquals(SettingLevel.ADVANCED, l.apply(listOf(row("a", "x")))[0].level)
+    }
+
+    @Test
+    fun applyRewritesLabelsAndHintsForTheLayoutOnly() {
+        val src = SettingDef(id = "a", category = "x", group = "G", label = "Old", hint = "Old hint", level = SettingLevel.SIMPLE, control = { _, _ -> Control.Toggle })
+        val l = EditorLayout(
+            tabs = listOf(EditorTabs.tab(EditorTabs.GENERAL)),
+            tabOf = { EditorTabs.GENERAL },
+            labelOf = { d -> if (d.id == "a") "New" else d.label },
+            hintOf = { d -> if (d.id == "a") null else d.hint },
+        )
+        val out = l.apply(listOf(src))[0]
+        assertEquals("New", out.label)
+        assertNull(out.hint)
+        assertEquals("Old", src.label)
+        assertEquals("Old hint", src.hint)
+    }
+
+    @Test
+    fun everyAppliedRowLandsExactlyOnceOnAListedTab() {
+        // A spread of rows over the old categories, a hidden one, one for a tab the layout does not have, and two with one id.
+        val l = layout(EditorTabs.GENERAL, EditorTabs.GRAPHICS, tabOf = { d ->
+            when {
+                d.id == "hud.enabled" -> null
+                d.id == "linux.x" -> EditorTabs.LINUX
+                d.category == "display" -> EditorTabs.GENERAL
+                else -> EditorTabs.GRAPHICS
+            }
+        })
+        val rows = listOf(
+            row("display.a", "display"), row("graphics.a", "graphics"), row("visuals.a", "visuals"),
+            row("hud.enabled", "hud"), row("linux.x", "linux"),
+        )
+        val placed = l.apply(rows)
+        val listed = l.tabs.map { it.id }.toSet()
+        // Hidden and unknown-tab rows are dropped, every other row is placed once, and only on a tab the layout lists.
+        assertEquals(listOf("display.a", "graphics.a", "visuals.a"), placed.map { it.id })
+        assertEquals(placed.map { it.id }.size, placed.map { it.id }.toSet().size)
+        assertTrue(placed.all { it.category in listed })
+    }
+
+    @Test
+    fun anUnlistedRowIsPlacedOnItsTabLikeAnyOtherRow() {
+        val l = EditorLayout(
+            tabs = listOf(EditorTabs.tab(EditorTabs.WINCOMP)),
+            tabOf = { EditorTabs.WINCOMP },
+            unlisted = { d -> d.id.startsWith("components.") },
+        )
+        val rows = listOf(row("components.direct3d", "components"), row("windows.codecBackend", "components"))
+        val placed = l.apply(rows)
+        assertEquals(listOf("components.direct3d", "windows.codecBackend"), placed.map { it.id })
+        assertEquals(listOf(true, false), placed.map { l.unlisted(it) })
     }
 
     @Test
@@ -237,8 +305,8 @@ class EditorLayoutTest {
             EditorTabs.GENERAL, EditorTabs.GRAPHICS, EditorTabs.PERFORMANCE, EditorTabs.CONTROLS,
             EditorTabs.WINDOWS, EditorTabs.WINCOMP, EditorTabs.ADVANCED,
         )
-        assertEquals(seven, EditorTabs.idsFor(EditorScope.CONTAINER, xmb = true))
-        assertEquals(seven, EditorTabs.idsFor(EditorScope.DEFAULTS, xmb = true))
+        assertEquals(seven, EditorTabs.idsFor(EditorScope.CONTAINER))
+        assertEquals(seven, EditorTabs.idsFor(EditorScope.DEFAULTS))
         assertEquals(7, EditorTabs.CONTAINER_IDS.size)
     }
 
@@ -255,26 +323,8 @@ class EditorLayoutTest {
     }
 
     @Test
-    fun thePlainDeckKeepsTheSixContainerTabsOfBefore() {
-        val six = listOf(EditorTabs.GENERAL, EditorTabs.GRAPHICS, EditorTabs.PERFORMANCE, EditorTabs.CONTROLS, EditorTabs.WINDOWS, EditorTabs.ADVANCED)
-        assertEquals(six, EditorTabs.DECK_CONTAINER_IDS)
-        assertEquals(six, EditorTabs.idsFor(EditorScope.CONTAINER, xmb = false))
-        assertEquals(six, EditorTabs.idsFor(EditorScope.DEFAULTS, xmb = false))
-        assertEquals(listOf(EditorTabs.GAME) + six, EditorTabs.idsFor(EditorScope.GAME, World.WINE, xmb = false))
-        val linux = EditorTabs.idsFor(EditorScope.GAME, World.LINUX, xmb = false)
-        assertEquals(8, linux.size)
-        assertFalse(EditorTabs.WINCOMP in linux)
-        assertEquals(EditorTabs.APP_IDS, EditorTabs.idsFor(EditorScope.APP, xmb = false))
-        // The hints of Windows and Storage & data are the earlier ones there.
-        assertTrue(EditorTabs.tab(EditorTabs.WINDOWS, xmb = false).desc.contains("components"))
-        assertTrue(EditorTabs.tab(EditorTabs.APP_STORAGE, xmb = false).desc.contains("logs"))
-        assertFalse(EditorTabs.tab(EditorTabs.APP_STORAGE, xmb = true).desc.contains("logs"))
-        assertEquals(six, EditorTabs.tabsFor(EditorScope.CONTAINER, xmb = false).map { it.id })
-    }
-
-    @Test
     fun aGameHasGameFirstThenTheSameSeven() {
-        val ids = EditorTabs.idsFor(EditorScope.GAME, World.WINE, xmb = true)
+        val ids = EditorTabs.idsFor(EditorScope.GAME, World.WINE)
         assertEquals(8, ids.size)
         assertEquals(EditorTabs.GAME, ids.first())
         assertEquals(EditorTabs.CONTAINER_IDS, ids.drop(1))
@@ -283,17 +333,17 @@ class EditorLayoutTest {
 
     @Test
     fun onlyTheLinuxEntryHasTheLinuxRuntimeTab() {
-        val ids = EditorTabs.idsFor(EditorScope.GAME, World.LINUX, xmb = true)
+        val ids = EditorTabs.idsFor(EditorScope.GAME, World.LINUX)
         assertEquals(9, ids.size)
         assertEquals(EditorTabs.GAME, ids.first())
         assertEquals(EditorTabs.ADVANCED, ids.last())
         assertTrue(ids.indexOf(EditorTabs.LINUX) in 1 until ids.lastIndex)
-        assertEquals(listOf(EditorTabs.GAME), EditorTabs.idsFor(EditorScope.GAME, World.ANDROID, xmb = true))
+        assertEquals(listOf(EditorTabs.GAME), EditorTabs.idsFor(EditorScope.GAME, World.ANDROID))
     }
 
     @Test
     fun appSettingsHaveSixTabsOfTheirOwn() {
-        val ids = EditorTabs.idsFor(EditorScope.APP, xmb = true)
+        val ids = EditorTabs.idsFor(EditorScope.APP)
         assertEquals(6, ids.size)
         assertTrue(ids.all { it.startsWith("app.t.") })
         assertEquals(ids.size, ids.toSet().size)
@@ -301,7 +351,7 @@ class EditorLayoutTest {
 
     @Test
     fun everyListedTabIsDeclaredWithItsOwnId() {
-        val all = EditorScope.values().flatMap { s -> World.values().flatMap { w -> EditorTabs.idsFor(s, w, xmb = true) + EditorTabs.idsFor(s, w, xmb = false) } }.toSet()
+        val all = EditorScope.values().flatMap { s -> World.values().flatMap { w -> EditorTabs.idsFor(s, w) } }.toSet()
         all.forEach { id -> assertEquals(id, EditorTabs.tab(id).id) }
         assertEquals("Game actions", EditorTabs.tab(EditorTabs.GAME).actionsLabel)
         assertNull(EditorTabs.tab(EditorTabs.GENERAL).actionsLabel)

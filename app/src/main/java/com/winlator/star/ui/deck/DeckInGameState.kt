@@ -29,8 +29,8 @@ object DeckInGameState {
 
     enum class Panel { NONE, QUICK, MENU }
 
-    /** Full-menu pages, in rail order. STEAM, TV and FRIENDS only show where they apply (see [DeckInGameMenu]). */
-    enum class MenuTab { SCREEN, PERFORMANCE, EFFECTS, OVERLAY, CONTROLS, AUDIO, STEAM, TV, FRIENDS, TOOLS }
+    /** Full-menu pages, in rail order. STEAM, TV, FRIENDS and MODS only show where they apply (see [DeckInGameMenu]). */
+    enum class MenuTab { SCREEN, PERFORMANCE, EFFECTS, OVERLAY, CONTROLS, AUDIO, STEAM, TV, FRIENDS, MODS, TOOLS }
 
     /** Quick-menu pages. FRIENDS only shows while a live friends source exists. */
     enum class QuickTab { QUICK, TOOLS, FRIENDS, OPENERS }
@@ -91,7 +91,12 @@ object DeckInGameState {
     // Lab: one in-game menu whose first page is Quick (the quick menu's controls), then the full menu's pages.
     private val _labQuick = MutableStateFlow(true)
     val labQuick: StateFlow<Boolean> = _labQuick
-    private val lab: Boolean get() = com.winlator.star.ui.theme.AppThemeState.simpleHome.value
+    // The XMB mode's drawer is Lab's menu in XMB dress (XmbInGameMenu), so it runs the same state machine. The two styles
+    // never run together (AppThemeState keeps simpleHome and deckXmbHome apart).
+    private val lab: Boolean get() = com.winlator.star.ui.theme.AppThemeState.simpleHome.value || xmbDrawer
+
+    /** XMB mode: the in-game menu is the one glass drawer on the left (XmbInGameMenu) instead of the Deck's quick menu + game menu. */
+    val xmbDrawer: Boolean get() = com.winlator.star.ui.theme.AppThemeState.deckXmbHome.value
 
     fun openQuick() {
         if (lab) _labQuick.value = true
@@ -160,12 +165,16 @@ object DeckInGameState {
 
     fun requestFocus() { _focusRequest.value = _focusRequest.value + 1 }
 
-    /** The full-menu pages that apply to this session: the Steam page only in the Linux Steam client, TV and Friends as the Classic rail shows them. */
-    fun availableMenuTabs(kind: InGameSessionKind, tv: Boolean, friends: Boolean): List<MenuTab> = MenuTab.values().filter {
+    /**
+     * The full-menu pages that apply to this session: the Steam page only in the Linux Steam client, TV, Friends and Mods
+     * as the Classic rail shows them (Mods while the game's EXE can take a mod, XServerDrawerState.mods).
+     */
+    fun availableMenuTabs(kind: InGameSessionKind, tv: Boolean, friends: Boolean, mods: Boolean = modsTabShown()): List<MenuTab> = MenuTab.values().filter {
         when (it) {
             MenuTab.STEAM -> kind == InGameSessionKind.LINUX_STEAM
             MenuTab.TV -> tv
             MenuTab.FRIENDS -> friends
+            MenuTab.MODS -> mods
             else -> true
         }
     }
@@ -178,6 +187,8 @@ object DeckInGameState {
     }
 
     private fun friendsTabShown(): Boolean = InGameFriendsSource.state.value.tabVisible
+
+    private fun modsTabShown(): Boolean = XServerDrawerState.mods.value.isNotEmpty()
 
     /**
      * The panel's own controller buttons while one is open (key-down only): L1 / R1 change page, X swaps the quick menu

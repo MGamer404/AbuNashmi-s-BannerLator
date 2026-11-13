@@ -75,11 +75,6 @@ import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
 class EpicGamesActivity : ComponentActivity() {
-    // English and left-to-right whatever the phone's language (see AppLocale).
-    override fun attachBaseContext(newBase: android.content.Context) {
-        super.attachBaseContext(com.winlator.star.AppLocale.wrap(newBase))
-    }
-
     data class GameDownloadState(
         val progress: Int = 0,
         val status: String = "",
@@ -223,9 +218,24 @@ class EpicGamesActivity : ComponentActivity() {
             }
 
             if (showProgress) setSync("Fetching game list\u2026")
-            val rawGames = EpicApiClient.getLibraryItems(token)
+            val fetch = EpicApiClient.fetchLibrary(token)
+            if (fetch.authFailed) {
+                setSync("Not logged in")
+                withContext(Dispatchers.Main) {
+                    enableRefresh()
+                    resultBarMsg = "Please log in to Epic Games first"
+                    finish()
+                }
+                return
+            }
+            val rawGames = fetch.games
+            if (rawGames == null) {
+                setSync("Could not load the Epic library")
+                withContext(Dispatchers.Main) { enableRefresh() }
+                return
+            }
 
-            if (rawGames.isNullOrEmpty()) {
+            if (rawGames.isEmpty()) {
                 setSync("No games found in Epic library")
                 withContext(Dispatchers.Main) { enableRefresh() }
                 return
@@ -404,6 +414,7 @@ class EpicGamesActivity : ComponentActivity() {
         // CANCEL: install() polls this flag across manifest/verify/chunk/assemble, so cancel stops
         // the download promptly. Keep/delete of the partial is decided via EpicCancelPolicy below.
         EpicCancelPolicy.clear(appName)   // fresh download → keep-on-cancel until a dialog says otherwise
+        EpicDownloadControl.onFreshStart(applicationContext, appName)   // supersedes any earlier pause of this game
         val cancelled = AtomicBoolean(false)
         cancelRunnables[appName] = Runnable { cancelled.set(true) }
 
@@ -413,8 +424,9 @@ class EpicGamesActivity : ComponentActivity() {
             id = appName,
             name = game.title,
             cover = game.artCover.ifEmpty { game.artSquare },
-            supportsPause = false,
+            supportsPause = true,
             installTotal = prefs!!.getLong("epic_size_$appName", 0L),
+            pause = { EpicDownloadControl.pause(appName) },
             cancel = { cancelled.set(true) },
         )
 
@@ -456,6 +468,8 @@ class EpicGamesActivity : ComponentActivity() {
                 // Feature #2 — download required(base) + the container language's files only.
                 val installTags = EpicInstallTags.tagsForCurrentContainer(appCtx)
 
+                // Carries the manager's byte counter + speed into every registry tick and the status line.
+                val tracker = EpicProgressTracker(appName)
                 val ok = EpicDownloadManager.install(
                     appCtx,
                     manifestJson,
@@ -463,15 +477,36 @@ class EpicGamesActivity : ComponentActivity() {
                     installDir.absolutePath,
                     installTags,
                     cancelled,
-                ) { msg, pct ->
-                    if (!cancelled.get()) {
-                        StoreDownloadHooks.tick(Store.EPIC, appName, pct)
-                        downloadStates[appName] = downloadStates[appName]?.copy(progress = pct, status = msg)
-                            ?: GameDownloadState(isActive = true, progress = pct, status = msg, showProgress = true)
-                    }
-                }
+                    object : EpicDownloadManager.ProgressCallback {
+                        override fun onBytes(bytesDone: Long, bytesTotal: Long, speedBps: Long, etaSeconds: Long) {
+                            tracker.onBytes(bytesDone, bytesTotal, speedBps, etaSeconds)
+                        }
+
+                        override fun onProgress(message: String?, pct: Int) {
+                            if (!cancelled.get()) {
+                                val p = tracker.tick(pct)
+                                // "45%  ·  1.2 GB / 4.5 GB  ·  12 MB/s" once bytes flow; the manager's own
+                                // message for the phases without a byte count (manifest, verifying, complete).
+                                val status = if (tracker.total > 0L && tracker.done > 0L) tracker.label(p, includeEta = false)
+                                    else message.orEmpty()
+                                downloadStates[appName] = downloadStates[appName]?.copy(progress = p, status = status)
+                                    ?: GameDownloadState(isActive = true, progress = p, status = status, showProgress = true)
+                            }
+                        }
+                    },
+                )
 
                 if (cancelled.get()) {
+                    // A pause (Download Manager) stops the transfer the same way: keep everything and park the row as PAUSED.
+                    if (EpicDownloadControl.consumePause(appName)) {
+                        EpicDownloadControl.parkPaused(appCtx, appName, installDir.absolutePath, game.title,
+                            game.artCover.ifEmpty { game.artSquare })
+                        withContext(Dispatchers.Main) {
+                            cancelRunnables.remove(appName)
+                            downloadStates[appName] = GameDownloadState()
+                        }
+                        return@launch
+                    }
                     // Delete the partial if the user chose "Delete files" on any Cancel dialog.
                     if (EpicCancelPolicy.consumeDeleteOnCancel(appName)) {
                         try { EpicDownloadManager.deleteDir(installDir) } catch (_: Exception) {}
@@ -495,6 +530,8 @@ class EpicGamesActivity : ComponentActivity() {
                     }
                     return@launch
                 }
+                // Installed version, for the detail page's update check (as the detail page's install does).
+                EpicInstallState.rememberVersion(appCtx, game.appName, manifestJson)
 
                 val exeFiles = mutableListOf<File>()
                 AmazonLaunchHelper.collectExe(installDir, exeFiles)
@@ -903,10 +940,7 @@ private fun GameListCard(
     ) {
         Column(modifier = Modifier.padding(10.dp)) {
             Row(
-                modifier = Modifier.clickable {
-                    if (expanded) onClick()
-                    else expanded = true
-                },
+                modifier = Modifier.clickable { onClick() },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(
@@ -1046,9 +1080,7 @@ private fun GameGridTile(
             .clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
-            .clickable {
-                showAction = if (showAction) false else true
-            },
+            .clickable { onClick() },
     ) {
         Box(modifier = Modifier.fillMaxWidth()) {
             Box(

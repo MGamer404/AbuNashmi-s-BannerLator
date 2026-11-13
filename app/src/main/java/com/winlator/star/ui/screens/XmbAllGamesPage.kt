@@ -17,10 +17,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -76,7 +73,6 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -98,7 +94,6 @@ import com.winlator.star.ui.deck.LibrarySort
 import com.winlator.star.ui.deck.PlayStats
 import com.winlator.star.ui.deck.XmbStoreMark
 import com.winlator.star.ui.deck.gameSortKeyOf
-import com.winlator.star.ui.deck.isDeckCompact
 import com.winlator.star.ui.deck.lastPlayedLabel
 import com.winlator.star.ui.deck.playtimeLabel
 import com.winlator.star.ui.deck.readPlayStats
@@ -107,7 +102,6 @@ import com.winlator.star.ui.deck.sortGames
 import com.winlator.star.ui.deck.storeLabelOf
 import com.winlator.star.ui.deck.storeMarkOf
 import com.winlator.star.ui.deck.warmStoreMarks
-import com.winlator.star.ui.deck.xmbFrame
 
 /** [shortcuts] newest first, for a host whose list is in some other order (the row takes the first [XMB_ROW_LIMIT]). */
 internal fun xmbRecentFirst(context: Context, shortcuts: List<Shortcut>): List<Shortcut> {
@@ -150,16 +144,12 @@ private val PAGE_MUTED = Color(0xFFB4B4B4)
  * sorted list, moved by the D-pad and by taps; the page owns the keys while it is up. Three views ([AllView]) and the sorts in
  * [ALL_SORTS] are kept between visits. A game runs through [onPlay], the same launch the games row uses.
  *
- * The page has its own header where the Deck shell's floating tab bar would be (the shell leaves that bar out while the page is
- * open): a back arrow, the title and count, and the View / Sort hints. The covers scroll under it and fade into it.
- *
- * [inDeckShell]: the Deck shell floats its Search over the bottom-right corner and keeps its camera-cutout frame, so the page
- * keeps clear of them.
+ * The page has its own header under the see-through top bar: a back arrow, the title and count, and the View / Sort hints. The
+ * covers scroll under it and fade into it.
  */
 @Composable
 internal fun XmbAllGamesPage(
     games: List<Shortcut>,
-    inDeckShell: Boolean,
     onPlay: (Shortcut) -> Unit,
     onClose: () -> Unit,
 ) {
@@ -199,17 +189,13 @@ internal fun XmbAllGamesPage(
     }
     val hasPad = rememberGamepadConnected()
 
-    val cfg = LocalConfiguration.current
     val topInset = LocalTopBarOverlayInset.current
-    val floating = inDeckShell && !isDeckCompact(cfg)
-    val frame = if (inDeckShell) xmbFrame() else 0.dp
-    val padH = ss.dp(16f) + frame
+    val padH = ss.dp(16f)
     val gap = ss.dp(12f)
-    // The header takes the place of the shell's floating tab bar: under the camera cut-out, or under the see-through top bar of
-    // the classic Games screen. The covers scroll under it (the grid starts at the page's top) and fade out into its band.
-    val cutoutTop = WindowInsets.displayCutout.asPaddingValues().calculateTopPadding()
-    val header = remember(floating, cutoutTop, topInset, ss.factor) { xmbAllHeader((if (floating) cutoutTop else topInset).value, ss.factor) }
-    val bottomPad = if (floating) ss.dp(56f) else 16.dp
+    // The header sits under the see-through top bar. The covers scroll under it (the grid starts at the page's top) and fade out
+    // into its band.
+    val header = remember(topInset, ss.factor) { xmbAllHeader(topInset.value, ss.factor) }
+    val bottomPad = 16.dp
 
     val gridState = rememberLazyGridState()
     val moveSel: (Int) -> Unit = { i -> sorted.getOrNull(i)?.let { selPath = it.file.path } }
@@ -257,9 +243,8 @@ internal fun XmbAllGamesPage(
                         Key.DirectionRight -> { moveSel(xmbGridMove(sel, XmbMove.RIGHT, cols, sorted.size, page)); true }
                         Key.DirectionUp -> { moveSel(xmbGridMove(sel, XmbMove.UP, cols, sorted.size, page)); true }
                         Key.DirectionDown -> { moveSel(xmbGridMove(sel, XmbMove.DOWN, cols, sorted.size, page)); true }
-                        // In the Deck shell L1/R1 move its tabs, as on every page.
-                        Key.ButtonL1 -> if (inDeckShell) false else { moveSel(xmbGridMove(sel, XmbMove.PAGE_UP, cols, sorted.size, page)); true }
-                        Key.ButtonR1 -> if (inDeckShell) false else { moveSel(xmbGridMove(sel, XmbMove.PAGE_DOWN, cols, sorted.size, page)); true }
+                        Key.ButtonL1 -> { moveSel(xmbGridMove(sel, XmbMove.PAGE_UP, cols, sorted.size, page)); true }
+                        Key.ButtonR1 -> { moveSel(xmbGridMove(sel, XmbMove.PAGE_DOWN, cols, sorted.size, page)); true }
                         Key.ButtonA, Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> { sorted.getOrNull(sel)?.let(onPlay); true }
                         Key.ButtonX -> { setView(view.next()); true }
                         Key.ButtonY -> { openMenu(); true }
@@ -312,7 +297,7 @@ internal fun XmbAllGamesPage(
                 }
             }
 
-            // The header, drawn over the grid where the shell's tab bar used to be: the back arrow and the title and count on the
+            // The header, drawn over the grid under the top bar: the back arrow and the title and count on the
             // left, then View / Sort as the shell's floating hints (a button badge only with a pad attached, the icon always, the
             // current view / sort name where there is room). The hints pad themselves by 8 dp, so the row starts that much earlier
             // to line up with the grid. The empty tap handler keeps a tap on its blank part from reaching a faded cover under it.
@@ -398,7 +383,7 @@ internal fun XmbAllGamesPage(
 }
 
 // Scrolls just far enough to bring item [index] fully into view, leaving [topMarginPx] clear above it (the header band the covers
-// scroll under) and [bottomMarginPx] under it (the shell's floating Search sits there); an item that isn't composed at all is
+// scroll under) and [bottomMarginPx] under it (the page's bottom padding); an item that isn't composed at all is
 // jumped to first, which puts it at the very top, and then moved down clear of the header. The grid has no top content padding, so
 // the item offsets are measured from the grid's top edge.
 private suspend fun LazyGridState.reveal(index: Int, topMarginPx: Float, bottomMarginPx: Float) {
